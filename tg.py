@@ -34,6 +34,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 # the same file through the GitHub API: fresh within a minute (raw.githubusercontent.com may serve a
 # copy up to 5 minutes old), but limited to 60 requests an hour per IP, so raw stays the fallback
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
+GH_REPO = "Takymu/telegent"
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
 
@@ -223,10 +224,28 @@ def fetch_published(source):
     return url if re.match(r"^(https://[A-Za-z0-9.-]+|http://(127\.0\.0\.1|localhost)(:\d+)?)$", url) else None
 
 
-def published_sources(conf):
-    if not conf.url_source:
-        return []
-    return [URL_SOURCE_API, URL_SOURCE] if conf.url_source == URL_SOURCE else [conf.url_source]
+def fetch_published_git():
+    """Fresh and free of the REST API's hourly limit: the gh-pages commit from git's own ref listing
+    (what `git ls-remote` reads), then url.txt of exactly that commit, which no cache can have stale."""
+    req = urllib.request.Request(f"https://github.com/{GH_REPO}.git/info/refs?service=git-upload-pack",
+                                 headers={"User-Agent": "git/2.45 telegent-tg"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            refs = r.read(500000).decode("latin-1")
+    except Exception:
+        return None
+    m = re.search(r"([0-9a-f]{40}) refs/heads/gh-pages", refs)
+    return fetch_published(f"https://raw.githubusercontent.com/{GH_REPO}/{m.group(1)}/url.txt") if m else None
+
+
+def published_candidates(source):
+    """Addresses from the freshest source to the most available one (lazily: stop at the first useful)."""
+    if not source:
+        return
+    if source == URL_SOURCE:
+        yield fetch_published_git()
+        yield fetch_published(URL_SOURCE_API)
+    yield fetch_published(source)
 
 
 def discover_server(conf, min_interval=30):
@@ -236,8 +255,7 @@ def discover_server(conf, min_interval=30):
         return False
     _last_discovery[0] = time.time()
     url = None
-    for source in published_sources(conf):   # the first source that knows a different address wins
-        found = fetch_published(source)
+    for found in published_candidates(conf.url_source):   # the first source that knows a different address wins
         if found and found != conf.server:
             url = found
             break
@@ -813,10 +831,10 @@ def cmd_join(args):
     if u.scheme in ("http", "https") and u.netloc and not u.netloc.endswith("github.io"):
         server = f"{u.scheme}://{u.netloc}"
     else:
-        srcs = [URL_SOURCE_API, URL_SOURCE] if args.url_source is None else [args.url_source]
-        server = next((u for u in map(fetch_published, srcs) if u), None)
+        src = URL_SOURCE if args.url_source is None else args.url_source
+        server = next((u for u in published_candidates(src) if u), None)
         if not server:
-            die(f"не удалось узнать адрес сервера из {', '.join(srcs)}", 3)
+            die(f"не удалось узнать адрес сервера ({src})", 3)
 
     def call(method, path, body=None):
         req = urllib.request.Request(server + path, method=method,

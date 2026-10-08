@@ -1435,13 +1435,13 @@ async function loadClaims() {
 
 async function poll() {
   if (POLLING) return; POLLING = true;
-  let delay = 1000;
+  let delay = 1000, fails = 0;
   while (TOKEN) {
     if (!PROJECT) { await loadProjects(); await new Promise(r => setTimeout(r, 15000)); continue; }
     try {
       POLL_ABORT = new AbortController();
       const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25`, null, POLL_ABORT.signal);
-      $("conn").className = "dot on"; $("conn").title = "на связи"; delay = 1000;
+      $("conn").className = "dot on"; $("conn").title = "на связи"; delay = 1000; fails = 0;
       if (res.messages.length) {
         LAST = Math.max(LAST, ...res.messages.map(m => m.id));
       } else {
@@ -1452,6 +1452,9 @@ async function poll() {
       if (e.name === "AbortError") continue;   // the project was switched
       $("conn").className = "dot off"; $("conn").title = "нет связи: " + e.message;
       if (/токен/.test(e.message)) { st.set("tg_token", null); location.reload(); return; }
+      // about a minute without the server while the internet works: the address probably changed;
+      // the permanent entry page knows the new one (and keeps the login)
+      if (++fails >= 4 && navigator.onLine && launcher()) { location.replace(launcher() + (PROJECT ? "#p=" + PROJECT : "")); return; }
       await new Promise(r => setTimeout(r, delay)); delay = Math.min(delay * 2, 30000);
     }
   }
