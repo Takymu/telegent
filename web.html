@@ -1007,7 +1007,7 @@ document.addEventListener("click", async e => {
       }
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
       case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
-      case "mrole": case "mremove": case "mreset": case "prename": case "pleave":
+      case "mrole": case "mremove": case "mreset": case "prename": case "pleave": case "mrename":
         await memberAction(el.dataset.act, el.dataset.name, el.dataset.role); break;
       case "approve": case "deny": {
         const note = prompt(el.dataset.act === "approve" ? "Одобрить. Комментарий (необязательно):" : "Отказать. Причина:");
@@ -1161,6 +1161,8 @@ async function loadPresence() {
         acts.push({label: "Ссылка для сброса пароля", act: "mreset", data: {name: u.name}});
       if (u.kind === "agent" && (u.owner === ME.name || ME.is_admin))
         acts.push({label: "Новый токен агенту", act: "mreset", data: {name: u.name}});
+      if (ME.kind === "human" && (u.name === ME.name || (u.kind === "agent" && u.owner === ME.name)))
+        acts.unshift({label: "Переименовать", act: "mrename", data: {name: u.name}});
       if (owner && u.name !== ME.name) acts.push({label: "Убрать из проекта", act: "mremove", data: {name: u.name}, cls: "bad"});
       MEMBER_ACTS[u.name] = acts;
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
@@ -1186,6 +1188,15 @@ async function memberAction(act, name, role) {
     await loadProjects();
     if (PROJECTS.length) return setProject(PROJECTS[0].slug);
     return showNoProject();
+  }
+  if (act === "mrename") {
+    const nn = prompt(`Новое имя для ${name} (латиница, цифры, . _ -):`, name);
+    if (!nn || nn.trim() === name) return;
+    await api("POST", "/api/rename", {name, new: nn.trim()});
+    toast(`${name} → ${nn.trim()}`);
+    if (name === ME.name) return login(TOKEN);   // my own name changed everywhere on the page
+    await loadPresence(); setupCompose(); refresh();
+    return;
   }
   if (act === "prename") {
     const t = prompt("Новое название проекта:", ME.project.title);

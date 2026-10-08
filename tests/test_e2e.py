@@ -504,6 +504,47 @@ def main():
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV)
         time.sleep(1.2)
         check(stored_body() == first and first.count("старая тема") == 1, "merging happens once")
+        # renaming: a person renames themselves and their own agents; history and logins follow
+        human_tok = open(os.path.join(tmp, "alice.token")).read().strip()
+        bob_tok = open(os.path.join(tmp, "bob.token")).read().strip()
+        agent_tok = open(os.path.join(tmp, "alice-agent.token")).read().strip()
+
+        def http(method, path, body=None, tok=None):
+            req = urllib.request.Request(url + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                         headers={"Content-Type": "application/json", "X-Telegent-Project": "main",
+                                                  **({"Authorization": "Bearer " + tok} if tok else {})})
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return resp.status, json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                return e.code, json.loads(e.read() or b"{}")
+        check(http("POST", "/api/rename", {"name": "alice-agent", "new": "ally"}, bob_tok)[0] == 403,
+              "nobody renames someone else's agent")
+        check(http("POST", "/api/rename", {"name": "alice-agent", "new": "x"}, agent_tok)[0] == 403,
+              "agents do not rename")
+        check(http("POST", "/api/rename", {"name": "alice-agent", "new": "Bob"}, human_tok)[0] == 409,
+              "a taken name (in any case) is refused")
+        check(http("POST", "/api/rename", {"name": "alice-agent", "new": "bad name!"}, human_tok)[0] == 400,
+              "an invalid name is refused")
+        code, _ = http("POST", "/api/rename", {"name": "alice-agent", "new": "ally-bot"}, human_tok)
+        check(code == 200, "a person renames their agent")
+        r = run(["whoami"], A)
+        check(r.stdout.startswith("ally-bot (agent, владелец alice)"), "the agent's token keeps working under the new name")
+        r = run(["send", "по новому имени", "--to", "ally-bot"], B)
+        check("отправлено" in r.stdout, "the agent is addressable by the new name")
+        r = run(["inbox", "--all", "--limit", "500"], B)
+        check("ally-bot" in r.stdout and "alice-agent(" not in r.stdout, "history shows the new name")
+        check("теперь называется ally-bot" in r.stdout, "the project is told about the rename")
+        code, _ = http("POST", "/api/rename", {"new": "alicia"}, human_tok)
+        check(code == 200, "a person renames themselves")
+        code, d = http("GET", "/api/me", tok=human_tok)
+        check(d["name"] == "alicia" and d["is_admin"], "the person's token keeps working, rights stay")
+        r = run(["whoami"], A)
+        check("владелец alicia" in r.stdout, "their agents now belong to the new name")
+        http("POST", "/api/password", {"new": "renamed pass 1"}, human_tok)
+        check(http("POST", "/api/login", {"name": "alicia", "password": "renamed pass 1"})[0] == 200 and
+              http("POST", "/api/login", {"name": "alice", "password": "renamed pass 1"})[0] == 401,
+              "login goes by the new name, the old one no longer works")
         print("\nALL OK")
     finally:
         if watcher:

@@ -1254,6 +1254,61 @@ def api_member_remove(h, user, q, data):
     return {"ok": True}
 
 
+def rename_account(con, old, new):
+    """Rename everywhere: the account, its history, recipients, receipts, approvals, sessions, memberships,
+    board, claims, invites. Tokens and sessions keep working (they are bound to hashes, not names)."""
+    con.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
+    for table, cols in (("users", ["owner"]), ("messages", ["author", "owner", "status_by"]),
+                        ("receipts", ["user"]), ("approvals", ["user"]), ("sessions", ["user"]),
+                        ("members", ["user", "added_by"]), ("board", ["name"]), ("claims", ["owner"]),
+                        ("invites", ["name", "owner", "created_by"]), ("projects", ["created_by"])):
+        for col in cols:
+            con.execute(f"UPDATE {table} SET {col} = ? WHERE {col} = ?", (new, old))
+    con.execute("UPDATE messages SET recipients = replace(recipients, ?, ?) WHERE instr(recipients, ?) > 0",
+                (f",{old},", f",{new},", f",{old},"))
+    for d in (_touched, _login_fails):   # in-memory state keyed by name
+        for k in [k for k in d if (isinstance(k, tuple) and k[0] == old) or k == f"name:{old.lower()}"]:
+            d.pop(k, None)
+
+
+@route("POST", "/api/rename")
+def api_rename(h, user, q, data):
+    """A person renames themselves or their own agent (the server admin: anyone)."""
+    if user["kind"] != "human":
+        raise ApiError(403, "переименовывает человек: себя или своих агентов")
+    old, new = str(data.get("name") or user["name"]).strip(), str(data.get("new") or "").strip()
+    if not NAME_RE.match(new):
+        raise ApiError(400, "имя: латиница, цифры, . _ -, до 32 символов")
+    with DB_LOCK:
+        con = db()
+        t = con.execute("SELECT * FROM users WHERE name = ?", (old,)).fetchone()
+        if not t:
+            raise ApiError(404, f"{old} нет")
+        if not (old == user["name"] or (t["kind"] == "agent" and t["owner"] == user["name"]) or user["is_admin"]):
+            raise ApiError(403, "переименовать можно себя и своих агентов")
+        if new == old:
+            return {"ok": True, "name": new}
+        if con.execute("SELECT 1 FROM users WHERE lower(name) = lower(?) AND name != ?", (new, old)).fetchone() or \
+                con.execute("SELECT 1 FROM invites WHERE lower(name) = lower(?) AND used_ts IS NULL AND expires_ts > ?",
+                            (new, time.time())).fetchone():
+            raise ApiError(409, f"имя {new} уже занято")
+        pids = [r["project_id"] for r in con.execute("SELECT project_id FROM members WHERE user = ?", (old,))]
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            rename_account(con, old, new)
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        me = con.execute("SELECT * FROM users WHERE name = ?", (new if old == user["name"] else user["name"],)).fetchone()
+    # tell every project the account is in, so people and agents address it by the new name
+    who = f"Теперь меня зовут {new} (было {old})." if old == user["name"] else \
+        f"{'Мой агент' if t['owner'] == me['name'] else 'Агент'} {old} теперь называется {new}."
+    for pid in pids:
+        insert_message(me, h.host(), {"body": who + " Пишите ему по новому имени (--to " + new + ").", "type": "info"}, pid)
+    return {"ok": True, "name": new}
+
+
 @route("POST", "/api/members/role")
 def api_member_role(h, user, q, data):
     p = project_for(h, user, q)
