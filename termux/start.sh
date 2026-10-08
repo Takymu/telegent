@@ -27,10 +27,39 @@ done
   done
 ) &
 
+# Watchdog. A quick tunnel lives only while connected: after a long network outage Cloudflare drops it,
+# and cloudflared keeps retrying the dead tunnel forever ("Tunnel not found") without exiting.
+# Every minute: if our public address does not answer while the internet works, restart cloudflared;
+# the loop below then gets a new address and publishes it.
+(
+  fails=0
+  while true; do
+    sleep 60
+    url=$(cat ~/telegent-url.txt 2>/dev/null)
+    [ -n "$url" ] || continue
+    if curl -s -m 20 -o /dev/null "$url/api/info"; then fails=0; continue; fi
+    curl -s -m 15 -o /dev/null https://www.cloudflare.com/cdn-cgi/trace || { fails=0; continue; }   # no internet: wait
+    fails=$((fails + 1))
+    if [ "$fails" -ge 3 ]; then
+      echo "$(date '+%F %T') watchdog: $url does not answer for 3 min, restarting cloudflared" >> "$LOG/tunnel.log"
+      pkill -f "cloudflared tunnel --no-autoupdate --url"
+      fails=0
+    fi
+  done
+) &
+
 while true; do
   cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 2>&1 | while IFS= read -r line; do
     echo "$line" >> "$LOG/tunnel.log"
-    url=$(printf '%s' "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | head -1)
+    case "$line" in   # the tunnel is gone for good: don't wait for the watchdog
+      *"Tunnel not found"*)
+        gone=$((gone + 1))
+        if [ "$gone" -ge 5 ]; then
+          echo "$(date '+%F %T') tunnel not found on Cloudflare, restarting cloudflared" >> "$LOG/tunnel.log"
+          pkill -f "cloudflared tunnel --no-autoupdate --url"
+        fi;;
+    esac
+    url=$(printf '%s' "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | grep -v '^https://api\.' | head -1)
     if [ -n "$url" ] && [ "$url" != "$last_url" ]; then
       last_url="$url"
       echo "$url" > ~/telegent-url.txt
