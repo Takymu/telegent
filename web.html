@@ -228,7 +228,6 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   margin: 3px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
 .mquote:hover { color: var(--ink); border-left-color: var(--accent); }
 .mtext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; margin-top: 1px; }
-.mtext b.subj { font-weight: 600; }
 .mtext.collapsed { max-height: 10.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent);
   mask-image: linear-gradient(#000 70%, transparent); }
 .mmore { font-size: 12.5px; }
@@ -898,14 +897,11 @@ function row(m, prev) {
     const p = MSGS.get(m.reply_to);
     html += `<a href="#" class="mquote" data-act="jump" data-id="${m.reply_to}">↪ ${p ? `${esc(p.author)}: ${esc(p.subject)}` : `ответ на #${m.reply_to}`}</a>`;
   }
-  // the subject is usually the body's first line: show it once; an explicit subject goes first in bold
-  const lines = (m.body || "").split("\n");
-  const sameFirst = lines[0].trim() === m.subject.trim();
-  const body = sameFirst ? m.body : (m.body || "");
+  // a message is one text (the old separate subject is its first line now)
+  const body = (m.body || m.subject || "").replace(/^\s*\n/, "");
   const long = body.split("\n").length > 10 || body.length > 900;
   const open = EXPANDED.has(m.id);
-  html += `<div class="mtext ${long && !open ? "collapsed" : ""}" data-body="${m.id}">` +
-    (!sameFirst && m.subject ? `<b class="subj">${esc(m.subject)}</b>${body ? "\n" : ""}` : "") + esc(body) + `</div>`;
+  html += `<div class="mtext ${long && !open ? "collapsed" : ""}" data-body="${m.id}">${esc(body)}</div>`;
   if (long) html += `<a href="#" class="mmore" data-act="expand" data-id="${m.id}">${open ? "свернуть" : "показать полностью"}</a>`;
   if (m.result) html += `<div class="mextra">` + Object.entries(m.result).map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join("") + `</div>`;
   if (m.status && (m.status.ref || m.status.note))
@@ -1400,7 +1396,7 @@ function renderResults() {
     let h = `<div class="rrow ${open ? "open" : ""}" data-act="rexp" data-id="${m.id}">` +
       `<span class="rid"><a href="#" data-act="jump" data-id="${m.id}">${m.id}</a></span>` +
       `<span class="rtime">${esc(shortTime(m.time))}</span><span class="rwho" title="${esc(m.author)}">${esc(m.author)}</span>` +
-      `<span class="rwhat" title="${esc(m.subject || "")}">${esc(m.subject || "(без темы)")}</span>` +
+      `<span class="rwhat" title="${esc(m.subject || "")}">${esc(m.subject || "(пусто)")}</span>` +
       `<span class="rmeta">${mk}</span>` +
       `<span class="rval">${esc(r.value)}${r.err != null ? ` <span class="rerr">± ${esc(r.err)}</span>` : ""}${best.has(m.id) ? `<span class="badge-best">лучшее</span>` : ""}</span>` +
       `<span class="rtopic">${m.topic ? `<span class="chip">#${esc(m.topic)}</span>` : ""}</span></div>`;

@@ -465,6 +465,45 @@ def main():
                 check(json.load(f)["server"] == url, "new address saved to the config")
         finally:
             files.kill()
+        # one text per message: no separate subject any more
+        r = run(["send", "второй абзац", "-s", "первая строка", "--to", "bob-agent"], A)
+        mid = int(r.stdout.split()[0][1:])
+        r = run(["read", str(mid), "--no-mark"], B)
+        check("первая строка\nвторой абзац" in r.stdout and "тема:" not in r.stdout, "-s becomes the first line of the text")
+        long_line = "длинная строка " * 15
+        run(["send", long_line, "--to", "bob-agent"], A)
+        r = run(["inbox", "--limit", "3"], B)
+        last = [ln for ln in r.stdout.splitlines() if "длинная строка" in ln][-1]
+        check(" | " not in last, "inbox lines show the text once, even with a long first line")
+        # a message stored the old way (separate subject) is merged when the server starts
+        srv.kill()
+        srv.wait()
+        import sqlite3
+        con = sqlite3.connect(db)
+        pid = con.execute("SELECT id FROM projects WHERE slug = 'main'").fetchone()[0]
+        old = con.execute("INSERT INTO messages(ts, author, author_kind, owner, host, recipients, topic, type, priority,"
+                          " subject, body, project_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (time.time(), "alice-agent", "agent", "alice", "x", "", "", "info", "normal",
+                           "старая тема", "старый текст", pid)).lastrowid
+        con.commit()
+        con.close()
+        srv = subprocess.Popen([PY, os.path.join(ROOT, "server.py"), "--db", db, "serve", "--port", str(port)],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV)
+        time.sleep(1.2)
+        r = run(["read", str(old), "--no-mark"], B)
+        check("старая тема\nстарый текст" in r.stdout, "an old subject is merged into the text")
+        def stored_body():
+            c = sqlite3.connect(db)
+            b = c.execute("SELECT body FROM messages WHERE id = ?", (old,)).fetchone()[0]
+            c.close()
+            return b
+        first = stored_body()
+        srv.kill()
+        srv.wait()
+        srv = subprocess.Popen([PY, os.path.join(ROOT, "server.py"), "--db", db, "serve", "--port", str(port)],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV)
+        time.sleep(1.2)
+        check(stored_body() == first and first.count("старая тема") == 1, "merging happens once")
         print("\nALL OK")
     finally:
         if watcher:

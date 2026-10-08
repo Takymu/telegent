@@ -200,6 +200,10 @@ def db():
                 DROP TABLE board_old;""")
         _db.create_function("pylower", 1, lambda s: s.lower() if isinstance(s, str) else s)
         ensure_default_project(_db)
+        # messages used to have a separate subject; now it is the first line of the text (idempotent)
+        _db.execute("UPDATE messages SET body = subject || CASE WHEN body = '' THEN '' ELSE char(10) || body END "
+                    "WHERE type NOT IN ('status', 'approval') AND subject != '' "
+                    "AND substr(ltrim(body, ' ' || char(9) || char(10) || char(13)), 1, length(subject)) != subject")
         LAST_ID[0] = _db.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
     return _db
 
@@ -594,11 +598,16 @@ def insert_message(user, host, data, pid, system=False):
         raise ApiError(400, "priority: normal | urgent")
     body = str(data.get("body") or "")
     subject = str(data.get("subject") or "").strip()
+    if not system:
+        # a message is one text; an explicit subject (older clients, tg.py -s) becomes its first line
+        if subject and not body.lstrip().startswith(subject):
+            body = subject + ("\n" + body if body.strip() else "")
+        subject = ""
     if len(body) > MAX_BODY_CHARS:
         raise ApiError(413, f"текст длиннее {MAX_BODY_CHARS} символов — положи его во вложение")
     if not subject:
         first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
-        subject = first[:120]
+        subject = first[:120]   # only a short preview now: search, status lines, the journal
     if not subject and not data.get("attachments"):
         raise ApiError(400, "пустое сообщение")
     subject = subject.replace("\n", " ")[:200]

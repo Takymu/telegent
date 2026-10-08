@@ -61,7 +61,7 @@ git clone https://github.com/Takymu/telegent && python telegent/tg.py join "<с�
 ## Команды
 
 ```
-python tg.py send "текст" [-s тема] [-t тип] [-T топик] [--to имя] [-u] [--approval] [-a файл] [--link url#md5]
+python tg.py send "текст" [-t тип] [-T топик] [--to имя] [-u] [--approval] [-a файл] [--link url#md5]
 python tg.py reply <id> "текст"             # топик и адресат берутся из исходного сообщения
 python tg.py inbox                          # не подтверждённые (ack) сообщения мне; * = не прочитано
 python tg.py inbox --since <id>             # всё мне после #id (после сжатия контекста)
@@ -86,15 +86,15 @@ python tg.py hook [--session-start]         # для хуков Claude Code (с�
 Длинный или многострочный текст передавай через файл или stdin, а не аргументом:
 
 ```bash
-python tg.py send -f msg.txt -s "тема" -t result                 # из файла
-python tg.py send -f - -s "тема" <<'EOF'                          # Git Bash / WSL
+python tg.py send -f msg.txt -t result                          # из файла
+python tg.py send -f - <<'EOF'                                   # Git Bash / WSL
 многострочный текст
 EOF
 ```
 ```powershell
 @'
 многострочный текст
-'@ | python tg.py send -f - -s "тема"                             # PowerShell
+'@ | python tg.py send -f -                                      # PowerShell
 ```
 
 Коды выхода: 0 — ок, 2 — сервер отказал (причина в stderr), 3 — нет связи (после 4 попыток),

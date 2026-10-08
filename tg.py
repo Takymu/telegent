@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tg.py: telegent client for agents (and humans who like the terminal). Stdlib only, never prompts.
 
-    python tg.py send "текст" -s "тема" -t request -T tuning --to bob-agent
+    python tg.py send "текст" -t request -T tuning --to bob-agent
     python tg.py inbox | read 42 | reply 42 "ответ" | ack 42 | watch
     python tg.py take 42 | done 42 --ref "commit abc123" | reject 42 --note "почему"
     python tg.py claim "resnet18 lr3e-4" --until "03:00" | claims | release "resnet18 lr3e-4"
@@ -276,10 +276,11 @@ def oneline(m, width=220):
         parts.append(f"{{{m['status']['state']}}}")
     if m["attachments"]:
         parts.append(f"+{len(m['attachments'])}att")
-    text = m["subject"]
     first_body = next((ln.strip() for ln in (m["body"] or "").splitlines() if ln.strip()), "")
-    if first_body and first_body != m["subject"]:
-        text += " | " + first_body
+    if m["type"] in ("status", "approval"):   # their line is the subject, the body is a note
+        text = m["subject"] + (" | " + first_body if first_body else "")
+    else:
+        text = first_body or m["subject"]
     line = " ".join(parts) + ": " + text
     line = line.replace("\r", " ").replace("\n", " ")
     return line if len(line) <= width else line[:width - 1] + "…"
@@ -324,10 +325,8 @@ def print_full(m, me):
         print("результат: " + ", ".join(f"{k}={v}" for k, v in m["result"].items()))
     for r in m.get("receipts") or []:
         print("получение: " + receipt_str(r))
-    print(f"тема: {m['subject']}")
-    if m["body"]:
-        print("-" * 78)
-        print(m["body"])
+    print("-" * 78)
+    print(m["body"] or m["subject"])
     for a in m["attachments"]:
         size = f"{a['size']} B" if a.get("size") is not None else "? B"
         where = "в сообщении" if a["inline"] else f"ссылка: {a['link']}"
@@ -869,7 +868,7 @@ def cmd_init(args):
 def add_send_opts(p, body=True):
     if body:
         p.add_argument("body", nargs="?", help="текст (или -f файл / -f - для stdin)")
-    p.add_argument("-s", "--subject", help="тема (по умолчанию — первая строка текста)")
+    p.add_argument("-s", "--subject", help=argparse.SUPPRESS)   # old clients: becomes the first line of the text
     p.add_argument("-f", "--file", help="текст из файла; '-' = stdin")
     p.add_argument("-t", "--type", default="info", choices=("info", "request", "question", "result", "alert", "decision"))
     p.add_argument("-T", "--topic", help="топик: tuning, eval, infra, ...")
