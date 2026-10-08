@@ -41,7 +41,8 @@ done
     sleep 60
     url=$(cat ~/telegent-url.txt 2>/dev/null)
     [ -n "$url" ] || continue
-    if curl -s -m 20 -o /dev/null "$url/api/info"; then fails=0; continue; fi
+    # -f: Cloudflare itself answers 502/530 for a dead tunnel, which plain curl counts as success
+    if curl -sf -m 20 -o /dev/null "$url/api/info"; then fails=0; continue; fi
     curl -s -m 15 -o /dev/null https://www.cloudflare.com/cdn-cgi/trace || { fails=0; continue; }   # no internet: wait
     fails=$((fails + 1))
     if [ "$fails" -ge 3 ]; then
