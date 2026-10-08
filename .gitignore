@@ -16,3 +16,4 @@ __pycache__/
 # bundles with tokens for teammates
 for-*
 .telegent.json
+CLAUDE.local.md
