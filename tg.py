@@ -31,6 +31,9 @@ INLINE_LIMIT = 2 * 1024 * 1024
 # The server's tunnel address changes when the phone restarts it; the phone publishes the new one here
 # (termux/publish_url.sh). Override with "url_source" in the config, "" turns the lookup off.
 URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt"
+# the same file through the GitHub API: fresh within a minute (raw.githubusercontent.com may serve a
+# copy up to 5 minutes old), but limited to 60 requests an hour per IP, so raw stays the fallback
+URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
 
@@ -207,19 +210,38 @@ def api(conf, method, path, data=None, timeout=30, raw=False):
         raise NetError(str(getattr(e, "reason", e)))
 
 
+def fetch_published(source):
+    """The address published at source (a url.txt), or None."""
+    sep = "&" if "?" in source else "?"
+    req = urllib.request.Request(f"{source}{sep}t={int(time.time())}",
+                                 headers={"Accept": "application/vnd.github.raw", "User-Agent": "telegent-tg/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            url = r.read(500).decode("utf-8", "replace").strip().rstrip("/")
+    except Exception:
+        return None
+    return url if re.match(r"^(https://[A-Za-z0-9.-]+|http://(127\.0\.0\.1|localhost)(:\d+)?)$", url) else None
+
+
+def published_sources(conf):
+    if not conf.url_source:
+        return []
+    return [URL_SOURCE_API, URL_SOURCE] if conf.url_source == URL_SOURCE else [conf.url_source]
+
+
 def discover_server(conf, min_interval=30):
     """Look up the published server address; switch to it (and save it in the config) if it changed.
     Called when the server is unreachable. Returns True if the address changed."""
     if not conf.url_source or time.time() - _last_discovery[0] < min_interval:
         return False
     _last_discovery[0] = time.time()
-    sep = "&" if "?" in conf.url_source else "?"
-    try:
-        with urllib.request.urlopen(f"{conf.url_source}{sep}t={int(time.time())}", timeout=10) as r:
-            url = r.read(500).decode("utf-8", "replace").strip().rstrip("/")
-    except Exception:
-        return False
-    if not re.match(r"^(https://[A-Za-z0-9.-]+|http://(127\.0\.0\.1|localhost)(:\d+)?)$", url) or url == conf.server:
+    url = None
+    for source in published_sources(conf):   # the first source that knows a different address wins
+        found = fetch_published(source)
+        if found and found != conf.server:
+            url = found
+            break
+    if not url:
         return False
     old, conf.server = conf.server, url
     try:
@@ -791,12 +813,10 @@ def cmd_join(args):
     if u.scheme in ("http", "https") and u.netloc and not u.netloc.endswith("github.io"):
         server = f"{u.scheme}://{u.netloc}"
     else:
-        src = URL_SOURCE if args.url_source is None else args.url_source
-        try:
-            with urllib.request.urlopen(f"{src}?t={int(time.time())}", timeout=15) as r:
-                server = r.read(500).decode("utf-8", "replace").strip().rstrip("/")
-        except Exception as e:
-            die(f"не удалось узнать адрес сервера из {src}: {e}", 3)
+        srcs = [URL_SOURCE_API, URL_SOURCE] if args.url_source is None else [args.url_source]
+        server = next((u for u in map(fetch_published, srcs) if u), None)
+        if not server:
+            die(f"не удалось узнать адрес сервера из {', '.join(srcs)}", 3)
 
     def call(method, path, body=None):
         req = urllib.request.Request(server + path, method=method,

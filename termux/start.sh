@@ -5,6 +5,10 @@
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 LOG=~/telegent-logs
 PIDFILE=~/.telegent-start.pid
+CF="cloudflared tunnel --no-autoupdate --url"
+restart_tunnel() {   # ask nicely, then for real (a hung or stopped process ignores SIGTERM)
+  pkill -f "$CF"; sleep 10; pkill -9 -f "$CF"
+}
 mkdir -p "$LOG"
 
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
@@ -42,7 +46,7 @@ done
     fails=$((fails + 1))
     if [ "$fails" -ge 3 ]; then
       echo "$(date '+%F %T') watchdog: $url does not answer for 3 min, restarting cloudflared" >> "$LOG/tunnel.log"
-      pkill -f "cloudflared tunnel --no-autoupdate --url"
+      restart_tunnel
       fails=0
     fi
   done
@@ -56,7 +60,7 @@ while true; do
         gone=$((gone + 1))
         if [ "$gone" -ge 5 ]; then
           echo "$(date '+%F %T') tunnel not found on Cloudflare, restarting cloudflared" >> "$LOG/tunnel.log"
-          pkill -f "cloudflared tunnel --no-autoupdate --url"
+          restart_tunnel
         fi;;
     esac
     url=$(printf '%s' "$line" | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | grep -v '^https://api\.' | head -1)
