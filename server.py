@@ -289,9 +289,10 @@ def token_hash(tok):
 # PBKDF2 hash, and a login hands out a session token (tgs_...) that works like a token until logout.
 PW_ITERATIONS = 120_000
 PW_MIN_LEN = 8
-LOGIN_WINDOW = 15 * 60                   # failures are counted over this window
-LOGIN_MAX_FAILS = {"name": 5, "ip": 20}  # after this many, every further try waits LOGIN_LOCK seconds
-LOGIN_LOCK = 20
+LOGIN_WINDOW = 24 * 3600                 # failures are remembered for a day
+LOGIN_MAX_FAILS = {"name": 5, "ip": 20}  # free tries; then a pause after every failure:
+LOGIN_LOCK = 20                          # 20 s, 40 s, 80 s, ... doubling,
+LOGIN_LOCK_MAX = 24 * 3600               # up to a day
 _login_fails = {}
 
 
@@ -310,15 +311,31 @@ def check_password(pw, stored):
         return False
 
 
+def lock_seconds(n_fails, kind):
+    over = n_fails - LOGIN_MAX_FAILS[kind]
+    return 0 if over < 0 else min(LOGIN_LOCK * 2 ** over, LOGIN_LOCK_MAX)
+
+
+def human_wait(sec):
+    sec = max(1, -int(-sec // 1))   # ceil
+    if sec < 120:
+        return f"{sec} с"
+    if sec < 2 * 3600:
+        return f"{-int(-sec // 60)} мин"
+    return f"{-int(-sec // 3600)} ч"
+
+
 def login_throttle(keys):
-    """Raise 429 if a key (name:..., ip:...) failed too often and its last failure was under LOGIN_LOCK ago."""
+    """Raise 429 while a key (name:..., ip:...) is paused: after LOGIN_MAX_FAILS failures every further
+    failure pauses it, 20 s, 40 s, 80 s, ... up to a day. The right password or a reset link clears it."""
     now = time.time()
     for key in keys:
         fails = [t for t in _login_fails.get(key, []) if now - t < LOGIN_WINDOW]
         _login_fails[key] = fails
-        if len(fails) >= LOGIN_MAX_FAILS[key.split(":")[0]] and now - fails[-1] < LOGIN_LOCK:
-            wait = max(1, -int(-(LOGIN_LOCK - (now - fails[-1])) // 1))   # ceil
-            raise ApiError(429, f"много неверных попыток подряд, подожди {wait} с и попробуй ещё")
+        lock = lock_seconds(len(fails), key.split(":")[0])
+        if lock and now - fails[-1] < lock:
+            raise ApiError(429, f"много неверных попыток, подожди {human_wait(lock - (now - fails[-1]))} и попробуй ещё. "
+                                f"Забыл пароль — попроси ссылку для сброса")
 
 
 def login_failed(keys):
@@ -433,6 +450,7 @@ def redeem_invite(code, password=None, label="", me=None):
             elif kind == "human":
                 con.execute("UPDATE users SET pw_hash = ? WHERE name = ?", (pw, name))
                 con.execute("DELETE FROM sessions WHERE user = ?", (name,))
+                _login_fails.pop(f"name:{name.lower()}", None)
             else:
                 con.execute("UPDATE users SET token_hash = ? WHERE name = ?", (token_hash(tok), name))
             con.execute("COMMIT")

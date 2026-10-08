@@ -327,6 +327,12 @@ def main():
         check(codes == [401] * 5 + [429] * 2, f"login attempts are throttled ({codes})")
         code, _ = http("POST", "/api/login", {"name": "alice", "password": "battery staple 2"})
         check(code == 429, "even the right password waits out the lockout")
+        subprocess.run([PY, os.path.join(ROOT, "server.py"), "--db", db, "admin", "alice"], check=True,
+                       capture_output=True, env=ENV)
+        code, d = http("POST", "/api/reset", {"name": "alice"}, human_tok)
+        code, _ = http("POST", "/api/join", {"code": d["code"], "password": "fresh password 3"})
+        check(code == 200 and http("POST", "/api/login", {"name": "alice", "password": "fresh password 3"})[0] == 200,
+              "a reset link lifts the lockout")
         subprocess.run([PY, os.path.join(ROOT, "server.py"), "--db", db, "clearpassword", "alice"], check=True,
                        capture_output=True, env=ENV)
         check(not http("GET", "/api/me", tok=human_tok)[1]["has_password"], "admin can clear a forgotten password")

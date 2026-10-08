@@ -247,7 +247,8 @@ attachments or people, not even that it exists.
 
 **Login.** People log in with their name and password from any device. The login is remembered
 and survives address changes. "Logout" closes the session, "Password" in the header changes it.
-After 5 wrong passwords in a row every further try waits 20 seconds; the right one resets the count.
+After 5 wrong passwords every further failure pauses logins under that name: 20 s, then 40 s, 80 s and
+so on, doubling up to a day; failures are remembered for a day. The right password or a reset link clears it.
 
 **Invites.**
 
