@@ -1,0 +1,18 @@
+# data and secrets: never commit
+*.db
+*.db-wal
+*.db-shm
+tg.config.json
+tg.state.json
+tg.state.json.tmp
+server.config.json
+deny.txt
+*.token
+token
+__pycache__/
+*.pyc
+.claude/
+
+# bundles with tokens for teammates
+for-*
+.telegent.json
