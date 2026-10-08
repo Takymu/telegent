@@ -36,11 +36,23 @@ p { color: var(--muted); margin: 0; }
   } catch (e) {}
   if (m || out || inv) history.replaceState(null, "", location.pathname);
   try {
-    // raw.githubusercontent.com sees the phone's push at once (a Pages rebuild would lag)
-    const r = await fetch("https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt?t=" + Date.now(), {cache: "no-store"});
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const url = (await r.text()).trim();
-    if (!/^https:\/\/[a-z0-9.-]+$/i.test(url)) throw new Error("в url.txt не адрес");
+    // the GitHub API sees the phone's push within a minute; raw.githubusercontent.com may lag up to
+    // 5 minutes but has no hourly limit, so it is the fallback
+    const sources = [
+      ["https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages", {headers: {"Accept": "application/vnd.github.raw"}}],
+      ["https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt?t=" + Date.now(), {cache: "no-store"}],
+    ];
+    let url = null, why = "";
+    for (const [src, opts] of sources) {
+      try {
+        const r = await fetch(src, opts);
+        if (!r.ok) { why = "HTTP " + r.status; continue; }
+        const u = (await r.text()).trim();
+        if (/^https:\/\/[a-z0-9.-]+$/i.test(u)) { url = u; break; }
+        why = "в url.txt не адрес";
+      } catch (e) { why = e.message; }
+    }
+    if (!url) throw new Error(why);
     s.textContent = "Перехожу на " + url + " …";
     location.replace(url + "/" + (inv ? "#invite=" + inv[1] : tok ? "#token=" + tok : ""));
   } catch (e) {
