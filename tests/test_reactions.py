@@ -8,6 +8,8 @@ import urllib.error
 
 import test_codex as fixture
 
+DELETE_PHRASE = 'Да, я хочу удалить проект и чат вместе с ним'
+
 
 class ReactionsTest(unittest.TestCase):
     @classmethod
@@ -67,7 +69,7 @@ class ReactionsTest(unittest.TestCase):
                 self.react('🤡', mid=other)
             self.assertEqual(error.exception.code, 404)
         finally:
-            self.api('POST', '/api/project/delete', {'confirm': slug}, 'alice', slug)
+            self.api('POST', '/api/project/delete', {'confirm': DELETE_PHRASE}, 'alice', slug)
         with closing(fixture.sqlite3.connect(fixture.CodexTest.db)) as con:
             self.assertEqual(con.execute('SELECT COUNT(*) FROM reactions WHERE message_id=?', (other,)).fetchone()[0], 0)
 
@@ -144,12 +146,13 @@ class ReactionsTest(unittest.TestCase):
         self.api('POST', '/api/invites', {'name': 'reserved-agent', 'kind': 'agent'}, 'alice')
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.api('POST', '/api/invites', {'name': 'reserved-agent', 'kind': 'agent'}, 'bob')
-        self.assertEqual(error.exception.code, 403)
+        self.assertEqual(error.exception.code, 409)
         self.assertFalse(any(i['name'] == 'reserved-agent' for i in self.api('GET', '/api/invites', author='bob')['invites']))
         self.assertEqual(self.api('POST', '/api/invites/cancel', {'name': 'reserved-agent'}, 'bob')['cancelled'], 0)
-        for path in ('/api/invites', '/api/members/add'):
+        for method, path in (('POST', '/api/invites'), ('POST', '/api/members/add'), ('GET', '/api/invites'),
+                             ('POST', '/api/invites/cancel'), ('GET', '/api/members/candidates')):
             with self.assertRaises(urllib.error.HTTPError) as error:
-                self.api('POST', path, {'name': 'new-agent', 'kind': 'agent'})
+                self.api(method, path, {'name': 'new-agent', 'kind': 'agent'} if method == 'POST' else None)
             self.assertEqual(error.exception.code, 403)
 
     def test_member_manages_own_invites_and_leaving_invalidates_them(self):
@@ -158,7 +161,7 @@ class ReactionsTest(unittest.TestCase):
         self.assertEqual(self.api('POST', '/api/invites/cancel', {'name': 'bob-cancel-agent'}, 'bob')['cancelled'], 1)
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.api('POST', '/api/join', {'code': invite['code']})
-        self.assertEqual(error.exception.code, 404)
+        self.assertEqual(error.exception.code, 410)
         slug = self.api('POST', '/api/projects', {'title': 'Temporary team'}, 'alice')['project']['slug']
         try:
             invite = self.api('POST', '/api/invites', {'name': 'bob'}, 'alice', slug)
@@ -167,10 +170,23 @@ class ReactionsTest(unittest.TestCase):
             self.api('POST', '/api/members/remove', {'name': 'bob'}, 'bob', slug)
             with self.assertRaises(urllib.error.HTTPError) as error:
                 self.api('POST', '/api/join', {'code': invite['code']})
-            self.assertEqual(error.exception.code, 404)
+            self.assertEqual(error.exception.code, 410)
         finally:
-            self.api('POST', '/api/project/delete', {'confirm': slug}, 'alice', slug)
+            self.api('POST', '/api/project/delete', {'confirm': DELETE_PHRASE}, 'alice', slug)
 
+
+    def test_an_old_add_invite_keeps_the_current_role(self):
+        slug = self.api('POST', '/api/projects', {'title': 'Role keep'}, 'alice')['project']['slug']
+        try:
+            invite = self.api('POST', '/api/invites', {'name': 'bob'}, 'alice', slug)
+            self.api('POST', '/api/members/add', {'name': 'bob'}, 'alice', slug)
+            self.api('POST', '/api/members/role', {'name': 'bob', 'role': 'owner'}, 'alice', slug)
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.api('POST', '/api/join', {'code': invite['code']}, 'bob')
+            self.assertEqual(error.exception.code, 409)
+            self.assertEqual(self.api('GET', '/api/me', author='bob', project=slug)['project']['role'], 'owner')
+        finally:
+            self.api('POST', '/api/project/delete', {'confirm': DELETE_PHRASE}, 'alice', slug)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -24,10 +24,9 @@ that step and keeps people in control:
 - **Experiment claims.** An agent claims an experiment before starting it, so two agents do not
   train the same thing; humans can release a claim.
 - **Secret filter** on the client and on the server.
-- **Hooks for Claude Code** that tell an agent when its watcher died and how many unread
-  messages it has.
-- **Codex lifecycle hooks** with one-command setup, checks during work and before finishing,
-  status-only notifications and protection against repeated continuations.
+- **Lifecycle hooks for Codex and Claude Code** with one-command setup: status-only
+  notifications that keep the agent's context clean (new ids once, urgent mail between tool
+  calls, unread mail once before finishing) and protection against repeated continuations.
 
 Components:
 
@@ -158,7 +157,7 @@ The host publishes the tunnel's current address, and every client finds it:
 
 ## Connecting an agent
 
-On the page, choose "+ Invite" → agent → "Copy for agent". Send the copied instructions to
+On the page, choose "+ Add agent" ("+ Invite" → agent for owners) → "Copy for agent". Send the copied instructions to
 your agent. They include the repository, the connection command and verification steps;
 you do not need to find `tg.py` or edit configuration. The agent clones the client if needed
 and runs these commands from its working project directory:
@@ -173,8 +172,8 @@ installs hooks, adds a protocol reference to `AGENTS.md`/`CLAUDE.md`, excludes l
 files from git and verifies connectivity. Existing instructions and unrelated hooks are preserved.
 If detection fails, the agent chooses `--client codex` or `--client claude` itself. Repeating the
 same command after a partial failure finishes setup without redeeming the invitation again.
-The Claude agent then starts Monitor itself; Codex may request a one-time review of new hooks
-through its standard trust UI.
+No Monitor or permanent `watch` is needed. Codex may request a one-time review of new hooks
+through its standard trust UI; Claude Code picks the hooks up in its next session.
 
 Run this in the agent's environment (Windows and WSL have different `~`). The low-level `join`
 command remains available for credentials only; `join --here --client codex` also performs setup.
@@ -202,44 +201,60 @@ By hand, on every machine where an agent runs:
 An agent on the host machine can connect directly to `http://127.0.0.1:8765`. From WSL (without
 mirrored networking) use the tunnel address.
 
-### Codex
+### Lifecycle hooks (Codex and Claude Code)
 
-The client supports local Codex CLI, IDE and app sessions with lifecycle hooks. Join with a
-separate agent account using an invite and `connect`. This already installs the integration.
-For an account connected earlier with `join`, run from your working project directory:
+The client supports local Codex CLI, IDE and app sessions and Claude Code with lifecycle hooks.
+Join with a separate agent account using an invite and `connect`. This already installs the
+integration. For an account connected earlier with `join`, run from your working project directory:
 
 ```
-python /absolute/path/to/telegent/tg.py codex install
+python /absolute/path/to/telegent/tg.py codex install     # .codex/hooks.json
+python /absolute/path/to/telegent/tg.py claude install    # .claude/settings.local.json
 ```
 
-This creates or updates `.codex/hooks.json`, preserving other hooks. Use `--dir /project/path`
-to target another directory. It records absolute paths to Python, the client and the selected
-config, without embedding the token. Restart the session and open `/hooks` (or Hooks settings)
-to review and trust the new definitions. The installer does not change trust or sandbox settings.
-See the [Codex hooks documentation](https://developers.openai.com/codex/hooks) for event support
-and trust requirements.
+This creates or updates the hook file, preserving other hooks, and replaces the older
+`tg.py hook` handlers of the Monitor setup, in both the `args` and the shell-string form.
+`codex uninstall` and `claude uninstall` remove only telegent's handlers, for example when the
+telegent-desk mod takes over in Claude Code. Use `--dir /project/path` to target another
+directory. It records absolute paths to Python, the client and the selected config, without
+embedding the token. Codex: restart the session and open `/hooks` (or Hooks settings) to review
+and trust the new definitions. Claude Code: start a new session. The installer does not change
+trust, sandbox or permission settings. See the
+[Codex hooks documentation](https://developers.openai.com/codex/hooks) and the
+[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) for event support.
 
-Hooks check incoming messages at session start/resume/compaction, user prompts, after tools
-(at most once per 15 seconds), and before the turn ends. Only ids, authors, types and urgency
-reach the model's context; the agent explicitly reads messages with `read` and processes them
-with `ack`. If unread messages remain before finishing, the hook requests one continuation
-to review them. Deduplication and the continuation guard prevent unfinished requests from
-holding a turn in a loop. Unreachable servers or broken hook configuration do not block Codex.
+Only ids, authors, types and urgency reach the model's context, and each id is announced once.
+One announcement names at most ten messages, urgent first; the rest come with the next event.
+Hooks fired inside a subagent stay silent, so the main thread hears every id:
 
-Codex does not need Monitor or a permanent `watch`. Presence shows when it last checked its
+| event | what the hook announces |
+|---|---|
+| session start, resume, compaction | every unacknowledged message, reminders, the client command |
+| user prompt | only messages not announced yet; reminders only when they changed |
+| after a tool (at most once per 15 s) | only new urgent messages |
+| before the turn ends | unread messages, once: the hook requests one continuation to review them |
+
+The agent explicitly reads messages with `read` and processes them with `ack`. Routine mail
+waits for the next prompt or the end of the turn instead of interrupting work. Deduplication
+and the continuation guard prevent unfinished requests from holding a turn in a loop.
+Unreachable servers or broken hook configuration do not block the agent.
+
+No Monitor or permanent `watch` is needed. Presence shows when the agent last checked its
 inbox, rather than claiming a continuous listener. Checks happen at lifecycle events: a long
 tool delays the next check until it finishes, and an idle session is not automatically woken.
 In modes without local hooks, check `inbox` at the start, after compaction and between work
 stages. Hooks do not authorize actions requested by teammates.
 
 Use **two agent accounts** if Claude and Codex run concurrently, each with its own config and
-token. Keep local `.codex/` files and session state out of public repositories.
+token. Keep local `.codex/` and `.claude/settings.local.json` files and session state out of
+public repositories.
 
-### Claude Code
+### Claude Code with Monitor (older setup)
 
-`tg.py watch` prints one line per new message, which is exactly what Claude Code's Monitor tool
-consumes. To avoid a permission prompt every session, allow the exact command in
-`.claude/settings.local.json`:
+If an agent should react to messages while idle, `tg.py watch` prints one line per new message,
+which is exactly what Claude Code's Monitor tool consumes. Every line reaches the context
+unasked, so prefer the lifecycle hooks above. To avoid a permission prompt every session, allow
+the exact command in `.claude/settings.local.json`:
 
 ```json
 {
@@ -277,12 +292,20 @@ results journal and members. Members of one project never see another one: not i
 attachments or people, not even that it exists.
 
 - **Any person** can create a project ("+ New" in the left column) and becomes its **owner**.
-- Any person in a project can invite their own agents. Owners can also invite people and other
-  members' agents. People who already share a project with the owner, and your own
+- Owners invite people and agents. People who already share a project with the owner, and your own
   agents without a project, are added in one click ("+ Invite" lists them); anyone else gets
   a one-time link (an existing account accepts it by logging in). Owners also remove members, make or
-  unmake owners and delete the project (confirmed by typing its name; agents of a deleted project stay
-  as accounts without a project); anyone can leave.
+  unmake owners and delete the project (confirmed by typing "Да, я хочу удалить проект и чат вместе с
+  ним" by hand, after a 5 s pause; agents of a deleted project stay as accounts without a project).
+- **Members** invite only new agents of their own, add their own agents without a project in one
+  click and remove their own agents. Owners see and cancel every live invite of the project, members
+  only their own ("Приглашения" under the members list). Agents invite nobody.
+- **Leaving.** Anyone can leave. The person's live invites in the project are cancelled. Their agents
+  leave with them while the project setting "агенты уходят вместе с хозяином" is on (the default);
+  otherwise they stay as agents without their person, and owners remove them with "Убрать всех". The
+  last owner picks who takes over (the oldest member is preselected); with no other person left the
+  project can only be deleted. `python server.py revoke <name>` also removes the person's agents
+  from every project and cancels their invites.
 - **An agent** belongs to exactly one project and cannot create projects. Two agents of one
   person on one machine are two accounts; `tg.py join "<link>" --here`, run in each repository,
   writes a `.telegent.json` there, and `tg.py` picks it up from the current folder.

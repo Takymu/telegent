@@ -100,8 +100,9 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .feedtop > * { max-width: 880px; margin-left: auto; margin-right: auto; }
 #scroller { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 32px 28px; overscroll-behavior: contain; }
 #composer { flex: none; position: relative; padding: 4px 32px 28px; }
-#replyBar { font-size: 12.5px; color: var(--muted); margin: 0 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#replyBar a { text-decoration: none; margin-left: 4px; }
+#replyBar { font-size: 12.5px; color: var(--muted); margin: 0 4px 6px; display: flex; gap: 4px; }
+#replyText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#replyBar a { text-decoration: none; margin-left: 4px; flex: none; }
 .cbox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 10px 16px;
   box-shadow: 0 2px 14px rgba(0, 0, 0, .10); }
 .cbox:focus-within { border-color: var(--accent); }
@@ -119,7 +120,9 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .send:disabled { opacity: .5; }
 #newBtn { position: absolute; top: -44px; left: 50%; transform: translateX(-50%); z-index: 6;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .25); border-radius: 999px; padding: 7px 16px; }
-#app aside { border-left: 1px solid var(--line); overflow-y: auto; padding: 16px; }
+/* keep room for the scrollbar: expanding groups must not narrow the column and wrap its buttons */
+#app aside { border-left: 1px solid var(--line); overflow-y: auto; scrollbar-gutter: stable; padding: 16px; }
+#inviteBtn { white-space: nowrap; }
 #app .wrap { grid-template-columns: 220px minmax(0, 1fr) 300px; }
 #projects { border-right: 1px solid var(--line); overflow-y: auto; padding: 16px 10px; }
 #projects h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 6px 8px; }
@@ -146,7 +149,6 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   #app aside { font-size: 16px; padding: 14px 14px 24px; }
   #app aside h2 { font-size: 14px; }
   .board-item { font-size: 15.5px; }
-  #projActions { font-size: 15px !important; }
   #acctBox .muted { font-size: 15px !important; }
   #inviteBtn { font-size: 14px !important; padding: 6px 12px; }
   #projTitle::before { content: none !important; }
@@ -257,7 +259,7 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); }
 .mtools button { border: 0; background: transparent; padding: 3px 8px; font-size: 13px; border-radius: 6px; }
 .mtools button:hover { background: var(--chip); }
-.mrow:focus-within .mtools { display: flex; }
+.mrow:focus-visible .mtools, .mrow:has(:focus-visible) .mtools { display: flex; }
 .mreactions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 6px 0 3px; }
 .reaction { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 46px;
   min-height: 30px; padding: 3px 9px; border-radius: 999px; border: 1px solid transparent;
@@ -291,25 +293,33 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 /* ---- menus: a popover on desktop, a bottom sheet on phones */
 #menuBg { position: fixed; inset: 0; z-index: 30; }
 #menu { position: fixed; z-index: 31; min-width: 200px; max-width: 92vw; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .25); padding: 5px; }
+  border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .25); padding: 5px; max-height: calc(100dvh - 16px); overflow-y: auto; }
 #menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 12px;
   border-radius: 7px; font-size: 14px; }
 #menu button:hover { background: var(--chip); }
 #menu button.bad { color: var(--urgent); }
 #menu button.ok { color: var(--ok); }
 #menu .mhint { font-size: 12px; color: var(--muted); padding: 6px 12px 4px; }
+#menu button.mbtn { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px;
+  border: 1px solid var(--line); background: var(--chip); font-weight: 600; }
+#menu button.mbtn svg { width: 16px; height: 16px; flex: none; }
+#menu .mfull { display: block; font-size: 15px; color: var(--ink); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 @media (max-width: 900px) {
   #menuBg { background: rgba(0, 0, 0, .35); }
   #menu { left: 8px !important; right: 8px !important; top: auto !important; bottom: 8px !important; max-width: none;
     padding: 8px; border-radius: 14px; }
   #menu button { padding: 12px 14px; font-size: 15px; }
 }
-/* ---- toast */
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40; background: var(--ink); color: var(--bg);
-  padding: 9px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0, 0, 0, .3); max-width: 90vw;
-  opacity: 0; pointer-events: none; transition: opacity .2s; }
-#toast.show { opacity: 1; }
+/* ---- toast: at the top, just under the header, where the eye already is */
+#toast { position: fixed; left: 50%; top: calc(var(--hdr, 53px) + 12px); transform: translate(-50%, -8px); z-index: 40;
+  background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .3); width: max-content; max-width: min(92vw, 560px); text-align: center; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.bad { background: var(--urgent); color: #fff; }
+@media (hover: none) {
+  .pitem, #replyText, #projTitle, #meLabel, .rwhat, .rmeta, .rwho, .rtime, .rval, .rtopic, .mquote, .member .minfo .muted {
+    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+}
 /* ---- composer: text first, options on demand */
 #cChips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 6px; }
 #cChips:empty { display: none; }
@@ -327,7 +337,8 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .pcount { min-width: 18px; height: 18px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 11px;
   font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 5px; flex: none; }
 /* ---- members */
-.member { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-top: 1px solid var(--line); }
+/* rows align to the top: a person's agent count adds a third line, and the avatar and the menu stay by the name */
+.member { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0; border-top: 1px solid var(--line); }
 .member:first-child { border-top: 0; }
 .member .mav, .member .mav.small { position: relative; flex: none; margin: 0; width: 32px; height: 32px; font-size: 12px; }
 .member .mav.agent.small { border-radius: 9px; }
@@ -336,7 +347,80 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .member .pres.on { background: var(--ok); }
 .member .minfo { flex: 1; min-width: 0; font-size: 13px; }
 .member .minfo .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.member .more { border: 0; background: transparent; padding: 2px 8px; font-size: 16px; color: var(--muted); }
+.member .more { border: 0; background: transparent; padding: 4px 8px; margin: -4px 0; font-size: 16px; line-height: 19px; color: var(--muted); }
+.member-agents { margin-left: 20px; padding-left: 10px; border-left: 1px solid var(--line); }
+/* a person's agents: mini squares under the avatar while collapsed, a tree branch from the avatar while open */
+/* the column is exactly the avatar's width, so names line up whatever the number of agents */
+.mcol { display: flex; flex-direction: column; align-items: center; gap: 7px; flex: none; align-self: stretch; width: 32px; }
+.mstack { display: flex; cursor: pointer; }
+.mstack span { width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid var(--panel); margin-left: -5px; box-sizing: content-box; }
+.mstack span:first-child { margin-left: 0; }
+.mstack .more-n { width: auto; min-width: 10px; padding: 0 2px; background: var(--chip); color: var(--muted); font-size: 8px; font-weight: 700;
+  line-height: 10px; text-align: center; }
+.person-group:has(> .member-agents:not(.hidden)) .mstack { display: none; }
+.person-group:has(> .member-agents:not(.hidden)) > .member .mcol::after { content: ""; flex: 1; width: 1px; margin: -7px 0 -6px;
+  background: var(--line); }
+.person-group > .member-agents { margin-left: 15.5px; padding-left: 14px; }
+.person-group > .member-agents > .member { position: relative; }
+.person-group > .member-agents > .member::before { content: ""; position: absolute; left: -14px; top: 22px; width: 10px;
+  border-top: 1px solid var(--line); }
+.person-group > .member-agents > .member:last-child::after { content: ""; position: absolute; left: -15px; top: 23px; bottom: 0;
+  width: 1px; background: var(--panel); }
+.group-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 0; color: var(--muted); background: transparent; border: 0; }
+/* the chevron path starts 7/20 into its box: pull it left so its stroke lines up with the text edge above */
+.group-toggle .chevron { margin-left: -5px; }
+.group-toggle svg, #membersToggle svg { width: 16px; height: 16px; flex: none; }
+#membersToggle[aria-expanded="true"] .members-expand,
+#membersToggle[aria-expanded="false"] .members-collapse { display: none; }
+.chevron { transition: transform .15s; }
+[aria-expanded="true"] > .chevron { transform: rotate(90deg); }
+.member-group + .member-group { border-top: 1px solid var(--line); }
+/* sections under the people: agents without their person, invites; one heading style, a neutral count */
+.section-group { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 10px; }
+.section-head { display: flex; align-items: center; gap: 8px; }
+.section-head h2 { margin: 0; flex: 1; min-width: 0; }
+.group-heading { text-align: left; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; padding: 2px 4px 2px 0; gap: 6px; }
+.count-chip { background: var(--chip); color: var(--muted); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0; line-height: 18px; }
+.section-action { border: 0; background: transparent; padding: 2px 0; font-size: 12px; color: var(--urgent); flex: none; }
+.section-action:hover { text-decoration: underline; }
+.section-group .member-agents { margin-left: 0; padding-left: 0; border-left: 0; margin-top: 4px; }
+/* an invite is someone not in the project yet: a dashed outline instead of a filled avatar */
+.member .mav.ghost { background: transparent; border: 1.5px dashed var(--muted); color: var(--muted); }
+.invite-kind { font-size: 11px; padding: 0 7px; margin-left: 4px; color: var(--muted); }
+.invite-empty { font-size: 12.5px; padding: 6px 0; }
+/* project settings dialog: name, a switch row, a danger zone */
+.pset-label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.pset-row { display: flex; gap: 8px; }
+.pset-row input { flex: 1; min-width: 0; }
+.pset-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+/* same divider and edges as the sections above; only the title and the button are red */
+.pset-danger { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.pset-danger b { color: var(--urgent); }
+.pset-danger > div { flex: 1; min-width: 0; }
+.pset-danger .muted { display: block; font-size: 12px; margin-top: 2px; }
+.setting { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; font-size: 13px; }
+.setting > span { flex: 1; min-width: 0; }
+.setting .muted { display: block; font-size: 12px; margin-top: 2px; }
+.switch { appearance: none; -webkit-appearance: none; flex: none; width: 34px; height: 20px; margin: 1px 0 0; padding: 0;
+  border: 0; border-radius: 10px; background: var(--muted); position: relative; cursor: pointer; transition: background .15s; }
+.switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.switch:checked { background: var(--accent); }
+.switch:checked::before { transform: translateX(14px); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch:disabled { opacity: .6; }
+.proj-buttons { display: grid; gap: 6px; }
+.proj-buttons button { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 7px 10px; text-align: left; }
+.proj-buttons svg { width: 15px; height: 15px; flex: none; }
+button.danger { color: var(--urgent); }
+button.danger:hover { border-color: var(--urgent); background: var(--urgent-bg); }
+/* status board with nothing on it */
+.board-empty { text-align: center; padding: 14px 10px; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
+.board-empty b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+.board-empty code { font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.pd-phrase { display: block; margin: 4px 0 2px; padding: 8px 10px; border-radius: 8px; background: var(--urgent-bg);
+  color: var(--ink); font-weight: 600; font-size: 13.5px; user-select: none; }
 /* phones: the "Статус" panel is read at arm's length (after the base rules, so it wins) */
 @media (max-width: 900px) {
   .member { gap: 13px; padding: 11px 0; }
@@ -345,7 +429,16 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   .member .pres { width: 18px; height: 18px; right: -3px; bottom: -3px; border-width: 3px; }
   .member .minfo { font-size: 17px; }
   .member .minfo .muted { font-size: 15px; white-space: normal; }
-  .member .more { font-size: 24px; padding: 6px 12px; }
+  .member .more { font-size: 24px; padding: 8px 12px; margin: -8px 0; line-height: 25px; }
+  .person-group > .member-agents { margin-left: 22.5px; }
+  .person-group > .member-agents > .member::before { top: 34px; }
+  .person-group > .member-agents > .member:last-child::after { top: 35px; }
+  .mcol { width: 46px; }
+  .mstack span { width: 13px; height: 13px; margin-left: -5px; }
+  .mstack .more-n { min-width: 13px; font-size: 10px; line-height: 13px; }
+  .person-group:has(> .member-agents:not(.hidden)) > .member .mcol::after { margin-bottom: -11px; }
+  #projActions button, .board-empty { font-size: 15px; }
+  .section-action { font-size: 14px; }
 }
 /* ---- filters behind a button on every screen */
 #filtersBtn { display: inline-block !important; margin-left: auto; }
@@ -405,9 +498,9 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   <div class="panel" style="width:100%;max-width:440px;max-height:85dvh;overflow:auto">
     <h2 style="font-size:16px;margin:0 0 10px">Пригласить</h2>
     <div id="invPick" class="hidden">
-      <p class="muted" style="font-size:12.5px;margin:0 0 6px">Из твоих проектов — добавятся сразу, без ссылки:</p>
+      <p id="invPickHint" class="muted" style="font-size:12.5px;margin:0 0 6px">Знакомые участники и твои агенты без проекта добавятся сразу:</p>
       <div id="invCands" style="max-height:220px;overflow-y:auto;margin-bottom:10px"></div>
-      <p class="muted" style="font-size:12.5px;margin:0 0 6px;border-top:1px solid var(--line);padding-top:10px">
+      <p id="invNewHint" class="muted" style="font-size:12.5px;margin:0 0 6px;border-top:1px solid var(--line);padding-top:10px">
         Или пригласи по ссылке нового человека или агента:</p>
     </div>
     <input id="invName" list="invNames" placeholder="имя: начни вводить — подскажу знакомых" autocapitalize="off" autocomplete="off" style="width:100%;margin-bottom:8px">
@@ -449,10 +542,37 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     <h2 style="font-size:16px;margin:0 0 8px;color:var(--urgent)">Удалить проект</h2>
     <p style="margin:0 0 8px;font-size:13.5px">Удалится всё, что есть в проекте «<b id="pdTitle"></b>»: сообщения, вложения, доска,
       заявки и приглашения. Участники потеряют к нему доступ, агенты проекта останутся без проекта. <b>Отменить нельзя.</b></p>
-    <label class="muted" style="font-size:12.5px">Чтобы подтвердить, введи название проекта:</label>
-    <input id="pdConfirm" autocomplete="off" style="width:100%;margin:6px 0 10px">
+    <label for="pdConfirm" style="font-size:13px">Чтобы подтвердить, набери вручную ровно эту строку (вставить нельзя):
+      <span class="pd-phrase">«<span id="pdPhrase"></span>»</span></label>
+    <input id="pdConfirm" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off" style="width:100%;margin:6px 0 10px">
     <div class="actions"><button class="bad" id="pdDelete" disabled>Удалить навсегда</button><button id="pdCancel">Отмена</button></div>
     <div class="err" id="pdErr"></div>
+  </div>
+</div>
+
+<div id="psetDialog" class="hidden" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="psetHead" style="width:100%;max-width:440px;max-height:85dvh;overflow:auto">
+    <h2 id="psetHead" style="font-size:16px;margin:0 0 14px">Настройки проекта</h2>
+    <label for="psetTitle" class="pset-label">Название</label>
+    <div class="pset-row"><input id="psetTitle" maxlength="80" autocomplete="off"><button id="psetSave" disabled>Сохранить</button></div>
+    <label class="setting pset-section"><span><b>Агенты уходят вместе с хозяином</b>
+      <span class="muted">Когда человек выходит или его убирают, его агенты тоже покидают проект.</span></span>
+      <input id="agentsFollowPerson" class="switch" type="checkbox" role="switch"></label>
+    <div class="pset-danger pset-section">
+      <div><b>Удалить проект</b><span class="muted">Сообщения, доска и приглашения удалятся. Отменить нельзя.</span></div>
+      <button class="danger" id="psetDelete">Удалить</button>
+    </div>
+    <div class="err" id="psetErr"></div>
+    <div class="actions" style="justify-content:flex-end;margin-top:12px"><button class="primary" id="psetClose">Готово</button></div>
+  </div>
+</div>
+
+<div id="psDialog" class="hidden" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
+  <div class="panel" style="width:100%;max-width:420px">
+    <h2 style="font-size:16px;margin:0 0 10px"><label for="psSuccessor">Кому передать владение?</label></h2>
+    <select id="psSuccessor" style="width:100%;margin-bottom:10px"></select>
+    <div class="actions"><button class="primary" id="psLeave">Передать и выйти</button><button id="psCancel">Отмена</button></div>
+    <div class="err" id="psErr"></div>
   </div>
 </div>
 
@@ -561,10 +681,20 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     </main>
     <aside id="aside">
       <div class="panel">
-        <h2 style="display:flex;align-items:center">Участники<span style="flex:1"></span>
+        <h2 style="display:flex;align-items:center;gap:6px">Участники<span style="flex:1"></span>
+          <button id="membersToggle" class="iconbtn hidden" data-act="mgroups" aria-expanded="false" aria-label="Развернуть все группы" title="Развернуть все группы">
+            <svg class="members-expand" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 7 5-4 5 4M5 13l5 4 5-4"/></svg>
+            <svg class="members-collapse" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 3 5 4 5-4M5 17l5-4 5 4"/></svg>
+          </button>
           <button id="inviteBtn" class="hidden" style="font-size:12px;text-transform:none;letter-spacing:0">+ Пригласить</button></h2>
         <div id="presence" class="muted">—</div>
-        <div id="projActions" style="font-size:12.5px;margin:6px 0 12px"></div>
+        <div id="invitesBlock" class="hidden"></div>
+      </div>
+      <div class="panel" id="projPanel">
+        <h2>Проект</h2>
+        <div id="projActions"></div>
+      </div>
+      <div class="panel">
         <h2>Доска статуса</h2>
         <div id="board" class="muted">—</div>
         <div id="acctBox" style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
@@ -620,10 +750,24 @@ function avatar(name, kind, small) {
   return `<div class="mav ${kind === "agent" ? "agent" : ""} ${small ? "small" : ""}" style="background:hsl(${hue(name)} 45% 42%)"
     title="${esc(name)}${kind === "agent" ? " (агент)" : ""}">${esc(initials(name))}</div>`;
 }
-let TOAST_T = null, MEMBER_ACTS = {};
+let TOAST_T = null, MEMBER_ACTS = {}, SHOWN_PROJECT = null;   // SHOWN_PROJECT: whose side column is on screen
 function toast(text, bad) {
   const t = $("toast"); t.textContent = text; t.className = "show" + (bad ? " bad" : "");
   clearTimeout(TOAST_T); TOAST_T = setTimeout(() => t.className = "", bad ? 4500 : 2200);
+}
+async function copyText(text) {
+  try {
+    if (navigator.clipboard) await navigator.clipboard.writeText(text);
+    else {
+      // plain http (Tailscale, VPS) has no navigator.clipboard
+      const t = document.createElement("textarea");
+      t.value = text; t.readOnly = true; t.style.cssText = "position:fixed;opacity:0";
+      document.body.append(t); t.select(); t.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy"); t.remove();
+      if (!ok) throw new Error("copy");
+    }
+    toast("Текст скопирован");
+  } catch { toast("Не удалось скопировать", true); }
 }
 
 // ---- menu: a popover next to the button on desktop, a bottom sheet on phones
@@ -646,8 +790,10 @@ function closeMenu() {
 $("menuBg").onclick = closeMenu;
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
+    if (!$("psetDialog").classList.contains("hidden")) { closeProjectSettings(); return; }
+    if (!$("pdDialog").classList.contains("hidden")) { $("pdCancel").click(); return; }
     closeMenu();
-    for (const id of ["invDialog", "pwDialog", "npDialog", "pdDialog"]) $(id).classList.add("hidden");
+    for (const id of ["invDialog", "pwDialog", "npDialog", "pdDialog", "psDialog", "psetDialog"]) $(id).classList.add("hidden");
     $("projects").classList.remove("open"); $("aside").classList.remove("open");
     if (REPLY && document.activeElement === $("cBody")) resetCompose();
   }
@@ -662,7 +808,7 @@ async function api(method, path, body, signal) {
   const r = await fetch(path, {method, headers, body: body ? JSON.stringify(body) : undefined, signal});
   let data = null;
   try { data = await r.json(); } catch {}
-  if (!r.ok) throw new Error((data && data.error) || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error((data && data.error) || `HTTP ${r.status}`), data, {status: r.status});
   return data;
 }
 
@@ -713,12 +859,19 @@ function showNoProject() {
   document.querySelector(".feedtop").classList.add("hidden");
   $("noProjCreate").classList.toggle("hidden", ME.kind !== "human");
   $("presence").innerHTML = ""; $("board").innerHTML = ""; $("projActions").innerHTML = "";
+  $("projPanel").classList.add("hidden");
+  $("psetDialog").classList.add("hidden");
+  $("invitesBlock").classList.add("hidden"); $("membersToggle").classList.add("hidden");
   $("inviteBtn").classList.add("hidden");
   renderProjects();
 }
 
 async function setProject(slug) {
   PROJECT = slug; st.set("tg_project", slug);
+  // the side column, menu and dialogs of the project being left go until the new one renders
+  SHOWN_PROJECT = null; MEMBER_ACTS = {}; closeMenu();
+  for (const id of ["presence", "projActions", "invitesBlock"]) $(id).innerHTML = "";
+  for (const id of ["psetDialog", "pdDialog", "psDialog", "invDialog"]) $(id).classList.add("hidden");
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
   MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;
   REACTION_REVISION = null;
@@ -1128,14 +1281,29 @@ document.addEventListener("click", async e => {
         openMenu(actionsFor(m), el, null, m);
         break;
       }
-      case "copytext": {
-        const m = MSGS.get(id);
-        try { await navigator.clipboard.writeText(m.body || m.subject); toast("Текст скопирован"); } catch { toast("Не удалось скопировать", true); }
+      case "copytext": { const m = MSGS.get(id); await copyText(m.body || m.subject); break; }
+      case "copyfull": await copyText(el.dataset.text); break;
+      case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
+      case "mstack": el.closest(".member").querySelector('[data-act="mgroup"]').click(); break;
+      case "mgroup":
+        setMemberGroup(el, el.getAttribute("aria-expanded") !== "true");
+        updateMembersToggle();
+        break;
+      case "mgroups": {
+        const open = el.getAttribute("aria-expanded") !== "true";
+        st.set(memberGroupKey("!all"), open ? "1" : "0");
+        document.querySelectorAll('#presence [data-act="mgroup"]').forEach(b => setMemberGroup(b, open));
+        updateMembersToggle();
         break;
       }
-      case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
+      case "icancel":
+        if (el.dataset.project !== PROJECT) break;   // a row left over from the previous project
+        if (!confirm(`Отменить приглашение для ${el.dataset.name}? Ссылка перестанет работать.`)) break;
+        await api("POST", "/api/invites/cancel", {name: el.dataset.name});
+        await loadInvites();
+        break;
       case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
-      case "mrole": case "mremove": case "mreset": case "prename": case "pleave": case "mrename": case "pdelete": case "madd":
+      case "mrole": case "mremove": case "mreset": case "psettings": case "pleave": case "mrename": case "madd": case "morphans":
         await memberAction(el.dataset.act, el.dataset.name, el.dataset.role); break;
       case "approve": case "deny": {
         const note = prompt(el.dataset.act === "approve" ? "Одобрить. Комментарий (необязательно):" : "Отказать. Причина:");
@@ -1274,50 +1442,227 @@ $("sendBtn").onclick = async () => {
 
 async function loadPresence() {
   if (!PROJECT) return;
+  const project = PROJECT;
   try {
     const me = await api("GET", "/api/me");
+    if (PROJECT !== project) return;
     ME.users = me.users;
+    ME.project = me.project;
     const owner = me.project && me.project.role === "owner";
-    const ROLE = {owner: "владелец", member: "участник", agent: "агент"};
     MEMBER_ACTS = {};
-    $("presence").innerHTML = me.users.map(u => {
-      const txt = u.listening ? (u.kind === "agent" ? "слушает" : "в сети")
-        : u.last_check && u.last_check > (u.last_listen || "") ? `проверял входящие ${shortTime(u.last_check)}`
-        : u.last_listen ? `был ${shortTime(u.last_listen)}` : "ещё не подключался";
-      const acts = [];
-      if (owner && u.name !== ME.name && u.kind === "human")
-        acts.push(u.role === "owner" ? {label: "Снять владельца", act: "mrole", data: {name: u.name, role: "member"}}
-                                     : {label: "Сделать владельцем", act: "mrole", data: {name: u.name, role: "owner"}});
-      if (u.kind === "human" && u.name !== ME.name && ME.is_admin)
-        acts.push({label: "Ссылка для сброса пароля", act: "mreset", data: {name: u.name}});
-      if (u.kind === "agent" && (u.owner === ME.name || ME.is_admin))
-        acts.push({label: "Новый токен агенту", act: "mreset", data: {name: u.name}});
-      if (ME.kind === "human" && (u.name === ME.name || (u.kind === "agent" && u.owner === ME.name)))
-        acts.unshift({label: "Переименовать", act: "mrename", data: {name: u.name}});
-      if (owner && u.name !== ME.name) acts.push({label: "Убрать из проекта", act: "mremove", data: {name: u.name}, cls: "bad"});
-      MEMBER_ACTS[u.name] = acts;
-      return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
-        `${esc(initials(u.name))}<span class="pres ${u.listening ? "on" : ""}"></span></div>` +
-        `<div class="minfo"><b>${esc(u.name)}</b>${u.name === ME.name ? ' <span class="muted">(ты)</span>' : ""}` +
-        `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
-        (acts.length ? `<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
+    $("presence").innerHTML = me.users.filter(u => u.kind === "human").map(u => {
+      const agents = me.users.filter(a => a.kind === "agent" && !a.orphan && a.owner === u.name);
+      if (!agents.length) return memberRow(u, owner);
+      const open = memberGroupOpen(u.name, st.get(memberGroupKey("!all")) === "1");
+      return `<div class="member-group person-group">${memberRow(u, owner, memberGroupButton(u.name, agentCount(agents.length), open), agents)}` +
+        `<div class="member-agents ${open ? "" : "hidden"}">${agents.map(a => memberRow(a, owner)).join("")}</div></div>`;
     }).join("");
-    $("projActions").innerHTML = (owner ? `<a href="#" data-act="prename">переименовать проект</a> · ` : "") +
-      `<a href="#" data-act="pleave">покинуть проект</a>` +
-      (owner ? ` · <a href="#" data-act="pdelete" style="color:var(--urgent)">удалить проект</a>` : "");
+    const orphans = me.users.filter(u => u.orphan);
+    if (orphans.length) {
+      const open = memberGroupOpen("!orphans", st.get(memberGroupKey("!all")) === "1");
+      $("presence").innerHTML += `<div class="member-group section-group">` +
+        sectionHead("!orphans", "Без хозяина", orphans.length, open,
+                    owner ? `<button class="section-action" data-act="morphans">Убрать всех</button>` : "") +
+        `<div class="member-agents ${open ? "" : "hidden"}">` + orphans.map(u => memberRow(u, owner)).join("") + `</div></div>`;
+    }
+    updateMembersToggle();
+    $("projPanel").classList.remove("hidden");
+    $("projActions").innerHTML = `<div class="proj-buttons">` +
+      (owner ? `<button data-act="psettings">${ICON.gear}Настройки проекта</button>` : "") +
+      `<button data-act="pleave">${ICON.leave}Покинуть проект</button></div>`;
+    SHOWN_PROJECT = project;
+    await loadInvites();
   } catch {}
 }
 
+// a person with agents: mini squares of the agents under the avatar (at most three, then +N)
+function agentStack(agents) {
+  const shown = agents.slice(0, agents.length > 3 ? 2 : 3).map(a =>
+    `<span style="background:hsl(${hue(a.name)} 45% 42%)"></span>`).join("");
+  return `<div class="mstack" data-act="mstack" aria-hidden="true" title="Агенты: ${esc(agents.map(a => a.name).join(", "))}">` +
+    shown + (agents.length > 3 ? `<span class="more-n">+${agents.length - 2}</span>` : "") + `</div>`;
+}
+
+function memberRow(u, owner, groupButton = "", agents = []) {
+  const ROLE = {owner: "владелец", member: "участник", agent: "агент"};
+  const txt = u.listening ? (u.kind === "agent" ? "слушает" : "в сети")
+    : u.last_check && u.last_check > (u.last_listen || "") ? `проверял входящие ${shortTime(u.last_check)}`
+    : u.last_listen ? `был ${shortTime(u.last_listen)}` : "ещё не подключался";
+  const acts = [];
+  if (owner && u.name !== ME.name && u.kind === "human")
+    acts.push(u.role === "owner" ? {label: "Снять владельца", act: "mrole", data: {name: u.name, role: "member"}}
+                                 : {label: "Сделать владельцем", act: "mrole", data: {name: u.name, role: "owner"}});
+  if (u.kind === "human" && u.name !== ME.name && ME.is_admin)
+    acts.push({label: "Ссылка для сброса пароля", act: "mreset", data: {name: u.name}});
+  if (u.kind === "agent" && (u.owner === ME.name || ME.is_admin))
+    acts.push({label: "Новый токен агенту", act: "mreset", data: {name: u.name}});
+  if (ME.kind === "human" && (u.name === ME.name || (u.kind === "agent" && u.owner === ME.name)))
+    acts.unshift({label: "Переименовать", act: "mrename", data: {name: u.name}});
+  if (u.name !== ME.name && (owner || (ME.kind === "human" && u.kind === "agent" && u.owner === ME.name)))
+    acts.push({label: "Убрать из проекта", act: "mremove", data: {name: u.name}, cls: "bad"});
+  MEMBER_ACTS[u.name] = acts;
+
+  const avatar = `<div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
+    `${esc(initials(u.name))}<span class="pres ${u.listening ? "on" : ""}"></span></div>`;
+  return `<div class="member">${agents.length ? `<div class="mcol">${avatar}${agentStack(agents)}</div>` : avatar}` +
+    `<div class="minfo"><b>${esc(u.name)}</b>${u.name === ME.name ? ' <span class="muted">(ты)</span>' : ""}` +
+    `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div>${groupButton}</div>` +
+    (acts.length ? `<button class="more" data-act="memmenu" data-name="${esc(u.name)}" aria-label="Действия: ${esc(u.name)}" title="Действия">⋯</button>` : "") + `</div>`;
+}
+
+const svgIcon = d => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  gear: svgIcon(`<path d="M3 6h9M16 6h1M3 14h3M10 14h7"/><circle cx="14" cy="6" r="2"/><circle cx="8" cy="14" r="2"/>`),
+  leave: svgIcon(`<path d="M8 4H4v12h4M12 6l4 4-4 4M16 10H8"/>`),
+  copy: svgIcon(`<rect x="7" y="7" width="9" height="9" rx="1.5"/><path d="M13 4H5.5A1.5 1.5 0 0 0 4 5.5V13"/>`),
+};
+const CHEVRON = `<svg class="chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7 4 6 6-6 6"/></svg>`;
+const memberGroupKey = name => "tg_member_group_" + PROJECT + ":" + name;
+function memberGroupOpen(name, fallback = false) {
+  const saved = st.get(memberGroupKey(name));
+  return saved === null ? fallback : saved === "1";
+}
+
+function agentCount(n) {
+  const last = n % 10, teens = n % 100 >= 11 && n % 100 <= 14;
+  const word = !teens && last === 1 ? "агент" : !teens && last >= 2 && last <= 4 ? "агента" : "агентов";
+  return `${n} ${word}`;
+}
+
+function sectionHead(name, title, n, open, action = "") {
+  return `<div class="section-head"><h2><button class="group-toggle group-heading" data-act="mgroup" data-name="${esc(name)}" ` +
+    `aria-expanded="${open}" aria-label="${esc(title)}: ${n}" title="Развернуть или свернуть">${CHEVRON}${esc(title)}` +
+    `<span class="count-chip">${n}</span></button></h2>${action}</div>`;
+}
+
+function memberGroupButton(name, label, open) {
+  return `<button class="group-toggle" data-act="mgroup" data-name="${esc(name)}" ` +
+    `aria-expanded="${open}" title="Развернуть или свернуть группу" aria-label="${esc(label)}: ${esc(name)}">${CHEVRON}${esc(label)}</button>`;
+}
+
+function setMemberGroup(button, open) {
+  button.setAttribute("aria-expanded", String(open));
+  button.closest(".member-group").querySelector(".member-agents").classList.toggle("hidden", !open);
+  st.set(memberGroupKey(button.dataset.name), open ? "1" : "0");
+}
+
+function updateMembersToggle() {
+  const groups = [...document.querySelectorAll('#presence [data-act="mgroup"]')];
+  const open = groups.length > 0 && groups.every(b => b.getAttribute("aria-expanded") === "true");
+  const label = open ? "Свернуть все группы" : "Развернуть все группы";
+  const button = $("membersToggle");
+  button.classList.toggle("hidden", !groups.length);
+  button.setAttribute("aria-expanded", String(open));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+async function loadInvites() {
+  $("invitesBlock").classList.toggle("hidden", ME.kind !== "human" || !PROJECT);
+  if (ME.kind !== "human" || !PROJECT) return;
+  const project = PROJECT;
+  try {
+    const d = await api("GET", "/api/invites");
+    if (PROJECT !== project) return;
+    const open = memberGroupOpen("!invites");
+    const n = d.invites.length;
+    $("invitesBlock").innerHTML = `<div class="member-group section-group">` + sectionHead("!invites", "Приглашения", n, open) +
+      `<div class="member-agents ${open ? "" : "hidden"}">` +
+      d.invites.map(i => `<div class="member">` +
+        `<div class="mav small ghost ${i.kind === "agent" ? "agent" : ""}">${esc(initials(i.name))}</div>` +
+        `<div class="minfo"><b>${esc(i.name)}</b><span class="chip invite-kind">${i.kind === "agent" ? "агент" : "человек"}</span>` +
+        `<div class="muted">от ${esc(i.by)} · до ${shortTime(i.expires)}</div></div>` +
+        (ME.project.role === "owner" || i.by === ME.name
+          ? `<button class="more" data-act="icancel" data-name="${esc(i.name)}" data-project="${esc(project)}" ` +
+            `aria-label="Отменить приглашение ${esc(i.name)}" title="Отменить приглашение">✕</button>` : "") + `</div>`).join("") +
+      (n ? "" : `<div class="muted invite-empty">Нет действующих приглашений.</div>`) + `</div></div>`;
+  } catch (err) {
+    if (PROJECT === project) $("invitesBlock").textContent = "Не удалось загрузить приглашения: " + err.message;
+  }
+}
+
+// ---- project settings (owners): name, the agents setting, deletion
+const FOLLOW_SAVING = new Map();   // project -> value of a switch save still in flight
+function openProjectSettings() {
+  $("psetDialog").dataset.project = PROJECT;   // every action below checks it is still this project
+  $("psetTitle").value = ME.project.title; $("psetSave").disabled = true; $("psetErr").textContent = "";
+  // a save still in flight for this project keeps its value and settles it; any other project shows its own
+  const sw = $("agentsFollowPerson"), pending = FOLLOW_SAVING.has(PROJECT);
+  sw.checked = pending ? FOLLOW_SAVING.get(PROJECT) : !!ME.project.agents_follow_person;
+  sw.disabled = pending;
+  $("psetDialog").classList.remove("hidden");
+  if (!TOUCH) $("psetTitle").focus();   // on phones the keyboard would cover the switch and the danger zone
+}
+function settingsProjectGone() {
+  if ($("psetDialog").dataset.project === PROJECT) return false;
+  $("psetDialog").classList.add("hidden");
+  return true;
+}
+$("psetTitle").oninput = () => {
+  const t = $("psetTitle").value.trim();
+  $("psetSave").disabled = !t || t === ME.project.title;
+};
+$("psetTitle").onkeydown = e => { if (e.key === "Enter" && !$("psetSave").disabled) $("psetSave").click(); };
+$("psetSave").onclick = async () => {
+  if (settingsProjectGone()) return;
+  const t = $("psetTitle").value.trim(), project = PROJECT;
+  $("psetSave").disabled = true; $("psetErr").textContent = "";
+  try {
+    await api("POST", "/api/project/rename", {title: t});
+    if (PROJECT !== project) return;
+    ME.project.title = t; $("projTitle").textContent = t; document.title = t + " · telegent";
+    await loadProjects(); updateChips();   // updateChips only refreshes the placeholder; setupCompose would reset the draft
+    toast("Название сохранено");
+  } catch (err) { $("psetErr").textContent = err.message; $("psetSave").disabled = false; }
+};
+$("psetDelete").onclick = () => {
+  if (settingsProjectGone()) return;
+  $("psetDialog").classList.add("hidden");
+  openProjectDelete();
+  $("pdDialog").dataset.from = "settings";   // "Отмена" goes back to the settings
+};
+function closeProjectSettings() {
+  $("psetDialog").classList.add("hidden");
+  const opener = document.querySelector('[data-act="psettings"]');
+  if (opener) opener.focus();
+}
+$("psetClose").onclick = closeProjectSettings;
+$("agentsFollowPerson").addEventListener("change", async e => {
+  const checkbox = e.target, value = checkbox.checked, project = PROJECT;
+  if (settingsProjectGone()) { checkbox.checked = !value; return; }
+  checkbox.disabled = true; FOLLOW_SAVING.set(project, value);
+  const shown = () => $("psetDialog").dataset.project === project;   // the switch still shows this project
+  try {
+    await api("POST", "/api/project/settings", {agents_follow_person: value});
+    if (PROJECT === project) ME.project.agents_follow_person = value;
+    if (shown()) checkbox.checked = value;
+  } catch (err) {
+    if (shown()) checkbox.checked = !value;
+    toast(err.message, true);
+  } finally {
+    FOLLOW_SAVING.delete(project);   // one save per project at a time: the switch is disabled meanwhile
+    if (shown()) checkbox.disabled = false;
+  }
+});
+
 async function memberAction(act, name, role) {
+  if (SHOWN_PROJECT !== PROJECT || ME.project.slug !== PROJECT) return;   // the side column is not this project's yet
   if (act === "mrole") await api("POST", "/api/members/role", {name, role});
   if (act === "mremove") {
-    if (!confirm(`Убрать ${name} из проекта «${ME.project.title}»? Его агенты в этом проекте тоже уйдут.`)) return;
+    const person = ME.users.find(u => u.name === name && u.kind === "human");
+    const agents = person ? (ME.project.agents_follow_person ? " Его агенты в этом проекте тоже уйдут." : " Его агенты останутся в проекте без хозяина.") : "";
+    if (!confirm(`Убрать ${name} из проекта «${ME.project.title}»?${agents}`)) return;
     await api("POST", "/api/members/remove", {name});
   }
-  if (act === "pdelete") {
-    $("pdTitle").textContent = ME.project.title; $("pdConfirm").value = ""; $("pdErr").textContent = "";
-    $("pdDelete").disabled = true;
-    $("pdDialog").classList.remove("hidden"); $("pdConfirm").focus();
+  if (act === "morphans") {
+    const names = ME.users.filter(u => u.orphan).map(u => u.name);
+    if (!names.length || !confirm(`Убрать из проекта агентов без хозяина?\n\n${names.join("\n")}\n\nАккаунты сохранятся.`)) return;
+    await api("POST", "/api/members/remove-orphans", {});
+    await loadPresence(); setupCompose();
+    return;
+  }
+  if (act === "psettings") {
+    openProjectSettings();
     return;
   }
   if (act === "madd") {
@@ -1328,10 +1673,7 @@ async function memberAction(act, name, role) {
   }
   if (act === "pleave") {
     if (!confirm(`Покинуть проект «${ME.project.title}»? Вернуться можно только по новому приглашению.`)) return;
-    await api("POST", "/api/members/remove", {name: ME.name});
-    await loadProjects();
-    if (PROJECTS.length) return setProject(PROJECTS[0].slug);
-    return showNoProject();
+    return leaveProject();
   }
   if (act === "mrename") {
     const nn = prompt(`Новое имя для ${name} (латиница, цифры, . _ -):`, name);
@@ -1342,12 +1684,6 @@ async function memberAction(act, name, role) {
     await loadPresence(); setupCompose(); refresh();
     return;
   }
-  if (act === "prename") {
-    const t = prompt("Новое название проекта:", ME.project.title);
-    if (!t) return;
-    await api("POST", "/api/project/rename", {title: t});
-    await loadProjects(); ME.project.title = t; $("projTitle").textContent = t;
-  }
   if (act === "mreset") {
     const d = await api("POST", "/api/reset", {name});
     openInvite(name); showInviteResult(d);
@@ -1356,22 +1692,78 @@ async function memberAction(act, name, role) {
   loadPresence();
 }
 
-// ---- invites (project owners): new people / agents, or existing accounts, into this project
-// ---- deleting a project: confirmed by typing its name
-$("pdConfirm").oninput = () => {
-  const v = $("pdConfirm").value.trim().toLowerCase();
-  $("pdDelete").disabled = !(v && (v === ME.project.title.trim().toLowerCase() || v === PROJECT));
+async function leaveProject(successor) {
+  const project = PROJECT;
+  try {
+    await api("POST", "/api/members/remove", {name: ME.name, successor});
+  } catch (err) {
+    if (PROJECT !== project) return;   // switched projects meanwhile: the dialogs would act on the new one
+    if (err.status !== 409) throw err;
+    if (err.kind === "no_successor") {
+      $("psDialog").classList.add("hidden");
+      openProjectDelete();
+      return;
+    }
+    if (err.kind !== "successor_required") throw err;
+    $("psSuccessor").innerHTML = err.candidates.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+    $("psSuccessor").value = err.successor;
+    $("psErr").textContent = "";
+    $("psDialog").classList.remove("hidden"); $("psSuccessor").focus();
+    return;
+  }
+  $("psDialog").classList.add("hidden");
+  await loadProjects();
+  if (PROJECTS.length) await setProject(PROJECTS[0].slug); else showNoProject();
+}
+$("psCancel").onclick = () => $("psDialog").classList.add("hidden");
+$("psLeave").onclick = async () => {
+  $("psLeave").disabled = true;
+  try { await leaveProject($("psSuccessor").value); }
+  catch (err) { $("psErr").textContent = err.message; }
+  finally { $("psLeave").disabled = false; }
 };
-$("pdCancel").onclick = () => $("pdDialog").classList.add("hidden");
+
+// ---- deleting a project: typed confirmation and a short pause
+const DELETE_PHRASE = "Да, я хочу удалить проект и чат вместе с ним";
+$("pdPhrase").textContent = $("pdConfirm").placeholder = DELETE_PHRASE;
+let deleteReadyAt = 0, deleteTimer;
+function updateProjectDelete() {
+  $("pdDelete").disabled = $("pdConfirm").value.trim().replace(/\s+/g, " ") !== DELETE_PHRASE || Date.now() < deleteReadyAt;
+}
+function openProjectDelete() {
+  if (ME.project.slug !== PROJECT) return;
+  $("pdDialog").dataset.from = "";
+  $("pdDialog").dataset.project = PROJECT;   // the title below and the deletion name this project only
+  $("pdTitle").textContent = ME.project.title; $("pdConfirm").value = ""; $("pdErr").textContent = "";
+  deleteReadyAt = Date.now() + 5000;
+  clearTimeout(deleteTimer);
+  deleteTimer = setTimeout(updateProjectDelete, 5000);
+  updateProjectDelete();
+  $("pdDialog").classList.remove("hidden"); $("pdConfirm").focus();
+}
+$("pdConfirm").oninput = updateProjectDelete;
+$("pdConfirm").onpaste = $("pdConfirm").ondrop = e => e.preventDefault();
+$("pdCancel").onclick = () => {
+  $("pdDialog").classList.add("hidden");
+  // back to the settings as they were left, a name being typed included
+  if ($("pdDialog").dataset.from === "settings" && $("psetDialog").dataset.project === PROJECT) {
+    $("psetDialog").classList.remove("hidden"); $("psetDelete").focus();
+  }
+};
 $("pdDelete").onclick = async () => {
+  updateProjectDelete();
+  if ($("pdDelete").disabled) return;
+  const project = $("pdDialog").dataset.project;
+  if (project !== PROJECT || ME.project.slug !== project) { $("pdDialog").classList.add("hidden"); return; }
   $("pdErr").textContent = "";
   try {
-    const d = await api("POST", "/api/project/delete", {confirm: $("pdConfirm").value});
+    const d = await api("POST", "/api/project/delete", {confirm: $("pdConfirm").value.trim().replace(/\s+/g, " ")});
     $("pdDialog").classList.add("hidden");
     toast(`Проект удалён` + (d.agents_without_project.length ? `; без проекта: ${d.agents_without_project.join(", ")}` : ""));
-    st.set("tg_seen_" + PROJECT, null);
-    PROJECTS = PROJECTS.filter(p => p.slug !== PROJECT);
+    st.set("tg_seen_" + project, null);
+    PROJECTS = PROJECTS.filter(p => p.slug !== project);
     await loadProjects();
+    if (PROJECT !== project) return;
     if (PROJECTS.length) await setProject(PROJECTS[0].slug); else showNoProject();
   } catch (err) { $("pdErr").textContent = err.message; }
 };
@@ -1379,8 +1771,11 @@ $("pdDelete").onclick = async () => {
 // people from my other projects (and my agents without a project) can be added in one click
 let CANDS = [];
 async function loadCandidates() {
+  CANDS = [];
+  const project = PROJECT;
   try {
     const c = (await api("GET", "/api/members/candidates")).candidates;
+    if (PROJECT !== project) return;
     CANDS = c;
     $("invNames").innerHTML = c.map(u => `<option value="${esc(u.name)}">${u.kind === "agent" ? "твой агент" : "из " + esc(u.via.join(", "))}</option>`).join("");
     invNameChanged();
@@ -1393,13 +1788,18 @@ async function loadCandidates() {
 }
 
 function openInvite(name) {
+  if (!ME.project || ME.project.slug !== PROJECT) return;
+  $("invDialog").dataset.project = PROJECT;   // the dialog promises this project: create checks it is still the one
+  const owner = ME.project.role === "owner";
+  $("invName").value = name || ""; $("invErr").textContent = ""; $("invResult").classList.add("hidden");
   CANDS = [];
   $("invNames").innerHTML = "";
-  const owner = ME.project.role === "owner";
-  $("invKind").innerHTML = (owner ? '<option value="human">человек</option>' : '') + '<option value="agent">агент</option>';
-  $("invName").value = name || ""; $("invErr").textContent = ""; $("invResult").classList.add("hidden");
-  $("invOwner").innerHTML = ME.users.filter(u => u.kind === "human" && (owner || u.name === ME.name)).map(u =>
+  $("invKind").innerHTML = (owner ? `<option value="human">человек</option>` : "") + `<option value="agent">агент</option>`;
+  $("invOwner").classList.toggle("hidden", !owner);
+  $("invOwner").innerHTML = ME.users.filter(u => u.kind === "human").map(u =>
     `<option value="${esc(u.name)}" ${u.name === ME.name ? "selected" : ""}>агент для ${esc(u.name)}</option>`).join("");
+  $("invPickHint").textContent = owner ? "Знакомые участники и твои агенты без проекта добавятся сразу:" : "Твои агенты без проекта добавятся сразу:";
+  $("invNewHint").textContent = owner ? "Или пригласи по ссылке нового человека или агента:" : "Или пригласи по ссылке нового агента:";
   invNameChanged();
   $("invPick").classList.add("hidden"); loadCandidates();
   $("invDialog").classList.remove("hidden");
@@ -1416,10 +1816,11 @@ function invNameChanged() {
   $("invCreate").textContent = cand ? "Добавить в проект" : "Создать ссылку";
   $("invOwner").style.visibility = $("invKind").value === "agent" ? "visible" : "hidden";
   $("invNote").textContent = u ? `${u.name} уже в проекте.`
-    : cand ? (cand.kind === "agent" ? `${cand.name} — твой агент без проекта: добавится сразу.`
+    : cand ? (cand.kind === "agent" ? `${cand.name} - твой агент без проекта: добавится сразу.`
                                     : `${cand.name} уже работает с тобой в «${cand.via.join("», «")}»: добавится сразу, без ссылки.`)
-    : `${ME.project.role === "owner" ? "Новый человек или агент" : "Твой агент"} в «${ME.project.title}»: получит одноразовую ссылку на 7 дней. ` +
-      `Если у него уже есть аккаунт, по ссылке он войдёт им, второй аккаунт не появится.`;
+    : ME.project.role === "owner" ? `Новый человек или агент в «${ME.project.title}»: получит одноразовую ссылку на 7 дней. ` +
+      `Если у него уже есть аккаунт, по ссылке он войдёт им, второй аккаунт не появится.`
+    : `Новый агент в «${ME.project.title}»: получит одноразовую ссылку на 7 дней. Ты будешь его хозяином.`;
 }
 function agentConnectText(link, reset) {
   return `Подключи себя к telegent из папки своего рабочего проекта.\n` +
@@ -1457,11 +1858,14 @@ $("invName").oninput = invNameChanged;
 $("invKind").onchange = invNameChanged;
 $("invClose").onclick = () => $("invDialog").classList.add("hidden");
 $("invCreate").onclick = async () => {
+  const project = $("invDialog").dataset.project;
+  if (project !== PROJECT || ME.project.slug !== project) { $("invDialog").classList.add("hidden"); return; }
   $("invErr").textContent = "";
   const cand = typedCand();
   if (cand) {
     try {
       await api("POST", "/api/members/add", {name: cand.name});
+      if (PROJECT !== project) return;
       toast(`${cand.name} добавлен(а) в проект`);
       $("invDialog").classList.add("hidden");
       await loadPresence(); setupCompose();
@@ -1469,8 +1873,11 @@ $("invCreate").onclick = async () => {
     return;
   }
   try {
-    showInviteResult(await api("POST", "/api/invites", {name: $("invName").value.trim(), kind: $("invKind").value,
-                                                        owner: $("invOwner").value}));
+    const d = await api("POST", "/api/invites", {name: $("invName").value.trim(), kind: $("invKind").value,
+                                                 owner: $("invOwner").value});
+    if (PROJECT !== project) return;
+    showInviteResult(d);
+    await loadInvites();
   } catch (err) { $("invErr").textContent = err.message; }
 };
 $("invCopy").onclick = async () => {
@@ -1610,7 +2017,7 @@ async function loadBoard() {
       ${b.back ? `<div>вернётся: ${esc(b.back)}</div>` : ""}
       ${b.now ? `<div>сейчас: ${esc(b.now)}</div>` : ""}${b.next ? `<div>дальше: ${esc(b.next)}</div>` : ""}
       ${b.gpu_until ? `<div>карта занята до: ${esc(b.gpu_until)}</div>` : ""}${b.note ? `<div class="muted">${esc(b.note)}</div>` : ""}</div>`).join("")
-      : "Пока никто не заполнил (агенты: <code>tg.py board set</code>).";
+      : `<div class="board-empty"><b>Пока пусто</b>Здесь агенты отмечают, чем заняты и что дальше.<br>Команда: <code>tg.py board set</code></div>`;
   } catch {}
 }
 
@@ -1748,15 +2155,27 @@ function ntfInit() {
 $("bellBtn").onclick = async () => {
   const s = ntfState();
   if (s === "blocked") { toast("Уведомления заблокированы в браузере: разреши их в настройках сайта", true); return; }
-  if (s === "on") st.set("tg_notify", "0");
+  if (s === "on") { st.set("tg_notify", "0"); toast("Уведомления выключены"); }
   else {
     let p = Notification.permission;
     // older browsers take a callback instead of returning a promise
     if (p === "default") p = await new Promise(r => { const x = Notification.requestPermission(r); if (x && x.then) x.then(r); });
-    if (p === "granted") { st.set("tg_notify", "1"); ntfRegister(); }
+    if (p === "granted") {
+      st.set("tg_notify", "1");
+      ntfPaint();
+      await ntfRegister();
+      ntfTest();
+    } else toast(p === "denied" ? "Браузер запретил уведомления для этого сайта: разреши их в настройках сайта (значок слева от адреса)"
+                                : "Разрешение не выдано: нажми ещё раз и выбери «Разрешить»", true);
   }
   ntfPaint();
 };
+// a visible sign that it works: real ones come only while the tab is not in focus
+async function ntfTest() {
+  const title = "telegent: уведомления включены", opts = {body: "Придут, пока вкладка не в фокусе: просьбы одобрить, срочные и личные сообщения.", tag: "telegent-test"};
+  try { if (NTF.reg) { await NTF.reg.showNotification(title, opts); return; } } catch {}
+  try { new Notification(title, opts); } catch { toast("Уведомления включены, но браузер не показал пробное: проверь уведомления в настройках системы", true); }
+}
 function ntfJump(id) { const a = $("ntfJump"); a.dataset.id = id; a.click(); }
 if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", e => {
   if (e.data && e.data.telegentJump) ntfJump(e.data.telegentJump);
@@ -1798,6 +2217,47 @@ function ntfTitle() {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { NTF.unread = 0; ntfTitle(); } });
 // ---- end browser notifications
+
+// full text of an ellipsis-truncated element: a title on hover, a sheet with copy on a long press
+function ellipsisAt(target) {
+  for (let el = target; el instanceof Element && el !== document.body; el = el.parentElement)
+    if (getComputedStyle(el).textOverflow === "ellipsis") return el;
+  return null;
+}
+document.addEventListener("mouseover", e => {
+  const el = ellipsisAt(e.target);
+  if (!el || el.closest("[title]:not([data-auto-title])")) return;
+  if (el.scrollWidth > el.clientWidth) { el.title = el.textContent.trim(); el.dataset.autoTitle = "1"; }
+  else if (el.dataset.autoTitle) { el.removeAttribute("title"); delete el.dataset.autoTitle; }
+});
+const PRESS = { timer: 0, x: 0, y: 0, el: null, shown: false };
+function pressShow() {
+  clearTimeout(PRESS.timer);
+  if (!PRESS.el) return;
+  const text = PRESS.el.textContent.trim();
+  openMenu([{ act: "copyfull", cls: "mbtn", label: `${ICON.copy}Копировать`, data: { text } }], PRESS.el, `<span class="mfull">${esc(text)}</span>`);
+  PRESS.shown = true; PRESS.el = null;
+}
+function pressDrop() { clearTimeout(PRESS.timer); PRESS.el = null; }
+document.addEventListener("pointerdown", e => {
+  pressDrop(); PRESS.shown = false;
+  if (e.pointerType !== "touch" || !e.isPrimary) return;
+  const el = ellipsisAt(e.target);
+  if (!el || el.scrollWidth <= el.clientWidth) return;
+  Object.assign(PRESS, { x: e.clientX, y: e.clientY, el, timer: setTimeout(pressShow, 450) });
+});
+document.addEventListener("pointermove", e => {
+  if (e.pointerType === "touch" && Math.hypot(e.clientX - PRESS.x, e.clientY - PRESS.y) > 10) pressDrop();
+});
+for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, pressDrop);
+window.addEventListener("contextmenu", e => {
+  if (!PRESS.el && !PRESS.shown) return;
+  e.preventDefault(); e.stopPropagation(); pressShow();
+}, true);
+window.addEventListener("click", e => {
+  if (!PRESS.shown || !e.detail) return;
+  e.preventDefault(); e.stopPropagation(); PRESS.shown = false;
+}, true);
 
 async function poll() {
   if (POLLING) return; POLLING = true;

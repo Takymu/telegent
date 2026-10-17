@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Codex lifecycle integration with a real temporary server; no model calls or real user config."""
 import base64
+import importlib.util
 import json
 import concurrent.futures
 import os
@@ -123,17 +124,25 @@ class CodexTest(unittest.TestCase):
 
     def test_lifecycle_dedup_and_new_session(self):
         mid = self.send()
-        for event in ("SessionStart", "UserPromptSubmit"):
-            result = self.hook(event)["hookSpecificOutput"]
-            self.assertEqual(result["hookEventName"], event)
-            self.assertIn(f"#{mid} request от alice-agent СРОЧНО", result["additionalContext"])
-            self.assertNotIn("Monitor", result["additionalContext"])
+        result = self.hook("SessionStart")["hookSpecificOutput"]
+        self.assertEqual(result["hookEventName"], "SessionStart")
+        self.assertIn(f"#{mid} request от alice-agent СРОЧНО", result["additionalContext"])
+        self.assertNotIn("Monitor", result["additionalContext"])
+        self.assertEqual(self.hook("UserPromptSubmit"), {}, "a prompt does not repeat what the session already saw")
         self.assertEqual(self.hook("PostToolUse"), {})
         self.expire_check()
         self.assertEqual(self.hook("PostToolUse"), {})
+        routine = self.send(body="routine fixture", priority="normal")
+        self.expire_check()
+        self.assertEqual(self.hook("PostToolUse"), {}, "routine mail does not interrupt tool calls")
         fresh = self.send(body="second fixture")
         self.expire_check()
-        self.assertIn(f"#{fresh}", self.hook("PostToolUse")["hookSpecificOutput"]["additionalContext"])
+        text = self.hook("PostToolUse")["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"#{fresh} ", text)
+        self.assertNotIn(f"#{routine} ", text)
+        text = self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"].splitlines()[0]
+        self.assertIn(f"#{routine} ", text)
+        self.assertNotIn(f"#{fresh} ", text)
         self.session = str(uuid.uuid4())
         self.assertIn(f"#{mid}", self.hook("SessionStart")["hookSpecificOutput"]["additionalContext"])
 
@@ -155,9 +164,16 @@ class CodexTest(unittest.TestCase):
         mid = self.send()
         self.api("POST", "/api/receipts", {"kind": "read", "ids": [mid]})
         self.assertEqual(self.hook("Stop"), {})
-        self.assertIn(f"#{mid}", self.hook("SessionStart")["hookSpecificOutput"]["additionalContext"])
+        text = self.hook("SessionStart")["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"#{mid}", text)
+        self.assertIn("ждущих твоего ответа", text)
         self.api("POST", "/api/receipts", {"kind": "ack", "ids": [mid]})
+        self.assertEqual(self.hook("UserPromptSubmit"), {}, "unchanged reminders are not repeated")
+        question = self.send(type="question", priority="normal")
+        self.api("POST", "/api/receipts", {"kind": "ack", "ids": [question]})
         self.assertIn("ждущих твоего ответа", self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.hook("UserPromptSubmit"), {})
+        self.api("POST", "/api/messages", {"body": "answered", "reply_to": question, "to": ["alice-agent"]})
         self.api("POST", f"/api/messages/{mid}/status", {"state": "done"})
         self.assertEqual(self.hook("UserPromptSubmit"), {})
 
@@ -341,21 +357,111 @@ class CodexTest(unittest.TestCase):
         env["CLAUDECODE"] = "1"
         path = folder / ".claude" / "settings.local.json"
         path.parent.mkdir()
-        path.write_text('{"permissions":{"allow":["Read"]},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo keep"}]}]}}', encoding="utf-8")
+        legacy = {"type": "command", "command": PY, "args": [str(ROOT / "tg.py"), "hook", "--session-start"], "timeout": 20}
+        path.write_text(json.dumps({"permissions": {"allow": ["Read"]}, "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "echo keep"}]}, {"hooks": [legacy]}],
+            "UserPromptSubmit": [{"hooks": [dict(legacy, args=legacy["args"][:2])]}],
+            "Stop": [{"hooks": [{"type": "command", "command": f'python "{ROOT / "tg.py"}" hook --session-start'}]}]}}),
+            encoding="utf-8")
         (folder / "CLAUDE.md").write_text("Original rules.\n", encoding="utf-8")
         for _ in range(2):
             r = self.connect(invite, folder, env)
             self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("watch не нужны", r.stdout)
         settings = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(settings["permissions"], {"allow": ["Read"]})
-        self.assertEqual(len(settings["hooks"]["SessionStart"]), 2)
-        self.assertEqual(len(settings["hooks"]["UserPromptSubmit"]), 1)
+        self.assertEqual(len(settings["hooks"]["SessionStart"]), 2, "the legacy watch hook is replaced, not kept")
+        for event in ("UserPromptSubmit", "PostToolUse", "Stop"):
+            self.assertEqual(len(settings["hooks"][event]), 1)
         self.assertTrue((folder / "CLAUDE.md").read_text(encoding="utf-8").startswith("Original rules."))
+        self.assertNotIn("Monitor", (folder / "CLAUDE.md").read_text(encoding="utf-8"))
         h = settings["hooks"]["SessionStart"][-1]["hooks"][0]
-        r = subprocess.run([h["command"], *h["args"]], capture_output=True, text=True, encoding="utf-8", env=env, cwd=folder, timeout=15)
+        self.assertEqual(h["args"][-2:], ["claude", "hook"])
+        mid = self.api("POST", "/api/messages", {"body": "PEER_BODY_DO_NOT_INJECT", "to": [name]}, "alice-agent")["id"]
+        event = json.dumps({"hook_event_name": "SessionStart", "session_id": self.session, "source": "startup"})
+        r = subprocess.run([h["command"], *h["args"]], input=event, capture_output=True, text=True, encoding="utf-8",
+                           env=env, cwd=folder, timeout=15)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("watch НЕ слушает", r.stdout)
-        self.assertIn("Monitor", r.stdout)
+        text = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"#{mid} info от alice-agent", text)
+        self.assertNotIn("PEER_BODY", text)
+        self.assertNotIn("Monitor", text)
+        r = subprocess.run([PY, str(ROOT / "tg.py"), "claude", "uninstall", "--dir", str(folder)],
+                           capture_output=True, text=True, encoding="utf-8", env=env, cwd=folder, timeout=15)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        settings = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(settings["permissions"], {"allow": ["Read"]})
+        self.assertEqual(settings["hooks"], {"SessionStart": [{"hooks": [{"type": "command", "command": "echo keep"}]}]})
+
+    def test_json_output_for_integrations(self):
+        mid = self.send()
+        r = self.cli("inbox", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(mid, [m["id"] for m in json.loads(r.stdout)["messages"]])
+        r = self.cli("summary", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(mid, [m["id"] for m in json.loads(r.stdout)["unacked"]])
+        self.assertNotIn("PEER_BODY", r.stdout)
+        r = self.cli("read", str(mid), "--json", "--no-mark")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = json.loads(r.stdout)
+        self.assertEqual(doc["message"]["body"], "PEER_BODY_DO_NOT_INJECT")
+        self.assertIn(mid, [t["id"] for t in doc["thread"]])
+        self.assertFalse(self.api("GET", f"/api/messages/{mid}")["message"]["read"])
+        self.assertEqual(self.cli("read", str(mid), "--json").returncode, 0)
+        self.assertTrue(self.api("GET", f"/api/messages/{mid}")["message"]["read"])
+        long_id = self.send(body="x" * 5000)
+        brief = json.loads(self.cli("inbox", "--json", "--brief").stdout)["messages"]
+        self.assertLessEqual(len(next(m for m in brief if m["id"] == long_id)["body"]), 400)
+        claim = self.api("POST", "/api/claims", {"key": "file:src/app.py"}, "alice-agent")["claim"]
+        rows = json.loads(self.cli("claims", "--json", "--limit", "1000").stdout)["claims"]
+        self.assertIn(("file:src/app.py", "alice-agent"), [(c["key"], c["owner"]) for c in rows])
+        self.api("POST", "/api/claims/release", {"id": claim["id"]}, "alice-agent")
+        r = self.cli("read", str(mid), "--json", "--no-mark", "--no-thread")
+        self.assertEqual(json.loads(r.stdout)["thread"], [])
+        r = self.cli("read", "999999", "--json")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
+
+    def test_hook_names_at_most_ten_urgent_first_and_keeps_the_rest(self):
+        normal = [self.send(priority="normal") for _ in range(11)]
+        urgent = self.send()
+        text = self.hook("SessionStart")["hookSpecificOutput"]["additionalContext"].splitlines()[0]
+        self.assertTrue(text.split("Входящие: ")[1].startswith(f"#{urgent} request от alice-agent СРОЧНО"))
+        self.assertIn("Всего без ack: 12.", text)
+        rest = self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"].splitlines()[0]
+        self.assertIn(f"#{normal[-2]} ", rest)
+        self.assertIn(f"#{normal[-1]} ", rest)
+        self.assertNotIn(f"#{normal[0]} ", rest)
+
+    def test_legacy_shell_hooks_are_recognised_exactly(self):
+        spec = importlib.util.spec_from_file_location("tg_under_test", ROOT / "tg.py")
+        tg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tg)
+        own = ["python /p/tg.py hook --session-start", 'python "C:\\work\\tele gent\\tg.py" hook',
+               "python3 -X utf8 /p/tg.py hook", "/p/tg.py hook", "python /p/tg.py --config /p/.telegent.json hook",
+               "python /p/tg.py --project=lab hook --session-start", "python /p/tg.py --config=/p/.telegent.json hook", 'python "C:/work/team & tools/tg.py" hook']
+        foreign = ["python /tools/audit-tg.py hook", 'echo "tg.py hook"', "echo tg.py hook", "python /p/tg.py inbox",
+                   "python /other.py tg.py hook", "python /p/tg.py hook && /opt/audit-hook",
+                   "python /p/tg.py hook; audit", "python /p/tg.py hook > /tmp/log", "python /p/tg.py hook&&audit",
+                   'python /p/tg.py --config "$(/opt/choose-config)" hook', 'python /p/tg.py --config "`pick`" hook']
+        for command in own:
+            self.assertTrue(tg.is_own_handler({"type": "command", "command": command}), command)
+        for command in foreign:
+            self.assertFalse(tg.is_own_handler({"type": "command", "command": command}), command)
+
+    def test_subagent_hooks_stay_silent(self):
+        self.send()
+        self.assertEqual(self.hook("SessionStart", agent_id="sub-1"), {})
+        self.assertIn("СРОЧНО", self.hook("SessionStart")["hookSpecificOutput"]["additionalContext"])
+
+    def test_claude_hook_uses_its_own_state(self):
+        mid = self.send()
+        self.hook("SessionStart")
+        r = self.cli("claude", "hook", inp=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": self.session}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"#{mid}", json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"])
+        self.assertTrue(list(self.work.glob("state.json.claude-*.json")))
 
     def test_connect_preflight_does_not_spend_invitation(self):
         name, invite, folder, env = self.onboarding()
@@ -393,6 +499,56 @@ class CodexTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse((folder / ".gitignore").exists())
         self.assertIn("/.telegent.json", (folder / ".git" / "info" / "exclude").read_text(encoding="utf-8"))
+
+
+    def test_summary_keeps_urgent_mail_behind_a_large_backlog(self):
+        urgent = self.send(type="info", priority="urgent")
+        for _ in range(1001):
+            self.send(type="info", priority="normal")
+        summary = self.api("GET", "/api/summary?limit=10&metadata=1")
+        shown = [m["id"] for m in summary["unacked"]]
+        self.assertIn(urgent, shown)
+        self.assertEqual(len(shown), 10)
+        self.assertEqual(shown, sorted(shown))
+
+class RedirectTest(unittest.TestCase):
+    def test_token_goes_to_the_configured_origin_only(self):
+        import http.server
+        import threading
+        spec = importlib.util.spec_from_file_location("tg_redirects", ROOT / "tg.py")
+        tg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tg)
+        seen = {}
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                seen.setdefault(self.server.server_address[1], []).append((self.path, self.headers.get("Authorization")))
+                target = {"/other": other.server_address[1], "/same": main.server_address[1]}.get(self.path)
+                if target:
+                    self.send_response(302)
+                    self.send_header("Location", f"http://127.0.0.1:{target}/landed")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+        main, other = (http.server.HTTPServer(("127.0.0.1", 0), Handler) for _ in range(2))
+        for server in (main, other):
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            conf = type("Conf", (), {"server": f"http://127.0.0.1:{main.server_address[1]}", "token": "SECRET", "project": None})
+            tg.api(conf, "GET", "/other")
+            tg.api(conf, "GET", "/same")
+        finally:
+            for server in (main, other):
+                server.shutdown()
+        self.assertEqual(seen[other.server_address[1]], [("/landed", None)])
+        self.assertIn(("/landed", "Bearer SECRET"), seen[main.server_address[1]])
 
 
 if __name__ == "__main__":

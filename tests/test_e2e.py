@@ -38,6 +38,84 @@ def check(cond, what):
     print("ok ", what)
 
 
+def check_project_migrations(tmp):
+    import importlib.util
+    import sqlite3
+    from types import SimpleNamespace
+
+    for stage in ("legacy", "table-created", "insert-interrupted", "old-deletion", "deletion"):
+        path = os.path.join(tmp, stage + ".db")
+        spec = importlib.util.spec_from_file_location("migration_server", os.path.join(ROOT, "server.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.Cfg.db = path
+        source = sqlite3.connect(path, isolation_level=None)
+        source.executescript(module.SCHEMA)
+        source.execute("INSERT INTO users(name, kind, owner, token_hash, created_ts) "
+                       "VALUES ('alice', 'human', 'alice', 'unused', 1)")
+        source.execute("INSERT INTO messages(ts, author, author_kind, owner, type, body) "
+                       "VALUES (1, 'alice', 'human', 'alice', 'info', 'legacy message')")
+        source.execute("INSERT INTO claims(key, display_key, owner, owner_kind, created) "
+                       "VALUES ('exp42', 'exp42', 'alice', 'human', 1)")
+        source.execute("INSERT INTO board(name, now, ts) VALUES ('alice', 'exp42', 1)")
+        source.execute("INSERT INTO invites(code_hash, name, kind, owner, purpose, created_by, created_ts, expires_ts) "
+                       "VALUES ('unused', 'alice-agent', 'agent', 'alice', 'new', 'alice', 1, 2)")
+        if stage == "legacy":
+            source.executescript("DROP TABLE projects; DROP TABLE members;")
+        source.close()
+        if stage == "insert-interrupted":
+            original_create = module.create_project_row
+
+            def interrupted_create(*args):
+                original_create(*args)
+                raise RuntimeError("interrupted migration")
+
+            module.create_project_row = interrupted_create
+            try:
+                module.db()
+            except RuntimeError:
+                check(not module._db.in_transaction and
+                      module._db.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0 and
+                      module._db.execute("SELECT COUNT(*) FROM members").fetchone()[0] == 0 and
+                      module._db.execute("SELECT project_id FROM messages").fetchone()[0] is None,
+                      "interruption after inserting the default project rolls back the whole migration")
+            else:
+                raise AssertionError("migration was not interrupted")
+            module._db.close()
+            module._db = None
+            module.create_project_row = original_create
+        if stage in ("old-deletion", "deletion"):
+            con = module.db()
+            if stage == "deletion":
+                h = SimpleNamespace(headers={"X-Telegent-Project": "main"})
+                result = module.api_project_delete(h, con.execute("SELECT * FROM users WHERE name = 'alice'").fetchone(),
+                                                   {}, {"confirm": "Да, я хочу удалить проект и чат вместе с ним "})
+                check(result["deleted"] == "main", "the final project can be deleted with trailing confirmation whitespace")
+            else:
+                for table in ("projects", "members", "messages", "claims", "board", "invites"):
+                    con.execute(f"DELETE FROM {table}")
+            con.close()
+            module._db = None
+        for restart in range(2):
+            # Console and HTTP startup both initialize the database through db().
+            subprocess.run([PY, os.path.join(ROOT, "server.py"), "--db", path, "users"],
+                           check=True, capture_output=True, env=ENV)
+            con = sqlite3.connect(path)
+            try:
+                counts = tuple(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                               for table in ("projects", "members"))
+                if stage in ("old-deletion", "deletion"):
+                    check(counts == (0, 0), f"{stage}: startup {restart + 1} keeps zero projects and memberships")
+                else:
+                    pid = con.execute("SELECT id FROM projects").fetchone()[0]
+                    check(counts == (1, 1) and con.execute("SELECT role FROM members").fetchone()[0] == "owner" and
+                          all(con.execute(f"SELECT project_id FROM {table}").fetchone()[0] == pid
+                              for table in ("messages", "claims", "board", "invites")),
+                          f"{stage}: startup {restart + 1} migrates legacy data once")
+            finally:
+                con.close()
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="telegent_test_")
     db = os.path.join(tmp, "t.db")
@@ -281,6 +359,15 @@ def main():
         sm = json.loads(urllib.request.urlopen(urllib.request.Request(
             url + "/api/summary", headers={"Authorization": "Bearer " + open(os.path.join(tmp, "alice-agent.token")).read().strip()})).read())
         check([c["key"] for c in sm["claims"]] == ["X3"], "summary carries active claims")
+        urgent_id = int(run(["send", "срочно до остального", "-u", "--to", "alice-agent"], B).stdout.split()[0][1:])
+        for i in range(12):
+            run(["send", f"обычное {i}", "--to", "alice-agent"], B)
+        sm = json.loads(urllib.request.urlopen(urllib.request.Request(
+            url + "/api/summary?limit=10&metadata=1",
+            headers={"Authorization": "Bearer " + open(os.path.join(tmp, "alice-agent.token")).read().strip()})).read())
+        shown = [m["id"] for m in sm["unacked"]]
+        check(urgent_id in shown and len(shown) == 10 and shown == sorted(shown),
+              "summary keeps an urgent message that newer routine mail would push out")
 
         # claim lifetime: expiry, takeover of an expired claim, extension, reminders
         r = run(["claim", "exp42 short", "--hours", "0.0003"], A)
@@ -661,10 +748,14 @@ def main():
         r = run(["inbox", "--all", "--limit", "500"], B)
         check("ally-bot" in r.stdout and "alice-agent(" not in r.stdout, "history shows the new name")
         check("теперь называется ally-bot" in r.stdout, "the project is told about the rename")
+        renamed_req = int(run(["send", "решит alice после переименования", "-t", "request", "--approver", "alice"], B)
+                          .stdout.split()[0][1:])
         code, _ = http("POST", "/api/rename", {"new": "alicia"}, human_tok)
         check(code == 200, "a person renames themselves")
         code, d = http("GET", "/api/me", tok=human_tok)
         check(d["name"] == "alicia" and d["is_admin"], "the person's token keeps working, rights stay")
+        code, d = http("GET", f"/api/messages/{renamed_req}", tok=human_tok)
+        check(code == 200 and d["message"]["approver"] == "alicia", "a rename carries pending approvals to the new name")
         r = run(["whoami"], A)
         check("владелец alicia" in r.stdout, "their agents now belong to the new name")
         http("POST", "/api/password", {"new": "renamed pass 1"}, human_tok)
@@ -703,16 +794,375 @@ def main():
         check(hp("GET", "/api/me", tok=carol, project="trio")[0] == 200, "and is in the project")
         check(not any(u["name"] == "guessed-name" for u in hp("GET", "/api/me", tok=human_tok, project="trio")[1]["users"]),
               "no second account appeared")
+
+        # Members invite and manage only their own agents.
+        code, bob_inv = hp("POST", "/api/invites", {"name": "bob-helper", "kind": "agent"}, bob_tok, "trio")
+        check(code == 200 and bob_inv["owner"] == "bob" and bob_inv["purpose"] == "new",
+              "a member invites a new agent with themselves as its person")
+        code, joined = hp("POST", "/api/join", {"code": bob_inv["code"]})
+        bob_helper = joined["token"]
+        check(code == 200 and hp("GET", "/api/me", tok=bob_helper)[1]["owner"] == "bob",
+              "the member's agent joins their project")
+        for data in ({"name": "bob-guest", "kind": "human"}, {"name": "BOB-AGENT", "kind": "agent"},
+                     {"name": "bob-other", "kind": "agent", "owner": "carol"}):
+            check(hp("POST", "/api/invites", data, bob_tok, "trio")[0] == 403,
+                  "a member cannot invite people, existing accounts, or another person's agent")
+        check(hp("POST", "/api/invites", {"name": "bob-extra", "kind": "agent"}, bob_helper)[0] == 403 and
+              hp("POST", "/api/invites", {}, bob_helper)[0] == 403, "agents cannot invite, even with invalid input")
+        code, carol_inv = hp("POST", "/api/invites", {"name": "carol-helper", "kind": "agent"}, carol, "trio")
+        check(code == 200, "another member invites their own agent")
+        check(hp("POST", "/api/join", {"code": carol_inv["code"]})[0] == 200, "the other member's agent joins")
+        check(hp("POST", "/api/members/remove", {"name": "carol-helper"}, bob_tok, "trio")[0] == 403,
+              "a member cannot remove another person's agent")
+        check(hp("POST", "/api/members/remove", {"name": "bob-helper"}, bob_tok, "trio")[0] == 200 and
+              hp("POST", "/api/members/remove", {"name": "carol-helper"}, carol, "trio")[0] == 200,
+              "members remove their own agents")
+        code, candidates = hp("GET", "/api/members/candidates", tok=bob_tok, project="trio")
+        check(code == 200 and [c["name"] for c in candidates["candidates"]] == ["bob-helper"],
+              "a member's candidates contain only their own project-less agents")
+        check(hp("POST", "/api/members/add", {"name": "carol-helper"}, bob_tok, "trio")[0] == 403,
+              "a member cannot add another person's project-less agent")
+        check(hp("POST", "/api/members/add", {"name": "bob-helper"}, bob_tok, "trio")[0] == 200 and
+              hp("GET", "/api/me", tok=bob_helper)[1]["project"]["slug"] == "trio",
+              "a member adds their own project-less agent in one click")
+        code, first_inv = hp("POST", "/api/invites", {"name": "bob-spare", "kind": "agent"}, bob_tok, "trio")
+        code, own_inv = hp("POST", "/api/invites", {"name": "bob-spare", "kind": "agent"}, bob_tok, "trio")
+        check(code == 200 and hp("GET", "/api/invite?code=" + first_inv["code"])[0] == 404,
+              "a member can replace their own live invite")
+        check(hp("POST", "/api/invites", {"name": "BOB-SPARE", "kind": "agent"}, bob_tok, "main")[0] == 409 and
+              hp("GET", "/api/invite?code=" + own_inv["code"])[0] == 200,
+              "a member cannot reserve their own pending agent name in another project, regardless of case")
+        code, foreign_inv = hp("POST", "/api/invites", {"name": "bob-cross-project", "kind": "agent"}, human_tok, "main")
+        cross = hp("POST", "/api/invites", {"name": "BOB-CROSS-PROJECT", "kind": "agent"}, bob_tok, "trio")
+        check(code == 200 and cross[0] == 409 and foreign_inv["owner"] not in cross[1]["error"] and
+              hp("GET", "/api/invite?code=" + foreign_inv["code"])[0] == 200,
+              "a member cannot reserve another creator's pending name from another project, nor learn its creator")
+        hp("POST", "/api/invites/cancel", {"name": "bob-cross-project"}, human_tok, "main")
+        code, other_inv = hp("POST", "/api/invites", {"name": "carol-spare", "kind": "agent"}, carol, "trio")
+        bob_names = {i["name"] for i in hp("GET", "/api/invites", tok=bob_tok, project="trio")[1]["invites"]}
+        carol_names = {i["name"] for i in hp("GET", "/api/invites", tok=carol, project="trio")[1]["invites"]}
+        owner_names = {i["name"] for i in hp("GET", "/api/invites", tok=human_tok, project="trio")[1]["invites"]}
+        check(bob_names == {"bob-spare"} and carol_names == {"carol-spare"} and
+              {"bob-spare", "carol-spare"} <= owner_names, "members see their own invites and the owner sees all")
+        check(hp("POST", "/api/invites/cancel", {"name": "carol-spare"}, bob_tok, "trio")[1]["cancelled"] == 0 and
+              hp("GET", "/api/invite?code=" + other_inv["code"])[0] == 200,
+              "a member cannot cancel another creator's invite")
+        code, replaced_inv = hp("POST", "/api/invites", {"name": "bob-spare", "kind": "agent", "owner": "bob"},
+                                human_tok, "trio")
+        check(code == 200 and hp("GET", "/api/invite?code=" + own_inv["code"])[0] == 404,
+              "the owner can replace a member's invite")
+        code, conflict = hp("POST", "/api/invites", {"name": "BOB-SPARE", "kind": "agent"}, bob_tok, "trio")
+        inviter = hp("GET", "/api/me", tok=human_tok, project="trio")[1]["name"]
+        check(code == 409 and inviter in conflict["error"], "a member cannot replace another creator's invite")
+        check(hp("POST", "/api/invites/cancel", {"name": "bob-spare"}, bob_tok, "trio")[1]["cancelled"] == 0 and
+              hp("GET", "/api/invite?code=" + replaced_inv["code"])[0] == 200,
+              "a stale member cancel preserves the owner's replacement")
+        check(hp("POST", "/api/invites/cancel", {"name": "carol-spare"}, carol, "trio")[1]["cancelled"] == 1 and
+              hp("POST", "/api/invites/cancel", {"name": "bob-spare"}, human_tok, "trio")[1]["cancelled"] == 1,
+              "a member cancels their own invite and the owner cancels their replacement")
+        check(hp("POST", "/api/invites", {"name": "bob-spare", "kind": "agent"}, bob_tok, "trio")[0] == 200 and
+              hp("POST", "/api/invites/cancel", {"name": "bob-spare"}, human_tok, "trio")[1]["cancelled"] == 1,
+              "the owner cancels an invite still belonging to a member")
+
+        # Keep route snapshots stale while changing authorization through another connection.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("telegent_server", os.path.join(ROOT, "server.py"))
+        server = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(server)
+        server.Cfg.db = db
+        con = server.db()
+        pid = con.execute("SELECT id FROM projects WHERE slug = 'trio'").fetchone()[0]
+        stale_user = con.execute("SELECT * FROM users WHERE name = 'bob'").fetchone()
+        check(hp("POST", "/api/members/remove", {"name": "bob-helper"}, bob_tok, "trio")[0] == 200,
+              "the member's agent is project-less for stale authorization checks")
+        original_project_for = server.project_for
+        changes = sqlite3.connect(db, isolation_level=None)
+        try:
+            for role in ("member", "owner"):
+                changes.execute("UPDATE members SET role = ? WHERE project_id = ? AND user = 'bob'", (role, pid))
+                stale_project = con.execute("SELECT p.*, m.role FROM projects p JOIN members m ON m.project_id = p.id "
+                                            "WHERE p.id = ? AND m.user = 'bob'", (pid,)).fetchone()
+                server.project_for = lambda *args: stale_project
+                for change in ("removed", "revoked"):
+                    if change == "removed":
+                        changes.execute("DELETE FROM members WHERE project_id = ? AND user = 'bob'", (pid,))
+                    else:
+                        changes.execute("UPDATE users SET revoked = 1 WHERE name = 'bob'")
+                    for action, data in ((server.api_member_add, {"name": "bob-helper"}),
+                                         (server.api_invite_create, {"name": "bob-race", "kind": "agent"})):
+                        try:
+                            action(None, stale_user, {}, data)
+                        except server.ApiError as e:
+                            check(e.code == 403, f"a stale {role} {change} before {action.__name__} is refused")
+                        else:
+                            raise AssertionError(f"a {change} {role} retained authorization")
+                    check(not con.execute("SELECT 1 FROM members WHERE user = 'bob-helper'").fetchone() and
+                          not con.execute("SELECT 1 FROM invites WHERE name = 'bob-race'").fetchone(),
+                          "failed stale requests leave no member or invite")
+                    changes.execute("UPDATE users SET revoked = 0 WHERE name = 'bob'")
+                    changes.execute("INSERT OR REPLACE INTO members(project_id, user, role, added_by, added_ts) "
+                                    "VALUES (?, 'bob', ?, 'alice', ?)", (pid, role, time.time()))
+        finally:
+            changes.execute("UPDATE users SET revoked = 0 WHERE name = 'bob'")
+            changes.execute("UPDATE members SET role = 'member' WHERE project_id = ? AND user = 'bob'", (pid,))
+            changes.close()
+            server.project_for = original_project_for
+            con.close()
         code, d = hp("POST", "/api/messages", {"body": "в trio"}, human_tok, "trio")
         trio_msg = d["id"]
         check(hp("POST", "/api/project/delete", {"confirm": "trio"}, bob_tok, "trio")[0] == 403, "only owners delete")
-        check(hp("POST", "/api/project/delete", {"confirm": "wrong"}, human_tok, "trio")[0] == 400,
-              "deleting needs the project's name typed")
-        code, d = hp("POST", "/api/project/delete", {"confirm": "Trio"}, human_tok, "trio")
-        check(code == 200 and d["deleted"] == "trio", "the owner deletes the project")
+        deletion_phrase = "Да, я хочу удалить проект и чат вместе с ним"
+        for confirmation in (None, "Trio", "trio", deletion_phrase.lower()):
+            check(hp("POST", "/api/project/delete", {"confirm": confirmation}, human_tok, "trio")[0] == 400,
+                  "deleting requires the exact confirmation phrase")
+        code, d = hp("POST", "/api/project/delete", {"confirm": deletion_phrase.replace(" ", "  ") + " "}, human_tok, "trio")
+        check(code == 200 and d["deleted"] == "trio", "the owner deletes the project with repeated and trailing whitespace")
         check("trio" not in [x["slug"] for x in hp("GET", "/api/projects", tok=bob_tok)[1]["projects"]],
               "members lose the project")
         check(hp("GET", f"/api/messages/{trio_msg}", tok=human_tok)[0] == 404, "its messages are gone")
+        # Agents follow their person by default; departures also cancel their invitations.
+        code, d = hp("POST", "/api/projects", {"title": "Follow on"}, human_tok)
+        check(code == 200 and d["project"]["agents_follow_person"] is True,
+              "new projects enable agents following their person")
+        hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-on")
+        hp("POST", "/api/members/add", {"name": "bob-helper"}, bob_tok, "follow-on")
+        code, owner_pending = hp("POST", "/api/invites", {"name": "bob-owner-invite", "kind": "agent", "owner": "bob"},
+                                 human_tok, "follow-on")
+        code, member_pending = hp("POST", "/api/invites", {"name": "bob-member-invite", "kind": "agent"}, bob_tok, "follow-on")
+        code, kept_pending = hp("POST", "/api/invites", {"name": "alice-pending", "kind": "agent"}, human_tok, "follow-on")
+        check(hp("POST", "/api/members/remove", {"name": "bob"}, bob_tok, "follow-on")[0] == 200,
+              "a member leaves a project with following enabled")
+        members = hp("GET", "/api/members", tok=human_tok, project="follow-on")[1]["members"]
+        check(not {"bob", "bob-helper"} & {m["name"] for m in members} and
+              hp("GET", "/api/me", tok=bob_helper)[1]["project"] is None,
+              "their agent leaves too and its account remains usable")
+        check(all(hp("POST", "/api/join", {"code": inv["code"]})[0] == 410
+                  for inv in (owner_pending, member_pending)) and
+              hp("GET", "/api/invite?code=" + kept_pending["code"])[0] == 200,
+              "leaving cancels invites created by or naming the person, preserving others")
+        hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-on")
+        hp("POST", "/api/members/add", {"name": "bob-helper"}, bob_tok, "follow-on")
+        code, owner_pending = hp("POST", "/api/invites", {"name": "bob-owner-invite", "kind": "agent", "owner": "bob"},
+                                 human_tok, "follow-on")
+        code, member_pending = hp("POST", "/api/invites", {"name": "bob-member-invite", "kind": "agent"}, bob_tok, "follow-on")
+        check(hp("POST", "/api/members/remove", {"name": "bob"}, human_tok, "follow-on")[0] == 200 and
+              not {"bob", "bob-helper"} & {m["name"] for m in
+                  hp("GET", "/api/members", tok=human_tok, project="follow-on")[1]["members"]} and
+              all(hp("POST", "/api/join", {"code": inv["code"]})[0] == 410 for inv in (owner_pending, member_pending)),
+              "owner removal also detaches agents and deletes both kinds of person-related invites")
+
+        code, d = hp("POST", "/api/projects", {"title": "Follow off"}, human_tok)
+        hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-off")
+        hp("POST", "/api/members/add", {"name": "bob-helper"}, bob_tok, "follow-off")
+        check(hp("POST", "/api/project/settings", {"agents_follow_person": False}, bob_tok, "follow-off")[0] == 403 and
+              hp("POST", "/api/project/settings", {"agents_follow_person": False}, bob_helper, "follow-off")[0] == 403,
+              "members and agents cannot change the project setting")
+        check(hp("POST", "/api/project/settings", {"agents_follow_person": 1}, human_tok, "follow-off")[0] == 400 and
+              hp("POST", "/api/project/settings", {"agents_follow_person": False}, human_tok, "follow-off")[0] == 200 and
+              hp("GET", "/api/me", tok=human_tok, project="follow-off")[1]["project"]["agents_follow_person"] is False and
+              next(p for p in hp("GET", "/api/projects", tok=human_tok)[1]["projects"]
+                   if p["slug"] == "follow-off")["agents_follow_person"] is False,
+              "the owner changes a boolean setting exposed in all project payloads")
+        code, d = hp("POST", "/api/invites", {"name": "alice-helper", "kind": "agent"}, human_tok, "follow-off")
+        code, joined = hp("POST", "/api/join", {"code": d["code"]})
+        alice_helper = joined["token"]
+        check(hp("POST", "/api/members/remove-orphans", {}, bob_tok, "follow-off")[0] == 403 and
+              hp("POST", "/api/members/remove-orphans", {}, bob_helper, "follow-off")[0] == 403,
+              "only owners remove orphan agents")
+        code, member_pending = hp("POST", "/api/invites", {"name": "bob-off-invite", "kind": "agent"}, bob_tok, "follow-off")
+        hp("POST", "/api/members/remove", {"name": "bob"}, bob_tok, "follow-off")
+        members = {m["name"]: m for m in hp("GET", "/api/members", tok=human_tok, project="follow-off")[1]["members"]}
+        check(members["bob-helper"]["orphan"] is True and members["alice-helper"]["orphan"] is False and
+              "orphan" not in members[inviter] and
+              hp("POST", "/api/join", {"code": member_pending["code"]})[0] == 410,
+              "with following off the agent stays flagged as orphan and invitations still disappear")
+        code, removed = hp("POST", "/api/members/remove-orphans", {}, human_tok, "follow-off")
+        check(code == 200 and removed["removed"] == ["bob-helper"] and
+              hp("GET", "/api/me", tok=alice_helper)[1]["project"]["slug"] == "follow-off" and
+              hp("GET", "/api/me", tok=bob_helper)[1]["project"] is None and
+              hp("GET", "/api/me", tok=bob_tok, project="main")[1]["project"]["slug"] == "main" and
+              "bob-agent" in {m["name"] for m in hp("GET", "/api/members", tok=bob_tok, project="main")[1]["members"]},
+              "orphan cleanup returns only removed names, preserving healthy and other-project members")
+        hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-off")
+        hp("POST", "/api/members/add", {"name": "bob-helper"}, bob_tok, "follow-off")
+        hp("POST", "/api/members/remove", {"name": "bob"}, human_tok, "follow-off")
+        check(next(m for m in hp("GET", "/api/members", tok=human_tok, project="follow-off")[1]["members"]
+                   if m["name"] == "bob-helper")["orphan"] is True,
+              "owner removal also leaves agents orphaned when following is off")
+        hp("POST", "/api/members/remove-orphans", {}, human_tok, "follow-off")
+
+        # Retain invites while removing just the person to exercise redemption's own check.
+        server._db = None
+        con = server.db()
+        off_pid = con.execute("SELECT id FROM projects WHERE slug = 'follow-off'").fetchone()[0]
+        for existing in (False, True):
+            hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-off")
+            data = {"name": "bob-helper"} if existing else {"name": "bob-retained", "kind": "agent", "owner": "bob"}
+            code, retained = hp("POST", "/api/invites", data, human_tok, "follow-off")
+            con.execute("DELETE FROM members WHERE project_id = ? AND user = 'bob'", (off_pid,))
+            check(hp("POST", "/api/join", {"code": retained["code"]}, bob_helper if existing else None)[0] == 410 and
+                  con.execute("SELECT used_ts FROM invites WHERE name = ?", (data["name"],)).fetchone()[0] is None,
+                  "new and add agent invites reject a departed person without consuming the invite")
+
+        # A departure between viewing and accepting a person's invite must return 410 in either join mode.
+        hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-off")
+        hp("POST", "/api/members/role", {"name": "bob", "role": "owner"}, human_tok, "follow-off")
+        code, person_invite = hp("POST", "/api/invites", {"name": "carol-guest"}, bob_tok, "follow-off")
+        check(hp("GET", "/api/invite?code=" + person_invite["code"])[0] == 200,
+              "the person invite is visible before its creator leaves")
+        hp("POST", "/api/members/remove", {"name": "bob"}, bob_tok, "follow-off")
+        check(hp("POST", "/api/join", {"code": person_invite["code"], "password": "guest pass 1"})[0] == 410 and
+              hp("POST", "/api/join", {"code": person_invite["code"], "as_existing": True}, carol)[0] == 410,
+              "deleted invitations return 410 for new-account and existing-account redemption")
+
+        # Interleave a real departure just before the redemption transaction acquires its write lock.
+        class DepartureBeforeWrite:
+            def __init__(self, connection):
+                self.connection = connection
+                self.pending = True
+
+            def execute(self, sql, args=()):
+                if sql == "BEGIN IMMEDIATE" and self.pending:
+                    self.pending = False
+                    check(hp("POST", "/api/members/remove", {"name": "bob"}, bob_tok, "follow-off")[0] == 200,
+                          "the invite creator departs before redemption acquires its write lock")
+                return self.connection.execute(sql, args)
+
+        for as_existing in (False, True):
+            hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-off")
+            hp("POST", "/api/members/role", {"name": "bob", "role": "owner"}, human_tok, "follow-off")
+            code, racing = hp("POST", "/api/invites", {"name": "carol-race"}, bob_tok, "follow-off")
+            server._db = DepartureBeforeWrite(con)
+            try:
+                server.redeem_invite(racing["code"], password="guest pass 1",
+                                     me=con.execute("SELECT * FROM users WHERE name = 'carol'").fetchone(),
+                                     as_existing=as_existing)
+            except server.ApiError as e:
+                check(e.code == 410 and not con.in_transaction,
+                      "a departure before the write lock returns 410 and rolls back in either join mode")
+            else:
+                raise AssertionError("a deleted invitation was redeemed")
+            finally:
+                server._db = con
+        check(not con.execute("SELECT 1 FROM users WHERE name = 'carol-race'").fetchone(),
+              "interleaved departures leave no new account")
+
+        for agent, agent_tok_now in (("alice-helper", alice_helper), ("bob-helper", bob_helper)):
+            code, reset = hp("POST", "/api/reset", {"name": agent}, human_tok)
+            code, joined = hp("POST", "/api/join", {"code": reset["code"]})
+            check(code == 200 and hp("GET", "/api/me", tok=agent_tok_now)[0] == 401 and
+                  hp("GET", "/api/me", tok=joined["token"])[0] == 200,
+                  "agent token resets work both in a project and without one")
+            if agent == "bob-helper":
+                bob_helper = joined["token"]
+
+        # The last active human owner chooses a successor inside the departure transaction.
+        leaving_name = hp("GET", "/api/me", tok=human_tok)[1]["name"]
+        check(hp("POST", "/api/projects", {"title": "Handover"}, human_tok)[0] == 200 and
+              hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "handover")[0] == 200,
+              "a project and second human are ready for handover")
+        code, invite = hp("POST", "/api/invites", {"name": "carol"}, human_tok, "handover")
+        check(code == 200 and hp("POST", "/api/join", {"code": invite["code"]}, carol)[0] == 200,
+              "the third human accepts an existing-account invitation")
+        handover_pid = con.execute("SELECT id FROM projects WHERE slug = 'handover'").fetchone()[0]
+        con.execute("UPDATE members SET added_ts = CASE user WHEN 'carol' THEN 1 ELSE 2 END WHERE project_id = ?",
+                    (handover_pid,))
+        code, needed = hp("POST", "/api/members/remove", {"name": leaving_name}, human_tok, "handover")
+        check(code == 409 and needed["kind"] == "successor_required" and needed["successor"] == "carol" and
+              needed["candidates"] == ["carol", "bob"], "the last owner gets the oldest human as default successor")
+        check(hp("POST", "/api/members/role", {"name": leaving_name, "role": "member"}, human_tok, "handover")[0] == 409,
+              "the last owner cannot demote themselves")
+        hp("POST", "/api/members/role", {"name": "bob", "role": "owner"}, human_tok, "handover")
+        con.execute("UPDATE users SET revoked = 1 WHERE name = 'bob'")
+        try:
+            code, needed = hp("POST", "/api/members/remove", {"name": leaving_name, "successor": "bob"}, human_tok, "handover")
+            check(code == 409 and needed["successor"] == "carol" and needed["candidates"] == ["carol"],
+                  "a revoked co-owner counts as neither an owner nor a successor")
+            check(hp("POST", "/api/members/role", {"name": leaving_name, "role": "member"}, human_tok, "handover")[0] == 409 and
+                  hp("POST", "/api/members/role", {"name": "bob", "role": "owner"}, human_tok, "handover")[0] == 400,
+                  "role changes ignore revoked owners and cannot promote revoked people")
+        finally:
+            con.execute("UPDATE users SET revoked = 0 WHERE name = 'bob'")
+            con.execute("UPDATE members SET role = 'member' WHERE project_id = ? AND user = 'bob'", (handover_pid,))
+        hp("POST", "/api/members/remove", {"name": "carol"}, carol, "handover")
+        code, needed = hp("POST", "/api/members/remove", {"name": leaving_name, "successor": "carol"}, human_tok, "handover")
+        check(code == 409 and needed["successor"] == "bob", "a successor who already left is refused with a new default")
+        code, invite = hp("POST", "/api/invites", {"name": "carol"}, human_tok, "handover")
+        check(code == 200 and hp("POST", "/api/join", {"code": invite["code"]}, carol)[0] == 200,
+              "the departed human rejoins for the write-lock check")
+        stale_handover = con.execute("SELECT p.*, m.role FROM projects p JOIN members m ON m.project_id = p.id "
+                                    "WHERE p.id = ? AND m.user = ?", (handover_pid, leaving_name)).fetchone()
+
+        class SuccessorBeforeWrite:
+            def execute(self, sql, args=()):
+                if sql == "BEGIN IMMEDIATE":
+                    check(hp("POST", "/api/members/remove", {"name": "bob"}, bob_tok, "handover")[0] == 200,
+                          "the selected successor leaves before the write lock")
+                return con.execute(sql, args)
+
+        server.project_for = lambda *args: stale_handover
+        server._db = SuccessorBeforeWrite()
+        try:
+            server.api_member_remove(None, con.execute("SELECT * FROM users WHERE name = ?", (leaving_name,)).fetchone(), {},
+                                     {"name": leaving_name, "successor": "bob"})
+        except server.ApiError as e:
+            check(e.code == 409 and e.extra["successor"] == "carol" and not con.in_transaction,
+                  "successor validation is repeated after acquiring the write lock")
+        else:
+            raise AssertionError("a departed successor was accepted")
+        finally:
+            server.project_for = original_project_for
+            server._db = con
+        code, d = hp("POST", "/api/members/remove", {"name": leaving_name, "successor": "carol"}, human_tok, "handover")
+        check(code == 200 and hp("GET", "/api/me", tok=carol, project="handover")[1]["project"]["role"] == "owner" and
+              hp("GET", "/api/members", tok=human_tok, project="handover")[0] == 404,
+              "leaving with a successor transfers ownership and removes the old owner")
+        hp("POST", "/api/projects", {"title": "Solo"}, human_tok)
+        solo_pid = con.execute("SELECT id FROM projects WHERE slug = 'solo'").fetchone()[0]
+        con.execute("INSERT INTO members(project_id, user, role, added_ts) VALUES (?, 'bob', 'owner', 1)", (solo_pid,))
+        con.execute("UPDATE users SET revoked = 1 WHERE name = 'bob'")
+        try:
+            code, needed = hp("POST", "/api/members/remove", {"name": leaving_name}, human_tok, "solo")
+            check(code == 409 and needed["kind"] == "no_successor", "a project without another active human cannot be left")
+            check(hp("POST", "/api/members/remove", {"name": "bob"}, human_tok, "solo")[0] == 200,
+                  "a revoked owner can be removed without handing over ownership")
+        finally:
+            con.execute("UPDATE users SET revoked = 0 WHERE name = 'bob'")
+
+        # Revocation detaches agents across projects regardless of each setting.
+        hp("POST", "/api/members/add", {"name": "bob"}, human_tok, "follow-off")
+        hp("POST", "/api/members/add", {"name": "bob-helper"}, bob_tok, "follow-off")
+        code, by_bob = hp("POST", "/api/invites", {"name": "bob-revoke-new", "kind": "agent"}, bob_tok, "main")
+        code, for_bob = hp("POST", "/api/invites", {"name": "bob-revoke-owned", "kind": "agent", "owner": "bob"},
+                           human_tok, "follow-off")
+        code, reset_bob = hp("POST", "/api/reset", {"name": "bob-helper"}, bob_tok)
+        bob_session = server.new_session("bob")
+        repair_projects = []
+        for slug, bob_role, timestamps, expected in (
+                ("revoke-owner", "owner", (2, 1), "carol"),
+                ("revoke-tie", "owner", (1, 1), leaving_name),
+                ("revoke-ownerless", "member", (2, 1), "carol")):
+            pid = server.create_project_row(con, slug, slug, "bob")
+            con.executemany("INSERT INTO members(project_id, user, role, added_ts) VALUES (?, ?, ?, ?)",
+                            ((pid, "bob", bob_role, 0), (pid, leaving_name, "member", timestamps[0]),
+                             (pid, "carol", "member", timestamps[1])))
+            repair_projects.append((pid, slug, expected))
+        revoked = subprocess.run([PY, os.path.join(ROOT, "server.py"), "--db", db, "revoke", "bob"],
+                                 check=True, capture_output=True, text=True, encoding="utf-8", env=ENV)
+        check(not con.execute("SELECT 1 FROM members WHERE user IN ('bob-agent', 'bob-helper')").fetchone() and
+              con.execute("SELECT revoked FROM users WHERE name = 'bob'").fetchone()[0] == 1 and
+              hp("GET", "/api/me", tok=bob_session)[0] == 401 and
+              all(hp("POST", "/api/join", {"code": inv["code"]})[0] == 410 for inv in (by_bob, for_bob, reset_bob)) and
+              hp("GET", "/api/invite?code=" + kept_pending["code"])[0] == 200,
+              "revoke disables the person, closes sessions and removes all their agents and live invites globally")
+        for pid, slug, expected in repair_projects:
+            check(server.active_role(con, pid, expected) == "owner" and
+                  f"проект «{slug}»: новый владелец {expected}" in revoked.stdout and
+                  hp("POST", "/api/project/settings", {"agents_follow_person": False},
+                     carol if expected == "carol" else human_tok, slug)[0] == 200,
+                  f"revoke repairs {slug} with the oldest active human, breaking ties by name")
+        con.close()
+        check_project_migrations(tmp)
         print("\nALL OK")
     finally:
         if watcher:

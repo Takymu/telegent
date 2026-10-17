@@ -1,0 +1,82 @@
+{
+  "name": "telegent-desk",
+  "version": "0.3.2",
+  "author": {
+    "name": "Cordip"
+  },
+  "description": "telegent team mail for Claude Code: the human sees it, the agent gets short notes",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "python": {
+      "type": "string",
+      "title": "Python",
+      "description": "Python executable that runs tg.py",
+      "default": "python3"
+    },
+    "client": {
+      "type": "string",
+      "title": "tg.py",
+      "description": "Path to tg.py; empty: client_path from the project's .telegent.json",
+      "default": ""
+    },
+    "config": {
+      "type": "string",
+      "title": "Config",
+      "description": "Path to the telegent config; empty: the project's .telegent.json",
+      "default": ""
+    },
+    "triage": {
+      "type": "boolean",
+      "title": "Secretary",
+      "description": "Sort new messages with a small model, retell requests, draft status replies",
+      "default": true
+    },
+    "classifyPerHour": {
+      "type": "number",
+      "title": "Secretary calls per hour",
+      "description": "Model calls the secretary may make in an hour; past it, messages follow the plain rule",
+      "default": 30
+    },
+    "secretaryModel": {
+      "type": "string",
+      "title": "Secretary model",
+      "description": "Alias or id of the model for sorting and retelling",
+      "default": "haiku"
+    },
+    "autoReplyStatus": {
+      "type": "boolean",
+      "title": "Auto-reply status questions",
+      "description": "Send the secretary's draft answer to status questions without a press; requests, alerts and decisions always wait for one",
+      "default": false
+    },
+    "fileGuard": {
+      "type": "string",
+      "title": "File guard",
+      "description": "When a file is held by someone else's file:<path> claim: off, ask (a dialog in modes that ask) or deny (stops the edit in every mode)",
+      "default": "off",
+      "options": [
+        "off",
+        "ask",
+        "deny"
+      ]
+    },
+    "boardAuto": {
+      "type": "boolean",
+      "title": "Board updates",
+      "description": "After a turn, at most every 10 minutes, set the board's 'now' line from the answer",
+      "default": false
+    },
+    "wakeIdle": {
+      "type": "boolean",
+      "title": "Wake when idle",
+      "description": "Start a turn when mail for the agent arrives while the session is idle",
+      "default": false
+    },
+    "pollSeconds": {
+      "type": "number",
+      "title": "Poll interval, s",
+      "description": "How often the desk checks the server",
+      "default": 30
+    }
+  }
+}
