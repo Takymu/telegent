@@ -292,6 +292,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .mrc .ok2 { color: var(--accent); }
 .mrc.soft { visibility: hidden; height: 0; margin: 0; }
 @media (hover: hover) { .mrow:hover .mrc.soft { visibility: visible; height: auto; margin-top: 3px; } }
+.mrow:focus-within .mrc.soft { visibility: visible; height: auto; margin-top: 3px; }
+@media (hover: none), (pointer: coarse), (max-width: 900px) { .mrc.soft { visibility: visible; height: auto; margin-top: 3px; font-size: 12px; } }
 .mtools { display: none; position: absolute; top: -14px; right: 10px; z-index: 3; gap: 2px; padding: 2px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); }
 .mtools button { border: 0; background: transparent; padding: 3px 8px; font-size: 13px; border-radius: 6px; }
@@ -638,6 +640,7 @@ let TAB = "feed";
 let TOKEN = null, ME = null, LAST = 0, OLDEST = null, MSGS = new Map(), THREAD = null, REPLY = null, POLLING = false;
 // projects: PROJECT is the open one (sent as X-Telegent-Project), PROJECTS the list in the left column
 let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREAD_FROM = 0;
+let RECEIPT_REVISION = null;
 // feed: oldest on top, newest at the bottom; one page on open, older pages load when scrolled to the top
 const PAGE = 100;
 let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
@@ -910,6 +913,7 @@ async function login(tok) {
   $("devChatBtn").classList.toggle("hidden", ME.kind !== "human" || !ME.is_admin);
   setHeaderHeight();
   PROJECTS = ME.projects || [];
+  await loadProjects();
   const want = WANT_PROJECT || st.get("tg_project");
   const pick = PROJECTS.find(p => p.slug === want) || PROJECTS[0];
   if (pick) await setProject(pick.slug); else showNoProject();
@@ -919,6 +923,7 @@ async function login(tok) {
 
 // ---- projects
 function showNoProject() {
+  READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = null; st.set("tg_project", null);
   $("projTitle").textContent = "";
   $("noProject").classList.remove("hidden");
@@ -933,10 +938,12 @@ function showNoProject() {
 async function setProject(slug) {
   if (SENDING) { toast("Дождись отправки сообщения или нажми «Отмена»", true); return; }
   closeMenu();
+  READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = slug; st.set("tg_project", slug);
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
   MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;
   REACTION_REVISION = null;
+  RECEIPT_REVISION = null;
   UNREAD_FROM = seen(slug);
   try { ME = await api("GET", "/api/me"); }
   catch (e) { if (/проекта/.test(e.message)) { PROJECT = null; return login(TOKEN); } throw e; }
@@ -952,12 +959,8 @@ async function setProject(slug) {
   await reload(); loadPresence(); renderProjects();
 }
 
-const seen = slug => +(st.get("tg_seen_" + slug) || 0);
+const seen = slug => +(PROJECTS.find(p => p.slug === slug)?.read_upto || 0);
 function renderProjects() {
-  if (PROJECT) {   // what is shown counts as seen
-    const cur = PROJECTS.find(p => p.slug === PROJECT);
-    if (cur) st.set("tg_seen_" + PROJECT, String(Math.max(seen(PROJECT), cur.last_id || 0, LAST)));
-  }
   $("projList").innerHTML = PROJECTS.length ? PROJECTS.map(p => {
     const n = p.slug !== PROJECT ? (p.unread != null ? p.unread : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
     return `<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
@@ -991,9 +994,10 @@ function openProjectMenu(slug, anchor) {
 }
 
 async function loadProjects() {
-  const q = PROJECTS.map(p => `${p.slug}:${seen(p.slug)}`).join(",");
   try {
-    PROJECTS = (await api("GET", "/api/projects" + (q ? "?seen=" + encodeURIComponent(q) : ""))).projects;
+    PROJECTS = (await api("GET", "/api/projects")).projects;
+    const current = PROJECTS.find(p => p.slug === PROJECT);
+    if (current) NTF.unread = document.visibilityState === "visible" ? 0 : (current.unread || 0);
     applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects();
   } catch {}
 }
@@ -1126,13 +1130,59 @@ function filterQuery() {
 function online() { $("conn").className = "dot on"; $("conn").title = "на связи"; }
 const SC = $("scroller");   // the only scrolling element: the feed between the tabs and the composer
 const nearBottom = () => SC.scrollHeight - SC.scrollTop - SC.clientHeight < 160;
+let READ_TIMER = null;
+const READ_IDS = new Set();
+function readingFeed() {
+  return ME?.kind === "human" && TAB === "feed" && document.visibilityState === "visible" &&
+    !["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "menu"].some(id => !$(id).classList.contains("hidden")) &&
+    !(innerWidth <= 900 && ["projects", "aside"].some(id => $(id).classList.contains("open")));
+}
+const READ_OBSERVER = new IntersectionObserver(entries => {
+  if (!readingFeed()) return;
+  for (const entry of entries) {
+    const id = +entry.target.dataset.msg, m = MSGS.get(id);
+    if (entry.isIntersecting && entry.target.isConnected && m && !m.read && !isMine(m) && !isSys(m)) READ_IDS.add(id);
+  }
+  scheduleRead();
+}, {root: SC});
+function scheduleRead() {
+  if (!READ_TIMER) READ_TIMER = setTimeout(flushReads, 250);
+}
+async function flushReads() {
+  READ_TIMER = null;
+  if (!PROJECT || !readingFeed()) return;
+  const slug = PROJECT, token = TOKEN, ids = [...READ_IDS].filter(id => MSGS.has(id)); READ_IDS.clear();
+  const plainFeed = !THREAD && !["q", "fTopic", "fType"].some(id => $(id).value.trim()) &&
+    !["fOpen", "fPending", "fWaiting"].some(id => $(id).checked);
+  const upto = plainFeed && SC.scrollHeight - SC.scrollTop - SC.clientHeight < 12 ? Math.max(0, ...MSGS.keys()) : 0;
+  const data = {kind: "read", ids};
+  if (upto > (ME.project?.read_upto || 0)) data.seen_upto = upto;
+  if (!ids.length && data.seen_upto == null) return;
+  try {
+    const res = await api("POST", "/api/receipts?project=" + encodeURIComponent(slug), data);
+    if (TOKEN !== token || PROJECT !== slug) return;
+    for (const id of res.ids) { const m = MSGS.get(id); if (m) m.read = true; }
+    if (res.read_upto != null) ME.project.read_upto = res.read_upto;
+    await loadProjects();
+  } catch { /* A failed read stays unread and is retried on the next render/visibility change. */ }
+}
+function observeReadRows() {
+  READ_OBSERVER.disconnect();
+  if (readingFeed()) {
+    for (const row of $("feed").querySelectorAll("[data-msg]")) READ_OBSERVER.observe(row);
+    scheduleRead();
+  }
+}
+const READ_VISIBILITY = new MutationObserver(observeReadRows);
+for (const id of ["projects", "aside", "invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "menu"])
+  READ_VISIBILITY.observe($(id), {attributes: true, attributeFilter: ["class"]});
 function toBottom() { SC.scrollTop = SC.scrollHeight; UNSEEN = 0; updateNewBtn(); }
 function updateNewBtn() {
   $("newBtn").classList.toggle("hidden", !UNSEEN);
   $("newBtn").textContent = `↓ новые (${UNSEEN})`;
 }
 $("newBtn").onclick = toBottom;
-SC.addEventListener("scroll", () => { if (UNSEEN && nearBottom()) { UNSEEN = 0; updateNewBtn(); } }, {passive: true});
+SC.addEventListener("scroll", () => { if (UNSEEN && nearBottom()) { UNSEEN = 0; updateNewBtn(); } scheduleRead(); }, {passive: true});
 function setHeaderHeight() { document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px"); }
 window.addEventListener("resize", setHeaderHeight);
 
@@ -1142,6 +1192,7 @@ async function reload() {
   const res = await api("GET", "/api/messages?" + q);
   MSGS = new Map(res.messages.map(m => [m.id, m]));
   REACTION_REVISION = res.reaction_revision;
+  RECEIPT_REVISION = res.receipt_revision;
   OLDEST = res.messages.length ? res.messages[0].id : null;
   NO_MORE = res.messages.length < PAGE;
   LAST = Math.max(LAST, res.last_id);
@@ -1159,6 +1210,7 @@ async function refresh() {
   const fresh = res.messages.filter(m => !MSGS.has(m.id)).length;
   MSGS = new Map(res.messages.map(m => [m.id, m]));
   REACTION_REVISION = res.reaction_revision;
+  RECEIPT_REVISION = res.receipt_revision;
   if (!OLDEST && res.messages.length) OLDEST = res.messages[0].id;
   LAST = Math.max(LAST, res.last_id);
   ntfNew(res.messages.filter(m => m.id > NTF.seen)); NTF.seen = Math.max(NTF.seen, res.last_id);
@@ -1211,13 +1263,14 @@ function render(force) {
   let html = "", prev = null, newShown = false;
   for (const m of list) {
     if (!prev || prev.time.slice(0, 10) !== m.time.slice(0, 10)) html += `<div class="daysep"><span>${dayLabel(m.time)}</span></div>`;
-    if (UNREAD_FROM && !newShown && m.id > UNREAD_FROM && !isMine(m) && !isSys(m)) {
+    if (UNREAD_FROM && !newShown && m.id > UNREAD_FROM && !m.read && !isMine(m) && !isSys(m)) {
       html += `<div class="newsep"><span>Новые</span></div>`; newShown = true;
     }
     html += row(m, prev);
     prev = m;
   }
   $("feed").innerHTML = list.length ? html : `<div class="sysrow" style="margin-top:20vh">Здесь пока тихо. Напиши первым.</div>`;
+  observeReadRows();
   $("moreBox").classList.toggle("hidden", NO_MORE || !list.length);
   $("threadBar").classList.toggle("hidden", !THREAD);
   if (THREAD) $("threadBar").innerHTML = `Ветка #${THREAD} · <a href="#" data-act="unthread">вернуться ко всей ленте</a>`;
@@ -1296,11 +1349,12 @@ function row(m, prev) {
   }
   html += reactionBar(m);
   if ((m.receipts || []).length) {   // delivery to each addressee: people oversee who got what
-    const read = m.receipts.filter(r => r.read || r.acked), got = m.receipts.filter(r => r.delivered && !r.read && !r.acked),
-      wait = m.receipts.filter(r => !r.delivered);
+    const handled = m.receipts.filter(r => r.acked), read = m.receipts.filter(r => r.read && !r.acked),
+      got = m.receipts.filter(r => r.delivered && !r.read && !r.acked), wait = m.receipts.filter(r => !r.delivered && !r.read && !r.acked);
     const who = rs => rs.map(r => `<span title="${esc(r.user)}: ${r.acked ? "обработал " + shortTime(r.acked) : r.read ? "прочитал " +
       shortTime(r.read) : r.delivered ? "получил " + shortTime(r.delivered) : "ещё не получил"}">${esc(r.user)}</span>`).join(", ");
     const parts = [];
+    if (handled.length) parts.push(`<span class="ok2">✓✓</span> обработал: ${who(handled)}`);
     if (read.length) parts.push(`<span class="ok2">✓✓</span> прочитал: ${who(read)}`);
     if (got.length) parts.push(`✓ получил: ${who(got)}`);
     if (wait.length) parts.push(`ещё не получил: ${who(wait)}`);
@@ -2112,7 +2166,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("mess
 
 // why a new message deserves a notification; null = it does not
 function ntfReason(m) {
-  if (isMine(m)) return null;
+  if (isMine(m) || m.read || m.acked || m.id <= (ME.project?.read_upto || 0)) return null;
   if (m.type === "approval") { const o = MSGS.get(m.reply_to); return o && isMine(o) ? "Решение" : null; }
   if (m.needs_approval && !m.approvals.length && (!m.approver || m.approver === ME.name)) return "Нужно твоё решение";
   if (m.priority === "urgent") return "Срочно";
@@ -2144,7 +2198,11 @@ function ntfTitle() {
   const n = NTF.unread || NTF.pending;
   document.title = (n ? `(${n}) ` : "") + (PROJECT && ME && ME.project ? ME.project.title + " · " : "") + "telegent";
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { NTF.unread = 0; ntfTitle(); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && TOKEN && PROJECT) {
+    NTF.unread = 0; ntfTitle(); observeReadRows(); refresh().catch(() => {}); loadProjects();
+  }
+});
 // ---- end browser notifications
 
 async function poll() {
@@ -2155,7 +2213,8 @@ async function poll() {
     try {
       POLL_ABORT = new AbortController();
       const revision = REACTION_REVISION == null ? "" : `&reaction_revision=${encodeURIComponent(REACTION_REVISION)}`;
-      const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25${revision}`, null, POLL_ABORT.signal);
+      const receipts = RECEIPT_REVISION == null ? "" : `&receipt_revision=${encodeURIComponent(RECEIPT_REVISION)}`;
+      const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25${revision}${receipts}`, null, POLL_ABORT.signal);
       $("conn").className = "dot on"; $("conn").title = "на связи"; delay = 1000; fails = 0;
       if (res.messages.length) {
         LAST = Math.max(LAST, ...res.messages.map(m => m.id));

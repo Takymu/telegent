@@ -116,6 +116,8 @@ python tests/test_attachments.py # HTTP, нехватка места, права
 python tests/test_projects.py    # создатель, права, переименование, сохранность файлов и приглашений
 python tests/test_agent_names.py # имена внутри проекта, стабильные ключи, адресаты и миграция
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
+python tests/test_markdown.py     # Firefox: разметка, опасные вставки, исходный текст, десктоп и телефон
+python tests/test_read_sync.py    # две сессии одного аккаунта, права, позиции чтения и квитанции
 ```
 Перед каждой выкаткой. Тест не должен трогать настоящий `~/.telegent` (там подменяется `HOME`/
 `USERPROFILE`) и настоящий `url.txt` (в конфигах тестовых клиентов `"url_source": ""`).

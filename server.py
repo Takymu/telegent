@@ -189,6 +189,7 @@ NEW_MSG = threading.Condition()
 LAST_ID = [0]
 REACTION_EPOCH = secrets.token_hex(8)
 REACTION_REVISIONS = {}
+RECEIPT_REVISIONS = {}
 _db = None
 TG_QUEUE = queue.Queue()
 
@@ -205,6 +206,7 @@ def db():
                                  ("users", "last_wait_ts", "REAL"), ("users", "pw_hash", "TEXT"),
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("members", "read_upto", "INTEGER NOT NULL DEFAULT 0"),
                                  ("attachments", "upload_id", "TEXT"),
                                  ("projects", "admin_owner", "TEXT"), ("projects", "service_agent", "TEXT"),
                                  ("messages", "project_id", "INTEGER"), ("messages", "approver", "TEXT"),
@@ -1090,15 +1092,23 @@ def mark(me, ids, kind):
     con = db()
     with DB_LOCK:
         for mid in ids:
+            message = con.execute("SELECT project_id FROM messages WHERE id=?", (mid,)).fetchone()
+            if not message:
+                continue
             con.execute("INSERT OR IGNORE INTO receipts(user, message_id) VALUES (?, ?)", (me["name"], mid))
-            con.execute("UPDATE receipts SET delivered_ts = COALESCE(delivered_ts, ?) WHERE user = ? AND message_id = ?",
-                        (now, me["name"], mid))
+            changed = con.execute("UPDATE receipts SET delivered_ts = ? WHERE user = ? AND message_id = ? AND delivered_ts IS NULL",
+                                  (now, me["name"], mid)).rowcount
             if kind in ("read", "ack"):
-                con.execute("UPDATE receipts SET read_ts = COALESCE(read_ts, ?) WHERE user = ? AND message_id = ?",
-                            (now, me["name"], mid))
+                changed += con.execute("UPDATE receipts SET read_ts = ? WHERE user = ? AND message_id = ? AND read_ts IS NULL",
+                                       (now, me["name"], mid)).rowcount
             if kind == "ack":
-                con.execute("UPDATE receipts SET ack_ts = COALESCE(ack_ts, ?) WHERE user = ? AND message_id = ?",
-                            (now, me["name"], mid))
+                changed += con.execute("UPDATE receipts SET ack_ts = ? WHERE user = ? AND message_id = ? AND ack_ts IS NULL",
+                                       (now, me["name"], mid)).rowcount
+            if changed:
+                with NEW_MSG:
+                    pid = message["project_id"]
+                    RECEIPT_REVISIONS[pid] = RECEIPT_REVISIONS.get(pid, 0) + 1
+                    NEW_MSG.notify_all()
 
 
 def set_status(me, host, mid, data):
@@ -1379,7 +1389,9 @@ def can_rename_project(p, user):
 
 
 def project_dict(p, user):
+    member = db().execute("SELECT read_upto FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()
     return {"id": p["id"], "slug": p["slug"], "title": p["title"], "role": p["role"],
+            "read_upto": member["read_upto"] if member else 0,
             "created_by": None if p["creator_unknown"] else account_name(p["created_by"]),
             "created_by_id": None if p["creator_unknown"] else p["created_by"], "can_rename": can_rename_project(p, user),
             "kind": "development" if p["admin_owner"] else "team",
@@ -1601,7 +1613,7 @@ def api_join(h, user, q, data):
 # ---- projects and their members
 @route("GET", "/api/projects")
 def api_projects(h, user, q, data):
-    """My projects; with ?seen=slug:id,slug:id also how many messages from others came after what I saw."""
+    """Unread state belongs to the account; legacy ?seen additionally narrows the count."""
     seen = {}
     for part in str(q.get("seen") or "").split(","):
         slug, _, mid = part.partition(":")
@@ -1613,10 +1625,11 @@ def api_projects(h, user, q, data):
             last = db().execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE project_id = ?", (p["id"],)).fetchone()[0]
             n = db().execute("SELECT COUNT(*) FROM members WHERE project_id = ?", (p["id"],)).fetchone()[0]
             d = dict(project_dict(p, user), last_id=last, members=n)
-            if p["slug"] in seen:
-                d["unread"] = db().execute("SELECT COUNT(*) FROM messages WHERE project_id = ? AND id > ? AND author != ? "
-                                           "AND type NOT IN ('status', 'approval')",
-                                           (p["id"], seen[p["slug"]], user["name"])).fetchone()[0]
+            stats = db().execute("SELECT COUNT(*), MIN(m.id) FROM messages m WHERE m.project_id=? AND m.id>? AND m.author!=? "
+                                 "AND m.type NOT IN ('status','approval') AND NOT EXISTS "
+                                 "(SELECT 1 FROM receipts r WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
+                                 (p["id"], max(seen.get(p["slug"], 0), d["read_upto"]), user["name"], user["name"])).fetchone()
+            d.update(unread=stats[0], first_unread_id=stats[1])
             out.append(d)
     return {"projects": out}
 
@@ -1861,9 +1874,10 @@ def api_list(h, user, q, data):
     p = project_for(h, user, q)
     with DB_LOCK:
         msgs = list_messages(user, q, p["id"])
-        if q.get("for_me") == "1" and msgs:
+        if msgs and (q.get("for_me") == "1" or user["kind"] == "human"):
             mark(user, [m["id"] for m in msgs], "delivered")
-        return {"messages": msgs, "last_id": LAST_ID[0], "reaction_revision": reaction_revision(p["id"])}
+        return {"messages": msgs, "last_id": LAST_ID[0], "reaction_revision": reaction_revision(p["id"]),
+                "receipt_revision": receipt_revision(p["id"])}
 
 
 @route("POST", "/api/messages")
@@ -1914,6 +1928,10 @@ def reaction_revision(pid):
     return REACTION_EPOCH + ":" + str(REACTION_REVISIONS.get(pid, 0))
 
 
+def receipt_revision(pid):
+    return REACTION_EPOCH + ":" + str(RECEIPT_REVISIONS.get(pid, 0))
+
+
 @route("POST", r"/api/messages/(\d+)/reaction")
 def api_reaction(h, user, q, data, mid):
     with DB_LOCK:
@@ -1961,6 +1979,21 @@ def api_receipts(h, user, q, data):
         raise ApiError(400, "kind: read | ack")
     ids = [int(x) for x in data.get("ids") or []]
     with DB_LOCK:
+        cursor = None
+        if "seen_upto" in data:
+            if kind != "read" or type(data["seen_upto"]) is not int or not 0 <= data["seen_upto"] < 2**63:
+                raise ApiError(400, "seen_upto: целый неотрицательный номер, только вместе с kind=read")
+            p = project_for(h, user, q)
+            # Never pre-read messages that do not exist yet, or use another project's cursor.
+            latest = db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE project_id=? AND id<=?",
+                                  (p["id"], data["seen_upto"])).fetchone()[0]
+            changed = db().execute("UPDATE members SET read_upto=? WHERE project_id=? AND user=? AND read_upto<?",
+                                   (latest, p["id"], user["name"], latest)).rowcount
+            cursor = db().execute("SELECT read_upto FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()[0]
+            if changed:
+                with NEW_MSG:
+                    RECEIPT_REVISIONS[p["id"]] = RECEIPT_REVISIONS.get(p["id"], 0) + 1
+                    NEW_MSG.notify_all()
         if data.get("all_for_me_upto"):
             p = project_for(h, user, q)
             ids = [m["id"] for m in list_messages(user, {"for_me": "1", "unacked": "1", "limit": 1000, "full": "0"}, p["id"])
@@ -1968,8 +2001,8 @@ def api_receipts(h, user, q, data):
         else:   # only messages of projects the user is in
             ids = [i for i in ids if (lambda r: r and member_role(r["project_id"], user["name"]))(
                 db().execute("SELECT project_id FROM messages WHERE id = ?", (i,)).fetchone())]
-    mark(user, ids, kind)
-    return {"ok": True, "ids": ids}
+        mark(user, ids, kind)
+    return {"ok": True, "ids": ids, **({"read_upto": cursor} if cursor is not None else {})}
 
 
 @route("GET", "/api/wait")
@@ -1984,17 +2017,22 @@ def api_wait(h, user, q, data):
         with NEW_MSG:
             seen = LAST_ID[0]
             revision = reaction_revision(p["id"])
+            receipts = receipt_revision(p["id"])
         with DB_LOCK:
             msgs = list_messages(user, qq, p["id"])
-            if msgs and qq["for_me"] == "1":
+            if msgs and (qq["for_me"] == "1" or user["kind"] == "human"):
                 mark(user, [m["id"] for m in msgs], "delivered")
-        if msgs or ("reaction_revision" in q and q["reaction_revision"] != revision):
-            return {"messages": msgs, "last_id": seen, "reaction_revision": revision}
+        if (msgs or ("reaction_revision" in q and q["reaction_revision"] != revision)
+                or ("receipt_revision" in q and q["receipt_revision"] != receipts)):
+            return {"messages": msgs, "last_id": seen, "reaction_revision": revision,
+                    "receipt_revision": receipt_revision(p["id"])}
         remaining = deadline - time.time()
         if remaining <= 0:
-            return {"messages": [], "last_id": max(seen, after), "reaction_revision": revision}
+            return {"messages": [], "last_id": max(seen, after), "reaction_revision": revision,
+                    "receipt_revision": receipt_revision(p["id"])}
         with NEW_MSG:
-            if LAST_ID[0] == seen and reaction_revision(p["id"]) == revision:
+            if (LAST_ID[0] == seen and reaction_revision(p["id"]) == revision
+                    and receipt_revision(p["id"]) == receipts):
                 NEW_MSG.wait(remaining)
 
 
