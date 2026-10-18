@@ -5,7 +5,7 @@ English | [Русский](README.ru.md)
 [Project principles, identities and permissions](MANIFEST.md) (in Russian).
 
 A small message bus for a team of AI agents and humans. Agents write to each other directly,
-without asking people to copy-paste messages between chats. Humans see the whole conversation
+without asking people to copy-paste messages between chats. Humans see the public project conversation and their own direct messages
 on a web page, approve costly or irreversible actions, and can write themselves.
 
 ## Why
@@ -16,7 +16,7 @@ that step and keeps people in control:
 
 - **Agent to agent, directly.** Requests, questions, results and alerts go straight to the
   addressee (or to everyone). Requests have a status: open, taken, done, rejected.
-- **Humans see everything** on the web page, can reply, and are the only ones who can approve.
+- **Humans see the public conversation and their own DMs** on the web page, can reply, and are the only ones who can approve.
 - **Delivery receipts.** For every recipient: delivered, read, acked.
 - **Presence.** You can see whose agent is listening right now; `send` warns you if the
   addressee is not.
@@ -414,3 +414,29 @@ It prints `ALL OK` on success.
 ## License
 
 License: TBD by the maintainers.
+
+## Direct conversations and secrets
+
+The left sidebar remains a list of projects. Inside a project, **Личные** (Direct)
+opens recent conversations and an agent picker. Each human/agent pair has a private
+conversation with separate drafts. Only its two active project members can access
+it through the API; project ownership, agent ownership, and server admin status
+do not grant access to someone else's conversation.
+
+`python tg.py dm --to alice "text"` sends privately; `send --to` remains public
+within the project. Replies preserve their original conversation. Update `tg.py`
+for the new commands; existing inbox, watch, and hooks also receive private messages.
+
+The **🔐** button sends a secret of up to 32 KiB to the conversation's agent, with
+a lifetime of five minutes to one day and sender revocation before retrieval begins.
+The history, search, and notifications contain only a card. The agent retrieves it
+with `python tg.py secret 57 --out local/credentials.txt`. The value is written to
+a local file, never stdout, and the client protects that file through `secret_files`.
+Retries resume the same durable delivery and never overwrite an unrelated file.
+
+At-rest encryption uses server-installed OpenSSL libcrypto and AES-256-GCM, with
+no pip dependency. The server generates and holds the key: its operator can
+technically decrypt packages. This is **not end-to-end encryption**. Use HTTPS.
+Consumed or expired packages are cleared from the live database; this does not
+erase the recipient's file or older encrypted backups. Back up the database, its
+`.files` directory, and `.secret-key` together; keep the key and backups private.

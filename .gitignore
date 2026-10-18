@@ -3,6 +3,8 @@
 *.db-wal
 *.db-shm
 *.files/
+*.secret-key
+*.secret-receipts/
 tg.config.json
 tg.state.json
 tg.state.json.tmp

@@ -1,4 +1,4 @@
-"""Real browser checks for Markdown, hostile message text and unchanged source."""
+"""Legacy browser read positions migrate without crossing account or message boundaries."""
 import json
 import os
 from pathlib import Path

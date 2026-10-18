@@ -11,6 +11,8 @@ See README.md for hosting (tunnel) and AGENTS.md for the agent protocol.
 import argparse
 import base64
 import codecs
+import ctypes
+import ctypes.util
 import hashlib
 import io
 import json
@@ -150,6 +152,13 @@ CREATE TABLE IF NOT EXISTS attachments(
   id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, name TEXT NOT NULL,
   size INTEGER, md5 TEXT, link TEXT, content BLOB);
 CREATE INDEX IF NOT EXISTS ix_att_msg ON attachments(message_id);
+CREATE TABLE IF NOT EXISTS conversations(
+  id TEXT PRIMARY KEY, project_id INTEGER NOT NULL, human TEXT NOT NULL, agent TEXT NOT NULL,
+  created REAL NOT NULL, human_read_upto INTEGER NOT NULL DEFAULT 0, agent_read_upto INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(project_id,human,agent));
+CREATE TABLE IF NOT EXISTS secret_envelopes(
+  message_id INTEGER PRIMARY KEY, recipient TEXT NOT NULL, key_id TEXT NOT NULL,
+  envelope TEXT, expires REAL NOT NULL, claimed_by TEXT, claimed_ts REAL, consumed REAL, revoked REAL);
 CREATE TABLE IF NOT EXISTS file_uploads(
   id TEXT PRIMARY KEY, project_id INTEGER NOT NULL, user TEXT NOT NULL, name TEXT NOT NULL,
   size INTEGER NOT NULL, received INTEGER NOT NULL DEFAULT 0, md5 TEXT, expected_md5 TEXT,
@@ -207,6 +216,7 @@ def db():
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
                                  ("members", "read_upto", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("messages", "conversation_id", "TEXT"),
                                  ("attachments", "upload_id", "TEXT"),
                                  ("projects", "admin_owner", "TEXT"), ("projects", "service_agent", "TEXT"),
                                  ("messages", "project_id", "INTEGER"), ("messages", "approver", "TEXT"),
@@ -226,6 +236,7 @@ def db():
                 _db.execute("ROLLBACK")
                 raise
         _db.executescript("CREATE INDEX IF NOT EXISTS ix_msg_project ON messages(project_id, id);")
+        _db.execute("CREATE INDEX IF NOT EXISTS ix_msg_conversation ON messages(conversation_id,id)")
         if "project_id" not in {r[1] for r in _db.execute("PRAGMA table_info(board)")}:
             # the board used to be one per server: rebuild it keyed by (project, name)
             _db.executescript("""
@@ -744,6 +755,149 @@ def users_with_presence(pid):
 
 
 # ---------------------------------------------------------------- message helpers
+class SecretCipher:
+    """AES-GCM through the installed OpenSSL, not a Python implementation of a cipher."""
+    def __init__(self):
+        candidates = [os.path.join(sys.base_prefix, "DLLs", "libcrypto-3.dll"),
+                      os.path.join(sys.base_prefix, "DLLs", "libcrypto-1_1.dll")] if os.name == "nt" else [ctypes.util.find_library("crypto")]
+        self.lib = None
+        for path in candidates:
+            if path and (os.name != "nt" or os.path.isfile(path)):
+                try:
+                    self.lib = ctypes.CDLL(path)
+                    break
+                except OSError:
+                    pass
+        if not self.lib:
+            raise ApiError(503, "передача секретов недоступна: на сервере не найдена системная libcrypto")
+        p, i = ctypes.c_void_p, ctypes.c_int
+        signatures = {"EVP_CIPHER_CTX_new": (p, []), "EVP_CIPHER_CTX_free": (None, [p]),
+                      "EVP_aes_256_gcm": (p, []), "EVP_CIPHER_CTX_ctrl": (i, [p,i,i,p])}
+        for prefix in ("Encrypt", "Decrypt"):
+            signatures["EVP_"+prefix+"Init_ex"] = (i, [p,p,p,p,p])
+            signatures["EVP_"+prefix+"Update"] = (i, [p,p,ctypes.POINTER(i),p,i])
+            signatures["EVP_"+prefix+"Final_ex"] = (i, [p,p,ctypes.POINTER(i)])
+        try:
+            for name, (result, args) in signatures.items():
+                f = getattr(self.lib, name); f.restype = result; f.argtypes = args
+        except AttributeError:
+            raise ApiError(503, "системная libcrypto не поддерживает AES-GCM")
+
+    def crypt(self, key, iv, value, aad, tag=None):
+        if len(key) != 32 or len(iv) != 12 or (tag is not None and len(tag) != 16):
+            raise ApiError(503, "повреждены параметры хранилища секретов")
+        lib = self.lib; ctx = lib.EVP_CIPHER_CTX_new()
+        if not ctx:
+            raise ApiError(503, "не удалось открыть хранилище секретов")
+        prefix = "Decrypt" if tag is not None else "Encrypt"
+        def check(value):
+            if value != 1:
+                raise ApiError(503, "не удалось проверить или зашифровать секрет")
+        try:
+            check(getattr(lib, "EVP_"+prefix+"Init_ex")(ctx,lib.EVP_aes_256_gcm(),None,key,iv))
+            n = ctypes.c_int()
+            update = getattr(lib, "EVP_"+prefix+"Update")
+            check(update(ctx,None,ctypes.byref(n),aad,len(aad)))
+            out = ctypes.create_string_buffer(len(value)+16)
+            check(update(ctx,out,ctypes.byref(n),value,len(value))); used = n.value
+            auth = ctypes.create_string_buffer(tag,16) if tag is not None else ctypes.create_string_buffer(16)
+            if tag is not None:
+                check(lib.EVP_CIPHER_CTX_ctrl(ctx,0x11,16,auth))
+            check(getattr(lib, "EVP_"+prefix+"Final_ex")(ctx,ctypes.byref(out,used),ctypes.byref(n)))
+            if tag is None:
+                check(lib.EVP_CIPHER_CTX_ctrl(ctx,0x10,16,auth))
+            return out.raw[:used+n.value], auth.raw
+        finally:
+            lib.EVP_CIPHER_CTX_free(ctx)
+
+
+def storage_secret_key(create=False):
+    path = os.path.abspath(Cfg.db)+".secret-key"
+    if not os.path.isfile(path) and create:
+        if db().execute("SELECT 1 FROM secret_envelopes WHERE envelope IS NOT NULL LIMIT 1").fetchone():
+            raise ApiError(503, "ключ хранилища отсутствует: восстанови его из резервной копии")
+        try:
+            fd = os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            with os.fdopen(fd,"wb") as f:
+                f.write(secrets.token_bytes(32)); f.flush(); os.fsync(f.fileno())
+        except FileExistsError:
+            pass
+    try:
+        with open(path,"rb") as f: key = f.read(33)
+    except OSError:
+        raise ApiError(503, "ключ хранилища недоступен: восстанови его из резервной копии")
+    if len(key) != 32:
+        raise ApiError(503, "повреждён ключ хранилища секретов")
+    return key
+
+
+def seal_secret(raw, aad):
+    cipher = SecretCipher(); key = storage_secret_key(create=True); iv = secrets.token_bytes(12)
+    encrypted, tag = cipher.crypt(key,iv,raw,aad)
+    return {"key_id": hashlib.sha256(key).hexdigest(), "iv":base64.b64encode(iv).decode(),
+            "ciphertext":base64.b64encode(encrypted).decode(), "tag":base64.b64encode(tag).decode()}
+
+
+def unseal_secret(envelope, aad):
+    key = storage_secret_key()
+    if envelope["key_id"] != hashlib.sha256(key).hexdigest():
+        raise ApiError(503, "нужен прежний ключ хранилища секретов")
+    raw, _ = SecretCipher().crypt(key,base64.b64decode(envelope["iv"]),base64.b64decode(envelope["ciphertext"]),aad,
+                                 base64.b64decode(envelope["tag"]))
+    return raw
+
+
+def purge_expired_secrets():
+    with DB_LOCK:
+        db().execute("UPDATE secret_envelopes SET envelope=NULL WHERE envelope IS NOT NULL AND expires<=?",(time.time(),))
+
+
+def conversation_row(cid, user, pid=None):
+    if not isinstance(cid,str) or not re.fullmatch(r"d_[0-9a-f]{48}",cid):
+        raise ApiError(404, "нет такого личного чата")
+    c = db().execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
+    if (not c or (pid is not None and c["project_id"] != pid) or user["name"] not in (c["human"], c["agent"])
+            or not all(member_role(c["project_id"], key) for key in (c["human"], c["agent"]))):
+        raise ApiError(404, "нет такого личного чата")
+    return c
+
+
+def can_read_message(row, user):
+    if not row or not member_role(row["project_id"], user["name"]):
+        return False
+    if row["conversation_id"]:
+        try:
+            conversation_row(row["conversation_id"], user, row["project_id"])
+        except ApiError:
+            return False
+    return True
+
+
+def message_visibility(me, alias="m"):
+    # Recheck both memberships on every request, including old messages after a member leaves.
+    return (f"({alias}.conversation_id IS NULL OR EXISTS (SELECT 1 FROM conversations c "
+            f"JOIN members ch ON ch.project_id=c.project_id AND ch.user=c.human "
+            f"JOIN members ca ON ca.project_id=c.project_id AND ca.user=c.agent "
+            f"JOIN users uh ON uh.name=c.human AND uh.revoked=0 "
+            f"JOIN users ua ON ua.name=c.agent AND ua.revoked=0 "
+            f"WHERE c.id={alias}.conversation_id AND c.project_id={alias}.project_id "
+            "AND (c.human=? OR c.agent=?)))", [me, me])
+
+
+def conversation_dict(c, user):
+    peer = c["agent"] if user["name"] == c["human"] else c["human"]
+    cursor = c["human_read_upto"] if user["name"] == c["human"] else c["agent_read_upto"]
+    last = db().execute("SELECT id,body,ts FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1", (c["id"],)).fetchone()
+    unread = db().execute("SELECT COUNT(*) FROM messages m WHERE m.conversation_id=? AND m.id>? AND m.author!=? "
+                          "AND m.type NOT IN ('status','approval') AND NOT EXISTS (SELECT 1 FROM receipts r "
+                          "WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
+                          (c["id"], cursor, user["name"], user["name"])).fetchone()[0]
+    return {"id": c["id"], "peer_id": peer, "peer": account_name(peer), "peer_kind": "agent" if peer == c["agent"] else "human",
+            "human_id": c["human"], "agent_id": c["agent"], "read_upto": cursor, "unread": unread,
+            "last_id": last["id"] if last else 0, "preview": last["body"][:100] if last else "",
+            "last_ts": last["ts"] if last else c["created"]}
+
+
 def recipients_list(s):
     return [x for x in (s or "").split(",") if x]
 
@@ -762,6 +916,7 @@ def expected_recipients(pid, author, to):
 
 
 def msg_dicts(rows, me=None, full=True):
+    purge_expired_secrets()
     if not rows:
         return []
     ids = [r["id"] for r in rows]
@@ -796,6 +951,7 @@ def msg_dicts(rows, me=None, full=True):
             "priority": r["priority"], "subject": r["subject"],
             "body": r["body"] if full else r["body"][:400],
             "reply_to": r["reply_to"], "thread_id": r["thread_id"],
+            "conversation_id": r["conversation_id"],
             "needs_approval": bool(r["needs_approval"]), "approver": account_name(r["approver"]), "approver_id": r["approver"],
             "approvals": approvals.get(r["id"], []),
             "reactions": [{"emoji": emoji, "count": len(names), "mine": me in names, "users": [account_name(x) for x in names]}
@@ -817,25 +973,36 @@ def msg_dicts(rows, me=None, full=True):
                           "read": iso(by_user[u]["read_ts"]) if u in by_user else None,
                           "acked": iso(by_user[u]["ack_ts"]) if u in by_user else None}
                          for u in to + [u for u in by_user if u not in to]]
+        secret = con.execute("SELECT recipient,expires,claimed_ts,consumed,revoked FROM secret_envelopes WHERE message_id=?", (r["id"],)).fetchone()
+        if secret:
+            d["secret"] = dict(secret)
+            d["secret"]["state"] = "revoked" if secret["revoked"] else "received" if secret["consumed"] else "expired" if secret["expires"] <= time.time() else "pending"
         out.append(d)
     return out
 
 
-def insert_message(user, host, data, pid, system=False):
+def insert_message(user, host, data, pid, system=False, secret=None):
     # Keep file adoption, cancellation and disk-space checks atomic across senders.
     with UPLOAD_LOCK, DB_LOCK:
-        return _insert_message(user, host, data, pid, system)
+        return _insert_message(user, host, data, pid, system, secret)
 
 
-def _insert_message(user, host, data, pid, system=False):
+def _insert_message(user, host, data, pid, system=False, secret=None):
     """Validate and store a message in project pid. Returns (id, duplicate)."""
     con = db()
+    cid = data.get("conversation_id") or None
+    if data.get("reply_to") is not None:
+        parent_scope = get_message_row(int(data["reply_to"]), user)
+        if parent_scope["project_id"] != pid or ("conversation_id" in data and cid != parent_scope["conversation_id"]):
+            raise ApiError(409, "ответ должен оставаться в исходном чате")
+        cid = parent_scope["conversation_id"]
+    conversation = conversation_row(cid, user, pid) if cid else None
     idem = str(data.get("idem_key") or "")[:100] or None
     if idem:
-        dup = con.execute("SELECT id,project_id FROM messages WHERE author=? AND idem_key=?", (user["name"], idem)).fetchone()
+        dup = con.execute("SELECT id,project_id,conversation_id FROM messages WHERE author=? AND idem_key=?", (user["name"], idem)).fetchone()
         if dup:
-            if dup["project_id"] != pid:
-                raise ApiError(409, "ключ сообщения уже использован в другом проекте")
+            if dup["project_id"] != pid or dup["conversation_id"] != cid:
+                raise ApiError(409, "ключ сообщения уже использован в другом чате")
             return dup["id"], True
     mtype = data.get("type") or "info"
     allowed = USER_TYPES + (SYSTEM_TYPES if system else ())
@@ -915,6 +1082,13 @@ def _insert_message(user, host, data, pid, system=False):
             raise ApiError(400, "одобряющий должен быть человеком из этого проекта")
         if to and approver not in to and approver != user["name"]:
             to.append(approver)   # the request must reach the person who decides
+    if conversation:
+        parties = (conversation["human"], conversation["agent"])
+        if any(key not in parties for key in to) or (approver and approver not in parties):
+            raise ApiError(400, "в личном чате только два участника")
+        if data.get("claim"):
+            raise ApiError(400, "заявки проекта публикуются в общем чате")
+        to = [key for key in parties if key != user["name"]]
     status = "open" if mtype in TRACKED_TYPES else None
 
     # attachments: decode + validate before writing anything
@@ -971,13 +1145,16 @@ def _insert_message(user, host, data, pid, system=False):
         try:
             cur = con.execute(
                 "INSERT INTO messages(ts, author, author_kind, owner, host, recipients, topic, type, priority,"
-                " subject, body, reply_to, thread_id, needs_approval, status, result, idem_key, project_id, approver)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " subject, body, reply_to, thread_id, needs_approval, status, result, idem_key, project_id, approver,conversation_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time(), user["name"], user["kind"], user["owner"], (host or "")[:120],
                  ("," + ",".join(to) + ",") if to else "", topic, mtype, priority, subject, body,
                  reply_to, thread_id, int(needs_approval), status,
-                 json.dumps(result, ensure_ascii=False) if result else None, idem, pid, approver))
+                 json.dumps(result, ensure_ascii=False) if result else None, idem, pid, approver, cid))
             mid = cur.lastrowid
+            if secret:
+                con.execute("INSERT INTO secret_envelopes(message_id,recipient,key_id,envelope,expires) VALUES (?,?,?,?,?)",
+                            (mid, conversation["agent"], secret["key_id"], json.dumps(secret["envelope"]), secret["expires"]))
             if thread_id is None:
                 con.execute("UPDATE messages SET thread_id = ? WHERE id = ?", (mid, mid))
             for name, size, md5, link, raw, upload_id in atts:
@@ -992,7 +1169,7 @@ def _insert_message(user, host, data, pid, system=False):
     with NEW_MSG:
         LAST_ID[0] = max(LAST_ID[0], mid)
         NEW_MSG.notify_all()
-    if Cfg.telegram:
+    if Cfg.telegram and not cid:
         TG_QUEUE.put(mid)
     return mid, False
 
@@ -1000,7 +1177,7 @@ def _insert_message(user, host, data, pid, system=False):
 def get_message_row(mid, user=None):
     """A message by id; with user, only if the user is in its project (otherwise it "does not exist")."""
     r = db().execute("SELECT * FROM messages WHERE id = ?", (mid,)).fetchone()
-    if not r or (user is not None and not member_role(r["project_id"], user["name"])):
+    if not r or (user is not None and not can_read_message(r, user)):
         raise ApiError(404, f"сообщения #{mid} нет")
     return r
 
@@ -1015,10 +1192,11 @@ WAITING_SQL = ("(m.author != ? AND m.recipients LIKE ? AND ((m.type = 'request' 
 def waiting_summary(me, pid):
     """Counts and ages of what waits for me and of requests I took and did not close (for the hook and inbox)."""
     con, now = db(), time.time()
-    rows = con.execute(f"SELECT m.id, m.type, m.author, m.ts FROM messages m WHERE m.project_id = ? AND {WAITING_SQL}"
-                       " ORDER BY m.id", (pid, me, f"%,{me},%", me)).fetchall()
-    taken = con.execute("SELECT id, ts FROM messages WHERE project_id = ? AND type = 'request' AND status = 'taken'"
-                        " AND status_by = ? ORDER BY id", (pid, me)).fetchall()
+    visible, va = message_visibility(me)
+    rows = con.execute(f"SELECT m.id, m.type, m.author, m.ts FROM messages m WHERE m.project_id = ? AND {WAITING_SQL} AND {visible}"
+                       " ORDER BY m.id", [pid, me, f"%,{me},%", me] + va).fetchall()
+    taken = con.execute(f"SELECT m.id, m.ts FROM messages m WHERE project_id = ? AND type = 'request' AND status = 'taken'"
+                        f" AND status_by = ? AND {visible} ORDER BY id", [pid, me] + va).fetchall()
     return {"waiting_me": {"count": len(rows), "oldest_age": round(now - rows[0]["ts"]) if rows else None,
                            "items": [{"id": r["id"], "type": r["type"], "author": account_name(r["author"])} for r in rows[:10]]},
             "taken_open": {"count": len(taken), "oldest_age": round(now - taken[0]["ts"]) if taken else None,
@@ -1026,7 +1204,17 @@ def waiting_summary(me, pid):
 
 
 def list_messages(me, q, pid):
+    if not member_role(pid,me["name"]):
+        raise ApiError(404, "нет доступа к проекту")
     where, args = ["m.project_id = ?"], [pid]
+    visible, va = message_visibility(me["name"])
+    where.append(visible); args += va
+    cid = q.get("conversation")
+    if cid and cid != "all":
+        conversation_row(cid, me, pid)
+        where.append("m.conversation_id=?"); args.append(cid)
+    elif cid != "all" and q.get("for_me") != "1":
+        where.append("m.conversation_id IS NULL")
     con = db()
     after = int(q.get("after") or 0)
     if after:
@@ -1625,11 +1813,19 @@ def api_projects(h, user, q, data):
             last = db().execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE project_id = ?", (p["id"],)).fetchone()[0]
             n = db().execute("SELECT COUNT(*) FROM members WHERE project_id = ?", (p["id"],)).fetchone()[0]
             d = dict(project_dict(p, user), last_id=last, members=n)
-            stats = db().execute("SELECT COUNT(*), MIN(m.id) FROM messages m WHERE m.project_id=? AND m.id>? AND m.author!=? "
+            stats = db().execute("SELECT COUNT(*), MIN(m.id) FROM messages m WHERE m.conversation_id IS NULL AND m.project_id=? AND m.id>? AND m.author!=? "
                                  "AND m.type NOT IN ('status','approval') AND NOT EXISTS "
                                  "(SELECT 1 FROM receipts r WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
                                  (p["id"], max(seen.get(p["slug"], 0), d["read_upto"]), user["name"], user["name"])).fetchone()
             d.update(unread=stats[0], first_unread_id=stats[1])
+            private_unread = 0
+            for c in db().execute("SELECT * FROM conversations WHERE project_id=? AND (human=? OR agent=?)", (p["id"], user["name"], user["name"])):
+                try:
+                    conversation_row(c["id"], user, p["id"])
+                    private_unread += conversation_dict(c, user)["unread"]
+                except ApiError:
+                    pass
+            d["direct_unread"] = private_unread
             out.append(d)
     return {"projects": out}
 
@@ -1687,9 +1883,9 @@ def api_project_delete(h, user, q, data):
         n = con.execute("SELECT COUNT(*) FROM messages WHERE project_id = ?", (pid,)).fetchone()[0]
         con.execute("BEGIN IMMEDIATE")
         try:
-            for table in ("attachments", "receipts", "approvals", "reactions"):
+            for table in ("attachments", "receipts", "approvals", "reactions", "secret_envelopes"):
                 con.execute(f"DELETE FROM {table} WHERE message_id IN (SELECT id FROM messages WHERE project_id = ?)", (pid,))
-            for table in ("messages", "board", "claims", "invites", "members"):
+            for table in ("messages", "board", "claims", "invites", "members", "conversations"):
                 con.execute(f"DELETE FROM {table} WHERE project_id = ?", (pid,))
             con.execute("DELETE FROM file_uploads WHERE project_id=?", (pid,))
             con.execute("DELETE FROM projects WHERE id = ?", (pid,))
@@ -1880,6 +2076,114 @@ def api_list(h, user, q, data):
                 "receipt_revision": receipt_revision(p["id"])}
 
 
+@route("GET", "/api/conversations")
+def api_conversations(h, user, q, data):
+    p = project_for(h, user, q)
+    with DB_LOCK:
+        out = []
+        for c in db().execute("SELECT * FROM conversations WHERE project_id=? AND (human=? OR agent=?)", (p["id"], user["name"], user["name"])):
+            try:
+                conversation_row(c["id"], user, p["id"])
+                out.append(conversation_dict(c, user))
+            except ApiError:
+                pass
+        return {"conversations": sorted(out, key=lambda c: c["last_ts"], reverse=True)}
+
+
+@route("POST", "/api/conversations")
+def api_conversation_create(h, user, q, data):
+    p = project_for(h, user, q)
+    with DB_LOCK:
+        peer = db().execute("SELECT * FROM users WHERE name=? AND revoked=0", (data.get("peer_id"),)).fetchone()
+        if not peer or not member_role(p["id"], peer["name"]):
+            raise ApiError(404, "нет такого участника")
+        if user["kind"] == peer["kind"]:
+            raise ApiError(400, "личный чат связывает человека и агента своего проекта")
+        human, agent = (user, peer) if user["kind"] == "human" else (peer, user)
+        db().execute("INSERT OR IGNORE INTO conversations(id,project_id,human,agent,created) VALUES (?,?,?,?,?)",
+                     ("d_" + secrets.token_hex(24), p["id"], human["name"], agent["name"], time.time()))
+        c = db().execute("SELECT * FROM conversations WHERE project_id=? AND human=? AND agent=?", (p["id"], human["name"], agent["name"])).fetchone()
+        return {"conversation": conversation_dict(c, user)}
+
+
+@route("POST", r"/api/conversations/(d_[0-9a-f]{48})/secrets")
+def api_secret_send(h, user, q, data, cid):
+    p = project_for(h, user, q)
+    with UPLOAD_LOCK, DB_LOCK:
+        c = conversation_row(cid, user, p["id"])
+        if user["name"] != c["human"]:
+            raise ApiError(403, "секрет адресуется агенту от человека личного чата")
+        idem = data.get("idem_key")
+        if not isinstance(idem, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{16,100}", idem):
+            raise ApiError(400, "нужен уникальный idem_key от 16 до 100 символов")
+        duplicate = db().execute("SELECT * FROM messages WHERE author=? AND idem_key=?", (user["name"],idem)).fetchone()
+        if duplicate:
+            if duplicate["conversation_id"]!=cid or not db().execute("SELECT 1 FROM secret_envelopes WHERE message_id=?",(duplicate["id"],)).fetchone():
+                raise ApiError(409,"ключ сообщения использован в другом сообщении")
+            return {"id":duplicate["id"],"duplicate":True}
+        value=data.get("value")
+        if not isinstance(value,str) or not value or len(value.encode())>32768:
+            raise ApiError(400,"секрет: непустой текст до 32 КиБ")
+        ttl = data.get("expires_in", 3600)
+        if type(ttl) is not int or not 300 <= ttl <= 86400:
+            raise ApiError(400, "срок секрета: от 5 минут до суток")
+        require_file_space(65536)
+        aad=json.dumps(["telegent-secret-v1",cid,c["human"],c["agent"],idem],ensure_ascii=False,separators=(",",":")).encode()
+        envelope=seal_secret(value.encode(),aad)
+        mid, dup = insert_message(user, h.host(), {"body": "🔐 Передан секрет", "conversation_id": cid, "idem_key": idem}, p["id"],
+                                  secret={"key_id":envelope["key_id"], "envelope":envelope, "expires":time.time()+ttl})
+    return {"id":mid,"duplicate":dup}
+
+
+@route("POST", r"/api/messages/(\d+)/secret")
+def api_secret_fetch(h, user, q, data, mid):
+    with DB_LOCK:
+        m = get_message_row(mid, user)
+        secret = db().execute("SELECT * FROM secret_envelopes WHERE message_id=?", (mid,)).fetchone()
+        if not secret:
+            raise ApiError(404, "нет такого секрета")
+        action = data.get("action", "fetch")
+        if action == "revoke":
+            if m["author"] != user["name"]:
+                raise ApiError(403, "отозвать секрет может отправитель")
+            if secret["consumed"]:
+                raise ApiError(410, "секрет уже получен: отзыв не удалит его у получателя")
+            if secret["claimed_ts"]:
+                raise ApiError(409, "получение уже началось: отзыв не удалит файл у получателя")
+            db().execute("UPDATE secret_envelopes SET envelope=NULL,revoked=COALESCE(revoked,?) WHERE message_id=?", (time.time(), mid))
+            return {"ok": True}
+        if secret["recipient"] != user["name"]:
+            raise ApiError(403, "получить секрет может только адресованный агент")
+        claim = data.get("claim_key")
+        if not isinstance(claim, str) or not re.fullmatch(r"[0-9a-f]{64}", claim):
+            raise ApiError(400, "нужен постоянный claim_key из 64 шестнадцатеричных знаков для безопасного повтора")
+        claim = token_hash(claim)
+        if action == "consume" and secret["consumed"] and secret["claimed_by"] == claim:
+            return {"ok": True}
+        if action == "consume" and secret["claimed_by"] == claim and not secret["revoked"] and not secret["consumed"]:
+            # A durable save may be confirmed after expiry; this never returns the value again.
+            db().execute("UPDATE secret_envelopes SET envelope=NULL,consumed=? WHERE message_id=?", (time.time(), mid))
+            mark(user, [mid], "read")
+            return {"ok": True}
+        if secret["revoked"] or secret["consumed"] or secret["expires"] <= time.time():
+            db().execute("UPDATE secret_envelopes SET envelope=NULL WHERE message_id=?", (mid,))
+            raise ApiError(410, "секрет получен, отозван или срок его действия истёк")
+        if secret["claimed_by"] and secret["claimed_by"] != claim:
+            raise ApiError(409, "получение уже начато: продолжи прежнюю команду на том же устройстве")
+        if action == "consume":
+            if secret["claimed_by"] != claim:
+                raise ApiError(409, "сначала получи пакет")
+            db().execute("UPDATE secret_envelopes SET envelope=NULL,consumed=? WHERE message_id=?", (time.time(), mid))
+            mark(user, [mid], "read")
+            return {"ok": True}
+        if action != "fetch":
+            raise ApiError(400, "action: fetch | consume | revoke")
+        db().execute("UPDATE secret_envelopes SET claimed_by=?,claimed_ts=COALESCE(claimed_ts,?) WHERE message_id=?", (claim, time.time(), mid))
+        aad=json.dumps(["telegent-secret-v1",m["conversation_id"],m["author"],secret["recipient"],m["idem_key"]],ensure_ascii=False,separators=(",",":")).encode()
+        raw=unseal_secret(json.loads(secret["envelope"]),aad)
+        return {"content_b64":base64.b64encode(raw).decode()}
+
+
 @route("POST", "/api/messages")
 def api_send(h, user, q, data):
     p = project_for(h, user, q)
@@ -1920,7 +2224,7 @@ def api_get(h, user, q, data, mid):
         if q.get("mark") in ("read", "ack"):
             mark(user, [mid], q["mark"])
         msg = msg_dicts([m], user["name"])[0]
-        thread = list_messages(user, {"thread": m["thread_id"], "limit": 500, "after": "0"}, m["project_id"])
+        thread = list_messages(user, {"thread": m["thread_id"], "limit": 500, "after": "0", "conversation": m["conversation_id"]}, m["project_id"])
     return {"message": msg, "thread": thread}
 
 
@@ -1985,11 +2289,18 @@ def api_receipts(h, user, q, data):
                 raise ApiError(400, "seen_upto: целый неотрицательный номер, только вместе с kind=read")
             p = project_for(h, user, q)
             # Never pre-read messages that do not exist yet, or use another project's cursor.
-            latest = db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE project_id=? AND id<=?",
-                                  (p["id"], data["seen_upto"])).fetchone()[0]
-            changed = db().execute("UPDATE members SET read_upto=? WHERE project_id=? AND user=? AND read_upto<?",
-                                   (latest, p["id"], user["name"], latest)).rowcount
-            cursor = db().execute("SELECT read_upto FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()[0]
+            if q.get("conversation"):
+                c = conversation_row(q["conversation"], user, p["id"])
+                col = "human_read_upto" if user["name"] == c["human"] else "agent_read_upto"
+                latest = db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE conversation_id=? AND id<=?", (c["id"], data["seen_upto"])).fetchone()[0]
+                changed = db().execute(f"UPDATE conversations SET {col}=MAX({col},?) WHERE id=? AND {col}<?", (latest,c["id"],latest)).rowcount
+                cursor = db().execute(f"SELECT {col} FROM conversations WHERE id=?", (c["id"],)).fetchone()[0]
+            else:
+                latest = db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE project_id=? AND conversation_id IS NULL AND id<=?",
+                                      (p["id"], data["seen_upto"])).fetchone()[0]
+                changed = db().execute("UPDATE members SET read_upto=? WHERE project_id=? AND user=? AND read_upto<?",
+                                       (latest, p["id"], user["name"], latest)).rowcount
+                cursor = db().execute("SELECT read_upto FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()[0]
             if changed:
                 with NEW_MSG:
                     RECEIPT_REVISIONS[p["id"]] = RECEIPT_REVISIONS.get(p["id"], 0) + 1
@@ -1999,8 +2310,7 @@ def api_receipts(h, user, q, data):
             ids = [m["id"] for m in list_messages(user, {"for_me": "1", "unacked": "1", "limit": 1000, "full": "0"}, p["id"])
                    if m["id"] <= int(data["all_for_me_upto"])]
         else:   # only messages of projects the user is in
-            ids = [i for i in ids if (lambda r: r and member_role(r["project_id"], user["name"]))(
-                db().execute("SELECT project_id FROM messages WHERE id = ?", (i,)).fetchone())]
+            ids = [i for i in ids if can_read_message(db().execute("SELECT * FROM messages WHERE id = ?", (i,)).fetchone(), user)]
         mark(user, ids, kind)
     return {"ok": True, "ids": ids, **({"read_upto": cursor} if cursor is not None else {})}
 
@@ -2011,6 +2321,8 @@ def api_wait(h, user, q, data):
     timeout = max(0.0, min(float(q.get("timeout") or 25), 55))
     deadline = time.time() + timeout
     qq = {"after": str(after), "limit": "200", "for_me": q.get("for_me", "1"), "full": q.get("full", "1")}
+    if q.get("conversation"):
+        qq["conversation"] = q["conversation"]
     p = project_for(h, user, q)
     touch(user, waiting=True)
     while True:
@@ -2234,7 +2546,7 @@ def attachment_for(user, aid):
     with DB_LOCK:
         a = db().execute("SELECT a.*, m.project_id FROM attachments a JOIN messages m ON m.id = a.message_id "
                          "WHERE a.id = ?", (aid,)).fetchone()
-        if a and not member_role(a["project_id"], user["name"]):
+        if a and not can_read_message(db().execute("SELECT * FROM messages WHERE id=?", (a["message_id"],)).fetchone(), user):
             a = None
     if not a:
         raise ApiError(404, "нет такого вложения")
@@ -2591,6 +2903,11 @@ def cmd_clearpassword(a):
 
 def cmd_serve(a):
     db()
+    def expire_secrets():
+        while True:
+            purge_expired_secrets()
+            time.sleep(60)
+    threading.Thread(target=expire_secrets, daemon=True).start()
     if Cfg.telegram:
         threading.Thread(target=telegram_worker, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)

@@ -32,6 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INLINE_LIMIT = 2 * 1024 * 1024
@@ -350,6 +351,8 @@ def who(m):
 
 def oneline(m, width=220):
     parts = [f"#{m['id']}", short_time(m["time"])]
+    if m.get("conversation_id"):
+        parts.append("ЛИЧНОЕ")
     if m["priority"] == "urgent":
         parts.append("URGENT")
     parts.append(m["type"])
@@ -424,6 +427,10 @@ def print_full(m, me):
         print(f"  вложение {a['id']}: {a['name']}  {size}  md5={a['md5'] or '?'}  ({where})")
     if any(a["inline"] for a in m["attachments"]):
         print(f"  скачать: python tg.py get {m['id']} --out <папка>")
+    if m.get("secret"):
+        print(f"  секрет: {m['secret']['state']}; срок: {datetime.fromtimestamp(m['secret']['expires']).isoformat(timespec='seconds')}")
+        if m["secret"]["state"] == "pending":
+            print(f"  получить в файл: python tg.py secret {m['id']} --out <локальный-файл>")
 
 
 # ---------------------------------------------------------------- commands
@@ -542,6 +549,8 @@ def do_send(conf, args, reply_to=None, default_to=None, default_to_ids=None):
     }
     if default_to_ids and not args.to:
         data["to_ids"] = default_to_ids
+    if getattr(args,"conversation_id",None):
+        data["conversation_id"] = args.conversation_id
     if getattr(args, "claim", None):
         if args.type == "result":
             data["claim"] = args.claim
@@ -573,6 +582,58 @@ def do_send(conf, args, reply_to=None, default_to=None, default_to_ids=None):
             hint = f" По доске: {u['board_now'][:60]} (запись {span(u['board_age'])} назад)."
         print(f"внимание: {u['name']} сейчас не слушает (watch не активен, {since}) — увидит при следующем заходе.{hint} "
               f"Если срочно, напиши его человеку. Статус: python tg.py sent")
+
+
+def cmd_secret(conf,args):
+    me=get_me(conf)
+    if me["kind"]!="agent":die("получение секретов доступно клиенту агента",2)
+    if not args.out:die("секрет сохраняется только в файл: secret ID --out ПУТЬ",2)
+    if not conf.path:die("для получения секрета нужен файл конфигурации: добавлю полученный файл в secret_files",2)
+    parsed=urllib.parse.urlsplit(conf.server)
+    if parsed.scheme!="https" and parsed.hostname not in ("localhost","127.0.0.1","::1"):
+        die("секрет можно получать только через HTTPS",2)
+    identity=hashlib.sha256((os.path.abspath(conf.path)+"\n"+me["id"]).encode()).hexdigest()[:24]
+    directory=os.path.join(os.path.expanduser("~"),".telegent","secret-receipts",identity)
+    os.makedirs(directory,mode=0o700,exist_ok=True)
+    receipt=os.path.join(directory,str(args.id)+".json")
+    dst=os.path.abspath(os.path.expanduser(args.out))
+    if os.path.isfile(receipt):
+        with open(receipt,encoding="utf-8") as f:delivery=json.load(f)
+        if delivery["out"]!=dst:die("получение уже привязано к другому файлу; повтори прежнюю команду",2)
+    else:
+        delivery={"claim_key":os.urandom(32).hex(),"out":dst}
+        fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,"w",encoding="utf-8") as f:
+            json.dump(delivery,f);f.flush();os.fsync(f.fileno())
+    if os.path.isfile(dst):
+        with open(dst,"rb") as f:digest=hashlib.sha256(f.read()).hexdigest()
+        if delivery.get("sha256")!=digest:die("выходной файл уже существует; он не перезаписан",2)
+    else:
+        result=api_retry(conf,"POST",f"/api/messages/{args.id}/secret",{"claim_key":delivery["claim_key"]})
+        raw=base64.b64decode(result["content_b64"],validate=True)
+        delivery["sha256"]=hashlib.sha256(raw).hexdigest()
+        write_json_atomic(receipt,delivery);os.chmod(receipt,0o600)
+        os.makedirs(os.path.dirname(dst),exist_ok=True)
+        fd=os.open(dst,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,"wb") as f:f.write(raw);f.flush();os.fsync(f.fileno())
+    with open(conf.path,encoding="utf-8-sig") as f:settings=json.load(f)
+    protected=settings.setdefault("secret_files",[])
+    if not any((entry.get("path") if isinstance(entry,dict) else entry)==dst for entry in protected):
+        protected.append({"path":dst});write_json_atomic(conf.path,settings)
+    api_retry(conf,"POST",f"/api/messages/{args.id}/secret",{"action":"consume","claim_key":delivery["claim_key"]})
+    print(f"Секрет сохранён: {dst}. Значение не выведено; пакет удалён с сервера.")
+
+
+def cmd_dm(conf,args):
+    if not args.to:
+        for c in api_retry(conf,"GET","/api/conversations")["conversations"]:
+            print(f"{c['id']}  {c['peer']}  непрочитано: {c['unread']}")
+        return
+    me=get_me(conf); matches=[u for u in me["users"] if u["name"].casefold()==args.to.casefold()]
+    if len(matches)!=1:die("нет однозначного адресата в своём проекте",2)
+    conversation=api_retry(conf,"POST","/api/conversations",{"peer_id":matches[0]["id"]})["conversation"]
+    args.conversation_id=conversation["id"]; args.to=None
+    do_send(conf,args)
 
 
 def cmd_send(conf, args):
@@ -631,7 +692,7 @@ def print_waiting(conf):
 
 
 def cmd_inbox(conf, args):
-    q = {"limit": str(args.limit)}
+    q = {"limit": str(args.limit), "conversation": "all"}
     if args.since is not None:
         q["after"] = str(args.since)
     if not args.all:
@@ -768,7 +829,7 @@ def cmd_watch(conf, args):
                 if cursor is None:
                     cursor = me["last_id"]
                 print(f"tg watch: {me['name']} на {conf.server}, с #{cursor}", file=sys.stderr, flush=True)
-            q = {"after": cursor, "timeout": 25, "for_me": "0" if args.all else "1", "full": "0"}
+            q = {"after": cursor, "timeout": 25, "for_me": "0" if args.all else "1", "full": "0", "conversation": "all"}
             res = api(conf, "GET", "/api/wait?" + urllib.parse.urlencode(q), timeout=45)
             msgs = res["messages"]
             if announced_down:
@@ -909,7 +970,7 @@ def cmd_results(conf, args):
 
 
 def cmd_search(conf, args):
-    q = {"q": args.query, "limit": str(args.limit)}
+    q = {"q": args.query, "limit": str(args.limit), "conversation": "all"}
     res = api_retry(conf, "GET", "/api/messages?" + urllib.parse.urlencode(q))
     for m in res["messages"]:
         print(oneline(m))
@@ -960,7 +1021,7 @@ def cmd_projects(conf, args):
 
 def cmd_sent(conf, args):
     me = get_me(conf)
-    q = {"author": me["name"], "limit": str(args.limit), "full": "0",
+    q = {"author": me["name"], "limit": str(args.limit), "full": "0", "conversation": "all",
          "type": "info,request,question,result,alert,decision"}
     msgs = api_retry(conf, "GET", "/api/messages?" + urllib.parse.urlencode(q))["messages"]
     if not msgs:
@@ -1465,6 +1526,11 @@ def main():
 
     s = sub.add_parser("send", help="отправить")
     add_send_opts(s)
+    s = sub.add_parser("dm", help="личные чаты: dm --to имя ТЕКСТ; без адресата — список")
+    add_send_opts(s)
+    s = sub.add_parser("secret", help="получить адресованный секрет в локальный файл без вывода значения")
+    s.add_argument("id", type=int)
+    s.add_argument("--out", required=True, help="локальный файл; существующий не перезаписывается")
     s = sub.add_parser("reply", help="ответить на сообщение (топик и адресат наследуются)")
     s.add_argument("id", type=int)
     add_send_opts(s)
@@ -1591,7 +1657,7 @@ def main():
         "send": cmd_send, "reply": cmd_reply, "inbox": cmd_inbox, "read": cmd_read, "ack": cmd_ack,
         "watch": cmd_watch, "get": cmd_get, "board": cmd_board, "results": cmd_results,
         "search": cmd_search, "whoami": cmd_whoami, "sent": cmd_sent, "hook": cmd_hook, "projects": cmd_projects,
-        "react": cmd_react,
+        "react": cmd_react, "dm": cmd_dm, "secret": cmd_secret,
         "claim": cmd_claim, "claims": cmd_claims, "release": cmd_release,
         "take": lambda c, a: cmd_status(c, a, "taken"), "done": lambda c, a: cmd_status(c, a, "done"),
         "reject": lambda c, a: cmd_status(c, a, "rejected"), "reopen": lambda c, a: cmd_status(c, a, "open"),

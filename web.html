@@ -396,6 +396,17 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .sm { display: none; }
 @media (max-width: 900px) { .sm { display: inline; } }
 .hidden { display: none !important; }
+/* Private conversations stay inside the selected project. */
+.dm-search { width:100%;margin:12px 0; }
+.dm-item { display:flex;gap:12px;width:100%;align-items:center;text-align:left;padding:14px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent; }
+.dm-info { flex:1;min-width:0; }
+.dm-preview { white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;margin-top:4px; }
+#dmBar { display:flex;align-items:center;gap:10px;margin:10px 0; }
+#dmBar strong { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis; }
+.secret-card { border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;max-width:380px; }
+.secret-card p { margin:4px 0;font-size:13px; }
+#secretValue { width:100%;resize:vertical;min-height:110px; }
+@media(max-width:900px) { .tabs { gap:0; } .tabs > button { padding-left:8px;padding-right:8px; } }
 </style>
 </head>
 <body>
@@ -546,7 +557,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
       <div class="feedtop">
         <div id="devChatHint" class="muted hidden" style="font-size:12.5px;margin-bottom:10px"></div>
         <div class="tabs">
-          <button data-tab="feed" class="active">Лента</button>
+          <button data-tab="feed" class="active">Общий чат<span id="generalCount"></span></button>
+          <button data-tab="direct">Личные<span id="directCount"></span></button>
           <button data-tab="results"><span class="lg">Журнал результатов</span><span class="sm">Журнал</span></button>
           <button data-tab="claims">Занято</button>
           <button id="filtersBtn" title="поиск и фильтры (Ctrl+K)"><span class="sm">🔍</span><span class="lg">Поиск и фильтры</span></button>
@@ -560,6 +572,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           <label><input type="checkbox" id="fWaiting"> ждут моего ответа</label>
           <label><input type="checkbox" id="fSystem" checked> статусы</label>
         </div>
+        <div id="dmBar" class="hidden"><button id="dmBack" type="button" aria-label="К списку личных чатов">←</button><strong id="dmTitle"></strong><span class="muted" style="font-size:12px">Личный чат</span></div>
         <div id="threadBar" class="panel hidden" style="margin-bottom:10px"></div>
       </div>
       <div id="scroller">
@@ -574,6 +587,11 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           <div id="moreBox" class="hidden" style="text-align:center;margin:0 0 10px"><button id="moreBtn">Загрузить раньше</button></div>
           <div id="feed"></div>
           <div id="feedEnd"></div>
+        </div>
+        <div id="directView" class="column hidden">
+          <p class="muted" style="margin-top:18px">Личные чаты этого проекта. Каждый виден только тебе и выбранному агенту.</p>
+          <input id="dmSearch" class="dm-search" type="search" aria-label="Найти агента или личный чат" placeholder="Найти агента или чат…">
+          <div id="dmList"></div>
         </div>
         <div id="resultsView" class="column hidden">
           <div id="resultsBox"></div>
@@ -594,6 +612,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
             <textarea id="cBody" rows="1" placeholder="Сообщение"></textarea>
             <div class="cbar">
               <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 200 МБ" aria-label="Прикрепить файл">📎</button><input type="file" id="cFiles" multiple hidden>
+              <button type="button" class="iconbtn hidden" id="secretBtn" title="Передать секрет агенту" aria-label="Передать секрет агенту">🔐</button>
               <select id="cTo" class="plain" title="кому"></select>
               <button type="button" class="iconbtn" id="cOptsBtn" title="тип, топик, срочно, одобрение">⚙</button>
               <span id="cFilesInfo" class="muted"></span>
@@ -631,6 +650,20 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   </div>
 </div>
 
+<div id="secretDialog" class="hidden" role="dialog" aria-modal="true" aria-labelledby="secretHeading" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
+  <form id="secretForm" class="panel" style="width:100%;max-width:440px">
+    <h2 id="secretHeading" style="font-size:17px;margin:0 0 8px">Передать секрет</h2>
+    <p id="secretRecipient" style="margin:0 0 8px"></p>
+    <p class="muted" style="font-size:12.5px">Значение не попадёт в ленту, поиск и уведомления. Получить пакет сможет только выбранный агент. Хранение шифруется сервером; оператор сервера технически имеет доступ.</p>
+    <label for="secretValue">Пароль или другой секрет</label>
+    <textarea id="secretValue" required autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="secretErr"></textarea>
+    <label for="secretTTL">Удалить неполученный пакет через</label>
+    <select id="secretTTL"><option value="300">5 минут</option><option value="3600" selected>1 час</option><option value="86400">24 часа</option></select>
+    <p class="muted" style="font-size:12.5px">После подтверждённого получения пакет удаляется из рабочей базы. Карточка остаётся в истории.</p>
+    <div class="actions"><button id="secretSend" type="submit" class="primary">Передать</button><button id="secretCancel" type="button">Отмена</button></div>
+    <div id="secretErr" class="err" role="alert"></div>
+  </form>
+</div>
 <script>
 "use strict";
 const TYPES = {info: "инфо", request: "просьба", question: "вопрос", result: "результат", alert: "тревога",
@@ -640,6 +673,25 @@ let TAB = "feed";
 let TOKEN = null, ME = null, LAST = 0, OLDEST = null, MSGS = new Map(), THREAD = null, REPLY = null, POLLING = false;
 // projects: PROJECT is the open one (sent as X-Telegent-Project), PROJECTS the list in the left column
 let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREAD_FROM = 0;
+let ACTIVE_DM = null, CONVERSATIONS = [];
+const DRAFTS = new Map();
+const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
+function saveDraft() {
+  if (!ME || !PROJECT || SENDING) return;
+  DRAFTS.set(draftKey(), {body:$("cBody").value, to:$("cTo").value, topic:$("cTopic").value, type:$("cType").value,
+    urgent:$("cUrgent").checked, approval:$("cApproval").checked, approver:$("cApprover").value, attachments:ATTACHED, reply:REPLY, retry:COMPOSE_RETRY});
+}
+function restoreDraft() {
+  const draft = DRAFTS.get(draftKey());
+  resetCompose();
+  if (draft) {
+    $("cBody").value=draft.body; $("cTo").value=draft.to; $("cTopic").value=draft.topic; $("cType").value=draft.type;
+    $("cUrgent").checked=draft.urgent; $("cApproval").checked=draft.approval; $("cApprover").value=draft.approver;
+    ATTACHED=draft.attachments; REPLY=draft.reply; COMPOSE_RETRY=draft.retry;
+    if (REPLY) { $("replyBar").classList.remove("hidden"); $("replyText").textContent=`Ответ ${REPLY.author}: ${REPLY.subject}`; }
+    paintFiles(); updateChips(); $("cBody").dispatchEvent(new Event("input"));
+  }
+}
 let RECEIPT_REVISION = null;
 // feed: oldest on top, newest at the bottom; one page on open, older pages load when scrolled to the top
 const PAGE = 100;
@@ -861,7 +913,7 @@ document.addEventListener("keydown", e => {
   }
   if (e.key === "Escape") {
     if (!$("menu").classList.contains("hidden")) { e.preventDefault(); closeMenu(true); return; }
-    closeMenu();
+    closeMenu(); closeSecret();
     for (const id of ["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog"]) $(id).classList.add("hidden");
     $("projects").classList.remove("open"); $("aside").classList.remove("open");
     if (REPLY && document.activeElement === $("cBody")) resetCompose();
@@ -923,6 +975,40 @@ async function login(tok) {
   if (!TOUCH && PROJECT) $("cBody").focus();
 }
 
+let SECRET_TARGET=null, SECRET_KEY=null;
+function closeSecret() {
+  if(!$("secretDialog"))return;
+  $("secretDialog").classList.add("hidden"); $("secretValue").value=""; $("secretValue").readOnly=false;
+  SECRET_TARGET=null; SECRET_KEY=null;
+}
+$("secretBtn").onclick=()=> {
+  if(!ACTIVE_DM || SENDING)return;
+  if($("secretSend").disabled) {toast("Дождись завершения передачи секрета",true);return;}
+  if(!isSecureContext) {toast("Для передачи секрета нужен HTTPS",true);return;}
+  SECRET_TARGET={id:ACTIVE_DM.id,peer:ACTIVE_DM.peer,project:PROJECT,token:TOKEN};
+  SECRET_KEY=crypto.randomUUID(); $("secretErr").textContent="";
+  $("secretRecipient").textContent=`Получатель: ${ACTIVE_DM.peer}`; $("secretDialog").classList.remove("hidden"); $("secretValue").focus();
+};
+$("secretCancel").onclick=()=> {closeSecret();$("secretBtn").focus();};
+$("secretForm").addEventListener("keydown",e=>{
+  if(e.key!=="Tab")return;
+  const controls=[...$("secretForm").querySelectorAll("textarea,select,button")].filter(el=>!el.disabled), first=controls[0],last=controls.at(-1);
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+});
+$("secretForm").onsubmit=async e=> {
+  e.preventDefault();const target=SECRET_TARGET;
+  if(!target || $("secretSend").disabled)return;
+  const value=$("secretValue").value;
+  if(!value || new TextEncoder().encode(value).length>32768) {$("secretErr").textContent="Непустой текст до 32 КиБ";return;}
+  if(target.project!==PROJECT || target.token!==TOKEN)return closeSecret();
+  $("secretSend").disabled=true; $("secretValue").readOnly=true;
+  try {
+    await api("POST",`/api/conversations/${target.id}/secrets?project=${encodeURIComponent(target.project)}`,{value,expires_in:+$("secretTTL").value,idem_key:SECRET_KEY});
+    closeSecret(); await refresh(); toast("Секрет передан агенту");
+  } catch(err) {$("secretErr").textContent=err.message+". Можно повторить передачу того же пакета.";}
+  finally {$("secretSend").disabled=false;}
+};
 // ---- projects
 async function migrateLegacyReadState(token, storedToken) {
   const old = PROJECTS.map(p => ({slug:p.slug, upto:Number(st.get("tg_seen_"+p.slug))}))
@@ -959,7 +1045,8 @@ function showNoProject() {
 
 async function setProject(slug) {
   if (SENDING) { toast("Дождись отправки сообщения или нажми «Отмена»", true); return; }
-  closeMenu();
+  saveDraft(); closeMenu();
+  ACTIVE_DM = null; CONVERSATIONS = []; closeSecret();
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = slug; st.set("tg_project", slug);
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
@@ -976,15 +1063,58 @@ async function setProject(slug) {
   $("inviteBtn").classList.toggle("hidden", ME.kind !== "human" || ME.project.kind === "development");
   $("inviteBtn").textContent = ME.project.role === "owner" ? "+ Пригласить" : "+ Добавить агента";
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
-  setupCompose(); resetCompose();
+  setupCompose(); restoreDraft();
   document.querySelector('[data-tab="feed"]').click();
   await reload(); loadPresence(); renderProjects();
 }
 
+const feedCursor = () => ACTIVE_DM ? ACTIVE_DM.read_upto || 0 : ME.project?.read_upto || 0;
+function resetFeedState() {
+  READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER=null;
+  POLL_ABORT?.abort(); MSGS=new Map(); LAST=0; OLDEST=null; SIG=""; THREAD=null; REPLY=null; UNSEEN=0;
+  REACTION_REVISION=null; RECEIPT_REVISION=null; UNREAD_FROM=feedCursor();
+}
+async function loadConversations() {
+  const slug=PROJECT,token=TOKEN;
+  const rows=(await api("GET","/api/conversations")).conversations;
+  if (PROJECT!==slug || TOKEN!==token) return;
+  CONVERSATIONS=rows;
+  if (ACTIVE_DM) {
+    const c=rows.find(c=>c.id===ACTIVE_DM.id);
+    if (!c) { ACTIVE_DM=null; resetFeedState(); restoreDraft(); paintTab(); }
+    else { ACTIVE_DM=c; $("dmTitle").textContent=c.peer; }
+  }
+  renderConversations();
+}
+function renderConversations() {
+  const term=$("dmSearch").value.trim().toLocaleLowerCase();
+  const rows=CONVERSATIONS.filter(c=>c.peer.toLocaleLowerCase().includes(term));
+  const eligible=(ME.users || []).filter(u=>u.kind!==ME.kind && u.name.toLocaleLowerCase().includes(term) && !CONVERSATIONS.some(c=>c.peer_id===u.id));
+  $("dmList").innerHTML=rows.map(c=>`<button class="dm-item" data-act="dmopen" data-conversation="${esc(c.id)}">${avatar(c.peer,c.peer_kind)}<span class="dm-info"><b>${esc(c.peer)}</b><span class="dm-preview muted" style="display:block">${esc(c.preview || "Начать разговор")}</span></span>${c.unread?`<span class="pcount">${c.unread}</span>`:""}</button>`).join("") +
+    (eligible.length?`<p class="muted" style="font-size:12px;margin:16px 0 4px">Начать личный чат</p>`+eligible.map(u=>`<button class="dm-item" data-act="dmnew" data-account="${esc(u.id)}">${avatar(u.name,u.kind)}<span>${esc(u.name)}</span></button>`).join(""):"") +
+    (!rows.length && !eligible.length?`<p class="muted">${term?"Никого не найдено":"В проекте пока нет доступных собеседников"}</p>`:"");
+  const n=CONVERSATIONS.reduce((n,c)=>n+c.unread,0); $("directCount").textContent=n?` (${n})`:"";
+}
+async function openDirect(cid) {
+  if (SENDING) { toast("Дождись отправки сообщения",true); return; }
+  if (!CONVERSATIONS.some(c=>c.id===cid)) await loadConversations();
+  const c=CONVERSATIONS.find(c=>c.id===cid); if (!c) return;
+  saveDraft(); closeSecret(); ACTIVE_DM=c; TAB="direct"; resetFeedState(); restoreDraft(); paintTab();
+  await reload(); if (!TOUCH) $("cBody").focus();
+}
+async function newDirect(peer) {
+  if (SENDING) { toast("Дождись отправки сообщения",true); return; }
+  const slug=PROJECT;
+  const c=(await api("POST","/api/conversations",{peer_id:peer})).conversation;
+  if (PROJECT!==slug) return;
+  await loadConversations(); await openDirect(c.id); $("aside").classList.remove("open");
+}
+$("dmSearch").oninput=renderConversations;
+$("dmBack").onclick=()=> { if(SENDING)return; saveDraft(); ACTIVE_DM=null; resetFeedState(); paintTab(); loadConversations().catch(e=>toast(e.message,true)); };
 const seen = slug => +(PROJECTS.find(p => p.slug === slug)?.read_upto || 0);
 function renderProjects() {
   $("projList").innerHTML = PROJECTS.length ? PROJECTS.map(p => {
-    const n = p.slug !== PROJECT ? (p.unread != null ? p.unread : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
+    const n = p.slug !== PROJECT ? (p.unread != null ? p.unread + (p.direct_unread || 0) : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
     return `<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
       <a class="pselect" href="#" data-act="proj" data-slug="${esc(p.slug)}" title="${esc(p.title)} (${esc(p.slug)})" ${p.slug === PROJECT ? 'aria-current="page"' : ''}>
       <span class="pav" style="background:hsl(${hue(p.slug)} 40% 45%)">${esc(initials(p.title))}</span>
@@ -1016,11 +1146,15 @@ function openProjectMenu(slug, anchor) {
 }
 
 async function loadProjects() {
+  const token=TOKEN;
   try {
-    PROJECTS = (await api("GET", "/api/projects")).projects;
+    const projects = (await api("GET", "/api/projects")).projects;
+    if(TOKEN!==token)return;
+    PROJECTS=projects;
     const current = PROJECTS.find(p => p.slug === PROJECT);
+    $("generalCount").textContent=current?.unread?` (${current.unread})`:"";
     if (current) NTF.unread = document.visibilityState === "visible" ? 0 : (current.unread || 0);
-    applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects();
+    applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects(); if (PROJECT) await loadConversations();
   } catch {}
 }
 
@@ -1138,6 +1272,7 @@ function setupCompose() {
 
 function filterQuery() {
   const q = new URLSearchParams();
+  if (ACTIVE_DM) q.set("conversation",ACTIVE_DM.id);
   if ($("q").value.trim()) q.set("q", $("q").value.trim());
   if ($("fTopic").value) q.set("topic", $("fTopic").value);
   if ($("fType").value) q.set("type", $("fType").value);
@@ -1155,8 +1290,8 @@ const nearBottom = () => SC.scrollHeight - SC.scrollTop - SC.clientHeight < 160;
 let READ_TIMER = null;
 const READ_IDS = new Set();
 function readingFeed() {
-  return ME?.kind === "human" && TAB === "feed" && document.visibilityState === "visible" &&
-    !["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "menu"].some(id => !$(id).classList.contains("hidden")) &&
+  return ME?.kind === "human" && (TAB === "feed" || TAB === "direct" && !!ACTIVE_DM) && document.visibilityState === "visible" &&
+    !["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "secretDialog", "menu"].some(id => !$(id).classList.contains("hidden")) &&
     !(innerWidth <= 900 && ["projects", "aside"].some(id => $(id).classList.contains("open")));
 }
 const READ_OBSERVER = new IntersectionObserver(entries => {
@@ -1173,18 +1308,18 @@ function scheduleRead() {
 async function flushReads() {
   READ_TIMER = null;
   if (!PROJECT || !readingFeed()) return;
-  const slug = PROJECT, token = TOKEN, ids = [...READ_IDS].filter(id => MSGS.has(id)); READ_IDS.clear();
+  const slug = PROJECT, token = TOKEN, cid=ACTIVE_DM?.id, ids = [...READ_IDS].filter(id => MSGS.has(id)); READ_IDS.clear();
   const plainFeed = !THREAD && !["q", "fTopic", "fType"].some(id => $(id).value.trim()) &&
     !["fOpen", "fPending", "fWaiting"].some(id => $(id).checked);
   const upto = plainFeed && SC.scrollHeight - SC.scrollTop - SC.clientHeight < 12 ? Math.max(0, ...MSGS.keys()) : 0;
   const data = {kind: "read", ids};
-  if (upto > (ME.project?.read_upto || 0)) data.seen_upto = upto;
+  if (upto > feedCursor()) data.seen_upto = upto;
   if (!ids.length && data.seen_upto == null) return;
   try {
-    const res = await api("POST", "/api/receipts?project=" + encodeURIComponent(slug), data);
-    if (TOKEN !== token || PROJECT !== slug) return;
+    const res = await api("POST", "/api/receipts?project=" + encodeURIComponent(slug) + (cid?"&conversation="+encodeURIComponent(cid):""), data);
+    if (TOKEN !== token || PROJECT !== slug || ACTIVE_DM?.id !== cid) return;
     for (const id of res.ids) { const m = MSGS.get(id); if (m) m.read = true; }
-    if (res.read_upto != null) ME.project.read_upto = res.read_upto;
+    if (res.read_upto != null) { if(ACTIVE_DM) ACTIVE_DM.read_upto=res.read_upto; else ME.project.read_upto = res.read_upto; }
     await loadProjects();
   } catch { /* A failed read stays unread and is retried on the next render/visibility change. */ }
 }
@@ -1196,7 +1331,7 @@ function observeReadRows() {
   }
 }
 const READ_VISIBILITY = new MutationObserver(observeReadRows);
-for (const id of ["projects", "aside", "invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "menu"])
+for (const id of ["projects", "aside", "invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "secretDialog", "menu"])
   READ_VISIBILITY.observe($(id), {attributes: true, attributeFilter: ["class"]});
 function toBottom() { SC.scrollTop = SC.scrollHeight; UNSEEN = 0; updateNewBtn(); }
 function updateNewBtn() {
@@ -1210,8 +1345,10 @@ window.addEventListener("resize", setHeaderHeight);
 
 // full reset (first open, filters, thread): the last page, scrolled to the bottom
 async function reload() {
+  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
   const q = filterQuery(); q.set("limit", PAGE);
   const res = await api("GET", "/api/messages?" + q);
+  if (scope!==`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`) return;
   MSGS = new Map(res.messages.map(m => [m.id, m]));
   REACTION_REVISION = res.reaction_revision;
   RECEIPT_REVISION = res.receipt_revision;
@@ -1224,9 +1361,12 @@ async function reload() {
 
 // live update: re-fetch everything shown (status, approvals and receipts change on old messages too) plus new ones
 async function refresh() {
+  if(TAB==="direct" && !ACTIVE_DM) return loadConversations();
+  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
   const q = filterQuery(); q.set("limit", "1000");
   if (OLDEST) q.set("after", OLDEST - 1);
   const res = await api("GET", "/api/messages?" + q);
+  if(scope!==`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`) return;
   if (res.messages.length >= 1000) return reload();
   const stick = nearBottom();
   const fresh = res.messages.filter(m => !MSGS.has(m.id)).length;
@@ -1244,10 +1384,12 @@ async function refresh() {
 
 async function loadOlder() {
   if (LOADING_OLDER || NO_MORE || !OLDEST) return;
+  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
   LOADING_OLDER = true;
   try {
     const q = filterQuery(); q.set("limit", PAGE); q.set("before", OLDEST);
     const res = await api("GET", "/api/messages?" + q);
+    if(scope!==`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`)return;
     NO_MORE = res.messages.length < PAGE;
     const h0 = SC.scrollHeight, y0 = SC.scrollTop;
     for (const m of res.messages) MSGS.set(m.id, m);
@@ -1369,6 +1511,10 @@ function row(m, prev) {
       (canDecide ? `<div class="actions"><button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button>` +
         `<button class="bad" data-act="deny" data-id="${m.id}">Отказать</button></div>` : "") + `</div>`;
   }
+  if(m.secret) {
+    const state=m.secret.state==="pending"&&m.secret.claimed_ts?"Получение начато":{pending:"Ожидает получения",received:"Получен агентом",expired:"Срок истёк",revoked:"Отозван"}[m.secret.state];
+    html+=`<div class="secret-card"><b>🔐 Секрет</b><p>${state}</p><p class="muted">До ${esc(new Date(m.secret.expires*1000).toLocaleString())}</p>${isMine(m) && m.secret.state==="pending"&&!m.secret.claimed_ts?`<button data-act="secret-revoke" data-id="${m.id}">Отозвать</button>`:""}</div>`;
+  }
   html += reactionBar(m);
   if ((m.receipts || []).length) {   // delivery to each addressee: people oversee who got what
     const handled = m.receipts.filter(r => r.acked), read = m.receipts.filter(r => r.read && !r.acked),
@@ -1459,8 +1605,13 @@ document.addEventListener("click", async e => {
         el.textContent = b.classList.contains("collapsed") ? "развернуть" : "свернуть"; break;
       }
       case "rexp": RES_OPEN.has(id) ? RES_OPEN.delete(id) : RES_OPEN.add(id); renderResults(); break;
+      case "dmnew": await newDirect(el.dataset.account); break;
+      case "dmopen": await openDirect(el.dataset.conversation); break;
+      case "secret-revoke": await api("POST",`/api/messages/${id}/secret`,{action:"revoke"}); await refresh(); break;
       case "jump": {
-        if (TAB !== "feed") document.querySelector('[data-tab="feed"]').click();
+        const message=(await api("GET",`/api/messages/${id}`)).message;
+        if(message.conversation_id && message.conversation_id!==ACTIVE_DM?.id) await openDirect(message.conversation_id);
+        else if(!message.conversation_id && (TAB!=="feed" || ACTIVE_DM)) await selectTab("feed");
         let node = $("m" + id);
         if (!node) { THREAD = (await api("GET", `/api/messages/${id}`)).message.thread_id; await reload(); node = $("m" + id); }
         if (node) { node.scrollIntoView({behavior: "smooth", block: "center"}); node.classList.add("highlight"); setTimeout(() => node.classList.remove("highlight"), 1800); }
@@ -1514,20 +1665,34 @@ document.addEventListener("click", async e => {
   } catch (err) { toast(err.message, true); }
 });
 
-for (const b of document.querySelectorAll("[data-tab]")) b.onclick = () => {
-  document.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("active", x === b));
-  TAB = b.dataset.tab;
-  const feed = TAB === "feed";
-  $("feedView").classList.toggle("hidden", !feed);
-  $("resultsView").classList.toggle("hidden", TAB !== "results");
-  $("claimsView").classList.toggle("hidden", TAB !== "claims");
-  $("filters").classList.toggle("hidden", !feed);
-  $("filtersBtn").classList.toggle("hidden", !feed);
-  $("composer").classList.toggle("hidden", !feed);
-  setHeaderHeight();
-  if (feed) toBottom();
-  else { $("scroller").scrollTop = 0; if (TAB === "results") loadResults(); else loadClaims(); }
-};
+function paintTab() {
+  document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===TAB));
+  const feed=TAB==="feed" || TAB==="direct" && !!ACTIVE_DM;
+  $("feedView").classList.toggle("hidden",!feed);
+  $("directView").classList.toggle("hidden",TAB!=="direct" || !!ACTIVE_DM);
+  $("resultsView").classList.toggle("hidden",TAB!=="results");
+  $("claimsView").classList.toggle("hidden",TAB!=="claims");
+  $("filters").classList.toggle("hidden",!feed); $("filtersBtn").classList.toggle("hidden",!feed);
+  $("composer").classList.toggle("hidden",!feed); $("dmBar").classList.toggle("hidden",!ACTIVE_DM);
+  $("cTo").classList.toggle("hidden",!!ACTIVE_DM); $("secretBtn").classList.toggle("hidden",!ACTIVE_DM || ME.kind!=="human");
+  const approver=$("cApprover").value;
+  $("cApprover").innerHTML=`<option value="">кто решает: человек этого чата</option>`+(ME.users||[])
+    .filter(u=>u.kind==="human"&&(!ACTIVE_DM||u.id===ACTIVE_DM.human_id))
+    .map(u=>`<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
+  $("cApprover").value=approver;
+  if(ACTIVE_DM) $("dmTitle").textContent=ACTIVE_DM.peer;
+  setHeaderHeight(); observeReadRows();
+}
+async function selectTab(tab) {
+  if(SENDING) {toast("Дождись отправки сообщения",true);return;}
+  const changed=!!ACTIVE_DM; saveDraft(); closeSecret(); ACTIVE_DM=null; TAB=tab;
+  if(changed) {resetFeedState();restoreDraft();}
+  paintTab();
+  if(tab==="direct") {await loadConversations();$("dmSearch").focus();}
+  else if(tab==="feed") {if(changed)await reload();toBottom();}
+  else {$("scroller").scrollTop=0;if(tab==="results")loadResults();else loadClaims();}
+}
+for(const b of document.querySelectorAll("[data-tab]")) b.onclick=()=>selectTab(b.dataset.tab).catch(e=>toast(e.message,true));
 for (const b of document.querySelectorAll("[data-proxy]")) b.onclick = () => $(b.dataset.proxy).click();
 $("sideBtn").onclick = () => { $("aside").classList.toggle("open"); $("projects").classList.remove("open"); };
 
@@ -1541,7 +1706,7 @@ function updateChips() {
   $("cApprover").classList.toggle("hidden", !$("cApproval").checked);
   $("cChips").innerHTML = chips.map(([k, t]) => `<span class="cchip">${esc(t)}<button type="button" data-chip="${k}" title="убрать">✕</button></span>`).join("");
   $("cOptsBtn").classList.toggle("on", chips.length > 0 || !$("cOpts").classList.contains("hidden"));
-  $("cBody").placeholder = REPLY ? `Ответ ${REPLY.author}…` : ME && ME.project ? `Сообщение в «${ME.project.title}»` : "Сообщение";
+  $("cBody").placeholder = REPLY ? `Ответ ${REPLY.author}…` : ME && ME.project ? (ACTIVE_DM?`Личное сообщение ${ACTIVE_DM.peer}`:`Сообщение в «${ME.project.title}»`) : "Сообщение";
 }
 $("cChips").onclick = e => {
   const k = e.target.dataset && e.target.dataset.chip;
@@ -1665,6 +1830,7 @@ $("sendBtn").onclick = async () => {
   if ($("sendBtn").disabled) return;
   $("sendErr").textContent = "";
   const data = {
+    conversation_id: ACTIVE_DM?.id || null,
     type: $("cType").value, topic: $("cTopic").value.trim().replace(/^#/, ""), body: $("cBody").value,
     priority: $("cUrgent").checked ? "urgent" : "normal", needs_approval: $("cApproval").checked,
     approver: $("cApproval").checked && $("cApprover").value ? $("cApprover").value : null,
@@ -1692,10 +1858,10 @@ $("sendBtn").onclick = async () => {
 
 async function loadPresence() {
   if (!PROJECT) return;
-  const slug = PROJECT;
+  const slug = PROJECT, token=TOKEN;
   try {
     const me = await api("GET", "/api/me");
-    if (slug !== PROJECT) return;
+    if (slug !== PROJECT || TOKEN!==token) return;
     applyProjectInfo(me.project);
     ME.users = me.users;
     const owner = me.project && me.project.role === "owner";
@@ -1716,6 +1882,7 @@ async function loadPresence() {
       if (ME.kind === "human" && (u.name === ME.name || (u.kind === "agent" && u.owner === ME.name)))
         acts.unshift({label: "Переименовать", act: "mrename", data: {name: u.name}});
       if (owner && u.name !== ME.name) acts.push({label: "Убрать из проекта", act: "mremove", data: {name: u.name}, cls: "bad"});
+      if(ME.kind!==u.kind) acts.unshift({label:"Написать лично",act:"dmnew",data:{account:u.id}});
       MEMBER_ACTS[u.name] = acts;
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
         `${esc(initials(u.name))}<span class="pres ${u.listening ? "on" : ""}"></span></div>` +
@@ -2039,20 +2206,25 @@ function spanRu(sec) {
 }
 
 async function refreshSide() {
+  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`, extra=ACTIVE_DM?"&conversation="+encodeURIComponent(ACTIVE_DM.id):"";
+  const valid=()=>scope===`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
   try {
-    const all = await api("GET", "/api/messages?limit=1000&full=0");
+    const all = await api("GET", "/api/messages?limit=1000&full=0"+extra);
+    if(!valid())return;
     const topics = [...new Set(all.messages.map(m => m.topic).filter(Boolean))].sort();
     const cur = $("fTopic").value;
     $("fTopic").innerHTML = `<option value="">все топики</option>` + topics.map(t => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
     $("topicList").innerHTML = topics.map(t => `<option value="${esc(t)}">`).join("");
-    const pend = await api("GET", "/api/messages?pending_approval=" + (ME.kind === "human" ? "mine" : "1") + "&limit=100&full=0");
+    const pend = await api("GET", "/api/messages?pending_approval=" + (ME.kind === "human" ? "mine" : "1") + "&limit=100&full=0"+extra);
+    if(!valid())return;
     const n = pend.messages.length;
     $("pendingChip").classList.toggle("hidden", !n);
     $("pendingChip").innerHTML = `<span class="lg">${ME.kind === "human" ? "ждут твоего решения" : "ждут одобрения"}: ${n}</span><span class="sm">⚠ ${n}</span>`;
     $("pendingChip").title = (ME.kind === "human" ? "ждут твоего решения: " : "ждут одобрения человека: ") + n + " (фильтр «ждут одобрения» в поиске)";
     NTF.pending = n; ntfTitle();
     if (ME.kind === "human") {
-      const w = (await api("GET", "/api/messages?waiting_me=1&limit=100&full=0")).messages.length;
+      const w = (await api("GET", "/api/messages?waiting_me=1&limit=100&full=0"+extra)).messages.length;
+      if(!valid())return;
       $("waitChip").classList.toggle("hidden", !w);
       $("waitChip").innerHTML = `<span class="lg">ждут твоего ответа: ${w}</span><span class="sm">? ${w}</span>`;
     }
@@ -2188,10 +2360,11 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("mess
 
 // why a new message deserves a notification; null = it does not
 function ntfReason(m) {
-  if (isMine(m) || m.read || m.acked || m.id <= (ME.project?.read_upto || 0)) return null;
+  if (isMine(m) || m.read || m.acked || m.id <= (m.conversation_id ? CONVERSATIONS.find(c=>c.id===m.conversation_id)?.read_upto || 0 : ME.project?.read_upto || 0)) return null;
   if (m.type === "approval") { const o = MSGS.get(m.reply_to); return o && isMine(o) ? "Решение" : null; }
   if (m.needs_approval && !m.approvals.length && (!m.approver || m.approver === ME.name)) return "Нужно твоё решение";
   if (m.priority === "urgent") return "Срочно";
+  if (m.conversation_id) return "Личное сообщение";
   if (m.to.includes(ME.name)) return "Тебе";
   return null;
 }
@@ -2236,8 +2409,9 @@ async function poll() {
       POLL_ABORT = new AbortController();
       const revision = REACTION_REVISION == null ? "" : `&reaction_revision=${encodeURIComponent(REACTION_REVISION)}`;
       const receipts = RECEIPT_REVISION == null ? "" : `&receipt_revision=${encodeURIComponent(RECEIPT_REVISION)}`;
-      const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25${revision}${receipts}`, null, POLL_ABORT.signal);
+      const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25&conversation=all${revision}${receipts}`, null, POLL_ABORT.signal);
       $("conn").className = "dot on"; $("conn").title = "на связи"; delay = 1000; fails = 0;
+      ntfNew(res.messages); NTF.seen=Math.max(NTF.seen,...res.messages.map(m=>m.id));
       if (res.messages.length) {
         LAST = Math.max(LAST, ...res.messages.map(m => m.id));
       } else {
