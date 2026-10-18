@@ -1,5 +1,5 @@
 """Private admin scope and a session bridge with real HTTP, without model calls."""
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, nullcontext
 import importlib.util
 import io
 import json
@@ -107,43 +107,75 @@ class DevelopmentChatTest(unittest.TestCase):
     def incoming(self):
         return self.api('POST','/api/messages',{'body':'PEER_TEXT_DO_NOT_INJECT','to':['developer'],'type':'question'})['id']
 
-    def test_bridge_resumes_selected_session_with_metadata_and_replies_in_thread(self):
+    def event(self, kind, **kw):
+        with self.journal.open('a', encoding='utf-8') as f:
+            f.write(json.dumps({'type':'event_msg','payload':dict(type=kind, **kw)})+'\n')
+
+    def run_step(self, deliver):
+        return self.bridge.step(self.conf,self.config,self.session,self.transcript,self.folder,deliver)
+
+    def accept(self,binding,text,qid,path):
+        self.assertNotIn('PEER_TEXT_DO_NOT_INJECT',text)
+        self.assertNotIn('exec resume',text)
+        self.assertIn('read',text);self.assertIn('--observe',text)
+        receipt={'status':'accepted','thread':self.session,'turn_id':'turn-fixture','mode':'steer'}
+        self.bridge.ipc.write_receipt(path,receipt)
+        return receipt
+
+    def test_direct_dispatch_requires_model_observation_before_forwarding(self):
         mid=self.incoming()
-        def fake_codex(argv,**kw):
-            self.assertEqual(argv[1:3],['exec','resume'])
-            self.assertEqual(argv[-2:], [self.session,'-'])
-            for banned in ('PEER_TEXT_DO_NOT_INJECT','--dangerously','--ignore-rules','--ignore-user-config'):
-                self.assertNotIn(banned,kw['input'].decode()+str(argv))
-            self.assertIn('read',kw['input'].decode());self.assertIn(str(mid),kw['input'].decode())
-            Path(argv[argv.index('--output-last-message')+1]).write_text('Ответ этой сессии',encoding='utf-8')
-            return types.SimpleNamespace(returncode=0)
-        with mock.patch.object(self.bridge.subprocess,'run',side_effect=fake_codex) as run:
-            self.assertTrue(self.bridge.step(self.conf,self.config,self.session,self.transcript,'codex',self.folder,self.state))
-            self.assertEqual(run.call_count,1)
+        self.event('task_started',turn_id='turn-fixture')
+        self.run_step(self.accept)
+        self.assertFalse(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
+        with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+            self.bridge.observe(self.conf,self.session,mid)
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Session answer')
+        with mock.patch.object(self.bridge.ipc,'deliver',side_effect=AssertionError('duplicate dispatch')):
+            self.run_step(lambda *a: self.fail('duplicate dispatch'))
         result=self.api('GET',f'/api/messages/{mid}',who=self.key)
-        reply=next(m for m in result['thread'] if m['body']=='Ответ этой сессии')
+        reply=next(m for m in result['thread'] if m['body']=='Session answer')
         self.assertEqual(reply['author_id'],self.key);self.assertEqual(reply['to_ids'],['alice'])
         self.assertTrue(result['message']['acked'])
+        # A lost acknowledgement must retry the same reply idempotently, not duplicate it.
+        self.s.db().execute('UPDATE receipts SET ack_ts=NULL WHERE message_id=? AND user=?',(mid,self.key))
+        self.run_step(lambda *a: self.fail('duplicate dispatch'))
+        result=self.api('GET',f'/api/messages/{mid}',who=self.key)
+        self.assertEqual(len([m for m in result['thread'] if m['body']=='Session answer']),1)
 
-    def test_busy_session_and_native_failure_leave_message_pending(self):
-        mid=self.incoming()
-        with self.journal.open('a') as f:f.write(json.dumps({'type':'event_msg','payload':{'type':'task_started'}})+'\n')
-        with mock.patch.object(self.bridge.subprocess,'run') as run,mock.patch.object(self.bridge.time,'sleep'):
-            self.assertFalse(self.bridge.step(self.conf,self.config,self.session,self.transcript,'codex',self.folder,self.state))
-            run.assert_not_called()
+    def test_busy_session_receives_and_native_failure_preserves_pending(self):
+        mid=self.incoming();self.event('task_started',turn_id='turn-fixture')
+        def fail(*args):raise self.bridge.ipc.RpcError('unavailable')
+        self.run_step(fail)
+        self.assertEqual(json.loads(self.state.read_text())['status'],'delivery_pending')
         self.assertFalse(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
-        with self.journal.open('a') as f:f.write(json.dumps({'type':'event_msg','payload':{'type':'task_complete'}})+'\n')
-        with mock.patch.object(self.bridge.subprocess,'run',return_value=types.SimpleNamespace(returncode=2)):
-            with self.assertRaises(RuntimeError):
-                self.bridge.step(self.conf,self.config,self.session,self.transcript,'codex',self.folder,self.state)
-        self.assertEqual(json.loads(self.state.read_text())['status'],'needs_attention')
+        self.run_step(self.accept)
+        self.assertTrue(self.api('GET','/api/me',who=self.key)['listening'])
+        # Accepted but not observed is never forwarded, even if that turn later ends.
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Unobserved answer')
+        self.run_step(lambda *a:self.fail('duplicate'))
         self.assertFalse(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
+
+    def test_observation_rejects_different_turn(self):
+        mid=self.incoming();self.event('task_started',turn_id='another-turn')
+        self.run_step(self.accept)
+        with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+            with self.assertRaises(RuntimeError):self.bridge.observe(self.conf,self.session,mid)
+
+    def test_exhausted_client_retry_keeps_listener_recoverable(self):
+        argv=['bridge','--config',str(self.config),'--session',self.session,'--once']
+        with mock.patch.object(self.bridge.sys,'argv',argv), mock.patch.object(self.bridge,'session_transcript',return_value=self.journal), \
+             mock.patch.object(self.bridge,'runtime',return_value=self.folder), mock.patch.object(self.bridge.ipc,'check_owner'), \
+             mock.patch.object(self.bridge,'session_lock',return_value=nullcontext()), mock.patch.object(self.bridge.time,'sleep'), \
+             mock.patch.object(self.bridge,'step',side_effect=SystemExit(3)):
+            self.assertEqual(self.bridge.main(),0)
+        status=json.loads(self.state.read_text())
+        self.assertEqual(status['status'],'offline');self.assertEqual(status['client_exit'],3)
 
     def test_bridge_cannot_run_for_an_ordinary_project_agent(self):
         config=self.folder/'normal.json'
         config.write_text(json.dumps({'server':self.fx.url,'token':self.fx.tokens['bob-agent'],'project':'main','url_source':''}))
         with self.assertRaises(RuntimeError):
-            self.bridge.step(self.bridge.tg.Conf(str(config)),config,self.session,self.transcript,'codex',self.folder,self.state)
+            self.bridge.step(self.bridge.tg.Conf(str(config)),config,self.session,self.transcript,self.folder)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

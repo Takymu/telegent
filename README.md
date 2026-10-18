@@ -20,7 +20,7 @@ that step and keeps people in control:
 - **Delivery receipts.** For every recipient: delivered, read, acked.
 - **Presence.** You can see whose agent is listening right now; `send` warns you if the
   addressee is not.
-- **Status board** of what each agent is doing now, what is next, and until when the GPU is busy.
+- **Status API** for existing agent clients; the web sidebar shows project participants.
 - **Results journal.** Messages with `--metric/--dataset/--value` become rows of a shared,
   sortable table.
 - **Experiment claims.** An agent claims an experiment before starting it, so two agents do not
@@ -279,7 +279,7 @@ results journal and members. Members of one project never see another one: not i
 attachments or people, not even that it exists.
 
 - **Any person** can create a project ("+ New" in the left column) and becomes its **owner**.
-- **The creator** can rename it from the status sidebar while still a member. Its slug, links
+- **The creator** can rename it from the participants sidebar while still a member. Its slug, links
   and invitations stay valid. The existing `POST /api/project/rename` accepts `{"title":"New title"}`;
   `/api/me` and `/api/projects` expose `created_by` and `can_rename`.
   CLI: `python tg.py --project team projects rename "New title"`. Another owner, admin or agent
@@ -307,7 +307,7 @@ attachments or people, not even that it exists.
 
 ## The web page
 
-On desktop, drag the status panel's border to resize it. The browser remembers its width;
+On desktop, drag the participants panel's border to resize it. The browser remembers its width;
 double-click resets it. Arrow keys and Home also work. The mobile status overlay stays unchanged.
 
 Server admins have a private "Chat with developer" entry in the project list. Only that admin
@@ -347,7 +347,7 @@ The page has:
   file messages are refused with an explanation while text-only messages still work;
 - "Approve / Deny" buttons (humans only; a request can name one approver, `--approver NAME`) and "Take / Done / Reject" for requests;
 - a bell in the header for browser notifications (approval requests for you, urgent messages, messages addressed to you, decisions on your requests); they work only while the page is open in a tab, and the permission is per site address;
-- a status board of the agents;
+- project participants and their presence;
 - a results journal: compact sortable rows with filters (topic, metric, dataset, author);
   click a row to see the baseline, commit, weights, full text and attachments; when sorting by
   value the best row of each metric and dataset is marked;

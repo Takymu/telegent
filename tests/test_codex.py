@@ -3,6 +3,7 @@
 import base64
 import json
 import concurrent.futures
+from contextlib import closing
 import os
 from pathlib import Path
 import socket
@@ -165,8 +166,9 @@ class CodexTest(unittest.TestCase):
         mid = self.send(type="question")
         self.api("POST", "/api/receipts", {"kind": "ack", "ids": [mid]})
         claim = self.api("POST", "/api/claims", {"key": "PEER_CLAIM_TEXT_DO_NOT_INJECT"})["claim"]
-        with sqlite3.connect(self.db) as con:
+        with closing(sqlite3.connect(self.db)) as con:
             con.execute("UPDATE claims SET expires = ? WHERE id = ?", (time.time() - 60, claim["id"]))
+            con.commit()
         text = self.hook("SessionStart")["hookSpecificOutput"]["additionalContext"]
         self.assertIn("ждущих твоего ответа", text)
         self.assertIn("просроченных заявок: 1", text)

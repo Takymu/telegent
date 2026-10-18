@@ -77,9 +77,7 @@ header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
 .approval { font-size: 12.5px; padding: 6px 8px; border-radius: 7px; background: var(--warn-bg); color: var(--warn); margin: 6px 0; }
 aside .panel { margin-bottom: 14px; }
 aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 8px; }
-.board-item { border-top: 1px solid var(--line); padding: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
 .stale { color: var(--warn); font-size: 12px; }
-.board-item:first-of-type { border-top: 0; }
 .err { color: var(--urgent); font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
 .err:empty { display: none; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -146,12 +144,11 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     background: var(--bg); border-right: 0; padding: 16px; }
   #projects.open { display: block; }
   .pitem { padding: 10px 8px; font-size: 15px; }
-  /* phone header: project title + two buttons; account actions live in the "Статус" panel */
+  /* phone header: project title + two buttons; account actions live in the participants panel */
   #themeBtn, #pwBtn, #logoutBtn, #meLabel, #app header h1 { display: none !important; }
   #acctBox { display: block; }
   #app aside { font-size: 16px; padding: 14px 14px 24px; }
   #app aside h2 { font-size: 14px; }
-  .board-item { font-size: 15.5px; }
   #projActions { font-size: 15px !important; }
   #acctBox .muted { font-size: 15px !important; }
   #inviteBtn { font-size: 14px !important; padding: 6px 12px; }
@@ -358,7 +355,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .member .minfo { flex: 1; min-width: 0; font-size: 13px; }
 .member .minfo .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .member .more { border: 0; background: transparent; padding: 2px 8px; font-size: 16px; color: var(--muted); }
-/* phones: the "Статус" panel is read at arm's length (after the base rules, so it wins) */
+/* phones: the participants panel is read at arm's length (after the base rules, so it wins) */
 @media (max-width: 900px) {
   .member { gap: 13px; padding: 11px 0; }
   .member .mav, .member .mav.small { width: 46px; height: 46px; font-size: 16px; }
@@ -509,7 +506,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     <span class="chip need hidden" id="waitChip" style="cursor:pointer" title="вопросы и просьбы лично тебе, на которые нет ответа: показать"></span>
     <span class="chip need hidden" id="pendingChip"></span>
     <button id="projBtn" title="проекты">Проекты</button>
-    <button id="sideBtn" title="участники и доска статуса">Статус</button>
+    <button id="sideBtn" title="участники проекта">Участники</button>
     <button id="bellBtn" class="hidden"></button><a id="ntfJump" data-act="jump" hidden></a>
     <button id="themeBtn" title="тема">◐</button>
     <button id="pwBtn" class="hidden" title="задать или сменить пароль для входа">Пароль</button>
@@ -602,8 +599,6 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           <button id="inviteBtn" class="hidden" style="font-size:12px;text-transform:none;letter-spacing:0">+ Пригласить</button></h2>
         <div id="presence" class="muted">—</div>
         <div id="projActions" style="font-size:12.5px;margin:6px 0 12px"></div>
-        <h2>Доска статуса</h2>
-        <div id="board" class="muted">—</div>
         <div id="acctBox" style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
           <span class="muted" id="acctLabel" style="font-size:12.5px"></span>
           <div class="actions"><button data-proxy="pwBtn" id="acctPw">Пароль</button><button data-proxy="themeBtn">Тема</button>
@@ -790,7 +785,7 @@ function showNoProject() {
   for (const id of ["feedView", "resultsView", "claimsView", "composer"]) $(id).classList.add("hidden");
   document.querySelector(".feedtop").classList.add("hidden");
   $("noProjCreate").classList.toggle("hidden", ME.kind !== "human");
-  $("presence").innerHTML = ""; $("board").innerHTML = ""; $("projActions").innerHTML = "";
+  $("presence").innerHTML = ""; $("projActions").innerHTML = "";
   $("inviteBtn").classList.add("hidden");
   renderProjects();
 }
@@ -813,7 +808,7 @@ async function setProject(slug) {
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
   setupCompose(); resetCompose();
   document.querySelector('[data-tab="feed"]').click();
-  await reload(); loadBoard(); renderProjects();
+  await reload(); loadPresence(); renderProjects();
 }
 
 const seen = slug => +(st.get("tg_seen_" + slug) || 0);
@@ -843,7 +838,7 @@ function applyProjectInfo(p) {
   ME.project = p;
   $("devChatHint").classList.toggle("hidden", p.kind !== "development");
   $("devChatHint").textContent = p.developer_connected
-    ? "Личный чат с сессией разработки telegent. Если она занята, ответ придёт после текущего хода."
+    ? "Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда."
     : "Личный чат администратора. Сессия разработки ещё не подключена.";
   $("projTitle").textContent = p.title;
   ntfTitle(); updateChips(); setHeaderHeight();
@@ -1788,19 +1783,6 @@ function spanRu(sec) {
   return Math.round(sec / 86400) + " дн";
 }
 
-async function loadBoard() {
-  loadPresence();
-  try {
-    const res = await api("GET", "/api/board");
-    $("board").classList.toggle("muted", !res.board.length);
-    $("board").innerHTML = res.board.length ? res.board.map(b => `<div class="board-item"><b>${esc(b.name)}</b> <span class="muted">${shortTime(b.time)}${b.age != null ? ", обновлено " + spanRu(b.age) + " назад" : ""}</span>${b.age > 86400 ? ` <span class="stale">давно не обновлялась</span>` : ""}
-      ${b.back ? `<div>вернётся: ${esc(b.back)}</div>` : ""}
-      ${b.now ? `<div>сейчас: ${esc(b.now)}</div>` : ""}${b.next ? `<div>дальше: ${esc(b.next)}</div>` : ""}
-      ${b.gpu_until ? `<div>карта занята до: ${esc(b.gpu_until)}</div>` : ""}${b.note ? `<div class="muted">${esc(b.note)}</div>` : ""}</div>`).join("")
-      : "Пока никто не заполнил (агенты: <code>tg.py board set</code>).";
-  } catch {}
-}
-
 async function refreshSide() {
   try {
     const all = await api("GET", "/api/messages?limit=1000&full=0");
@@ -2001,7 +1983,7 @@ async function poll() {
       } else {
         LAST = Math.max(LAST, res.last_id);
       }
-      await refresh(); loadBoard(); loadProjects(); if (TAB === "claims") loadClaims();
+      await refresh(); loadPresence(); loadProjects(); if (TAB === "claims") loadClaims();
     } catch (e) {
       if (e.name === "AbortError") continue;   // the project was switched
       $("conn").className = "dot off"; $("conn").title = "нет связи: " + e.message;
