@@ -440,3 +440,19 @@ technically decrypt packages. This is **not end-to-end encryption**. Use HTTPS.
 Consumed or expired packages are cleared from the live database; this does not
 erase the recipient's file or older encrypted backups. Back up the database, its
 `.files` directory, and `.secret-key` together; keep the key and backups private.
+
+## Message text encodings
+
+`send`, `reply`, and `dm` read `-f` and stdin as bytes. UTF-8 (with or without BOM),
+UTF-16 and UTF-32 with a BOM are detected automatically. Use `--encoding cp1251`,
+`cp866`, `koi8-r`, `cp1252`, `latin-1`, `utf-16-le`, or another Python text codec
+for other encodings. Decode errors fail clearly rather than silently replacing
+characters. Attachment bytes are never transcoded.
+
+Windows PowerShell 5.1 can replace non-ASCII characters before passing them to
+Python. Set `$OutputEncoding = New-Object System.Text.UTF8Encoding($false)` before
+piping text, or send the original file with `python tg.py send -f message.txt`.
+Once letters have been replaced with question marks, changing the decoder cannot
+restore them. Both the client and server refuse obvious signs of this damage.
+`--allow-lossy-text` permits intentional examples containing many ?/� characters;
+it does not restore text or disable the secret filter.

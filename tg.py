@@ -438,12 +438,44 @@ def get_me(conf):
     return api_retry(conf, "GET", "/api/me")
 
 
+def text_encoding_problem(text):
+    # ASCII replacement happens upstream (notably PowerShell 5.1); decoding cannot restore it.
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", text):
+        return "служебные символы вместо текста: проверь кодировку источника"
+    if text.count("\ufffd") >= 3:
+        return "символы замены Unicode: часть исходного текста уже потеряна"
+    runs = re.findall(r"\?{3,}", text)
+    ratio=text.count("?") / max(1,len(text))
+    if (text.count("?") >= 12 and ratio >= .15 and (len(runs) >= 3 or any(len(r) >= 12 for r in runs))) or (text.count("?") >= 6 and ratio >= .4 and any(len(r)>=4 for r in runs)):
+        return "слишком много вопросительных знаков: возможно, буквы заменены до запуска клиента"
+    return None
+
+
+def decode_message_text(raw, encoding="auto"):
+    if encoding.lower() == "auto":
+        # UTF-32 BOMs start with a UTF-16 BOM, so check the longer signatures first.
+        encoding = next((enc for bom,enc in ((codecs.BOM_UTF32_LE,"utf-32"),(codecs.BOM_UTF32_BE,"utf-32"),
+                        (codecs.BOM_UTF16_LE,"utf-16"),(codecs.BOM_UTF16_BE,"utf-16"),(codecs.BOM_UTF8,"utf-8-sig"))
+                         if raw.startswith(bom)), "utf-8")
+    try:
+        return raw.decode(encoding,errors="strict").lstrip("\ufeff").replace("\r\n","\n").replace("\r","\n")
+    except (LookupError,UnicodeError,TypeError):
+        die("НЕ отправлено: не удалось прочитать текст в выбранной кодировке. "
+            "Укажи --encoding (например cp1251, cp866, koi8-r, cp1252, latin-1, utf-16-le) "
+            "или сохрани исходный текст в UTF-8. Авто: UTF-8 и UTF-16/UTF-32 с BOM.",2)
+
+
 def read_body(args):
     if getattr(args, "file", None):
         if args.file == "-":
+            if hasattr(sys.stdin,"buffer"):
+                return decode_message_text(sys.stdin.buffer.read(),getattr(args,"encoding","auto"))
             return sys.stdin.read()
-        with open(args.file, encoding="utf-8-sig") as f:
-            return f.read()
+        try:
+            with open(args.file,"rb") as f:
+                return decode_message_text(f.read(),getattr(args,"encoding","auto"))
+        except OSError:
+            die("не удалось открыть файл сообщения",2)
     return args.body or ""
 
 
@@ -539,6 +571,10 @@ def build_result(args):
 
 def do_send(conf, args, reply_to=None, default_to=None, default_to_ids=None):
     body = read_body(args)
+    if not getattr(args,"allow_lossy_text",False) and text_encoding_problem(body):
+        die("НЕ отправлено: "+text_encoding_problem(body)+". Восстанови исходный текст и отправь из файла (-f). "
+            "В PowerShell перед stdin задай $OutputEncoding = New-Object System.Text.UTF8Encoding($false). "
+            "Только для намеренных знаков ? или � есть --allow-lossy-text; он не восстанавливает потерянные буквы.",2)
     data = {
         "subject": args.subject or "", "body": body, "type": args.type, "topic": args.topic or "",
         "priority": "urgent" if args.urgent else "normal", "needs_approval": bool(args.approval or args.approver),
@@ -551,6 +587,8 @@ def do_send(conf, args, reply_to=None, default_to=None, default_to_ids=None):
         data["to_ids"] = default_to_ids
     if getattr(args,"conversation_id",None):
         data["conversation_id"] = args.conversation_id
+    if getattr(args,"allow_lossy_text",False):
+        data["allow_lossy_text"] = True
     if getattr(args, "claim", None):
         if args.type == "result":
             data["claim"] = args.claim
@@ -1501,6 +1539,8 @@ def add_send_opts(p, body=True):
         p.add_argument("body", nargs="?", help="текст (или -f файл / -f - для stdin)")
     p.add_argument("-s", "--subject", help=argparse.SUPPRESS)   # old clients: becomes the first line of the text
     p.add_argument("-f", "--file", help="текст из файла; '-' = stdin")
+    p.add_argument("--encoding", default="auto", help="кодировка -f/stdin: auto (UTF-8/BOM), cp1251, cp866, koi8-r, utf-16-le и др.")
+    p.add_argument("--allow-lossy-text", action="store_true", help="намеренно отправить много ?/�; не исправляет кодировку и не отключает секрет-фильтр")
     p.add_argument("-t", "--type", default="info", choices=("info", "request", "question", "result", "alert", "decision"))
     p.add_argument("-T", "--topic", help="топик: tuning, eval, infra, ...")
     p.add_argument("--to", help="кому, через запятую (по умолчанию всем)")

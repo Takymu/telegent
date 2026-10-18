@@ -129,6 +129,7 @@ python tests/test_read_sync.py    # две сессии одного аккау�
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
 python tests/test_direct_browser.py  # Firefox: лички, черновики, секреты, десктоп и телефон
+python tests/test_encoding.py        # файлы/stdin, Unicode/BOM, legacy-кодировки, настоящий PowerShell 5.1
 ```
 Перед каждой выкаткой. Тест не должен трогать настоящий `~/.telegent` (там подменяется `HOME`/
 `USERPROFILE`) и настоящий `url.txt` (в конфигах тестовых клиентов `"url_source": ""`).

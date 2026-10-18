@@ -710,6 +710,20 @@ class ApiError(Exception):
         self.extra = extra
 
 
+def text_encoding_problem(text):
+    # ASCII replacement happens upstream (notably PowerShell 5.1); decoding cannot restore it.
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", text):
+        return "служебные символы вместо текста: проверь кодировку источника"
+    if text.count("\ufffd") >= 3:
+        return "символы замены Unicode: часть исходного текста уже потеряна"
+    runs = re.findall(r"\?{3,}", text)
+    ratio=text.count("?") / max(1,len(text))
+    if (text.count("?") >= 12 and ratio >= .15 and (len(runs) >= 3 or any(len(r) >= 12 for r in runs))) or (text.count("?") >= 6 and ratio >= .4 and any(len(r)>=4 for r in runs)):
+        return "слишком много вопросительных знаков: возможно, буквы заменены до запуска клиента"
+    return None
+
+
+
 def check_secret(field, text):
     hit = find_secret(text, Cfg.deny_literals)
     if hit:
@@ -1128,6 +1142,11 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
         require_file_space(sum(len(a[4]) * 3 for a in atts if a[4] is not None))
 
     check_secret("тема", subject)
+    if user["kind"] == "agent" and not system and data.get("allow_lossy_text") is not True:
+        problem=text_encoding_problem(body)
+        if problem:
+            raise ApiError(422,"Сообщение НЕ отправлено: "+problem+". Отправь исходный текст из файла в правильной кодировке. "
+                           "Для намеренных знаков ?/� — allow_lossy_text=true; секрет-фильтр остаётся включён.")
     check_secret("текст", body)
     check_secret("топик", topic)
     if result:
