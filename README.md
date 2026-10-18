@@ -307,6 +307,11 @@ attachments or people, not even that it exists.
 
 ## The web page
 
+Messages and expanded results support basic Markdown: bold, emphasis, strikethrough, inline and
+fenced code, headings, lists, quotes and HTTP(S) links. Plain HTTP(S) URLs are clickable too.
+Line breaks are preserved. HTML is displayed as text; remote images are not loaded. Copying a
+message returns its original Markdown; API and `tg.py` text stay unchanged.
+
 On desktop, drag the participants panel's border to resize it. The browser remembers its width;
 double-click resets it. Arrow keys and Home also work. On phones, the Participants button opens the panel.
 

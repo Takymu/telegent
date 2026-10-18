@@ -243,6 +243,20 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   margin: 3px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
 .mquote:hover { color: var(--ink); border-left-color: var(--accent); }
 .mtext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; margin-top: 1px; }
+.md { white-space: normal; }
+.md p, .md ul, .md ol, .md pre, .md blockquote, .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: .45em 0; }
+.md > :first-child, .md li > :first-child { margin-top: 0; }
+.md > :last-child, .md li > :last-child { margin-bottom: 0; }
+.md h1, .md h2 { font-size: 1.2em; line-height: 1.35; }
+.md h3, .md h4, .md h5, .md h6 { font-size: 1.05em; }
+.md ul, .md ol { padding-inline-start: 1.6em; }
+.md li + li { margin-top: .15em; }
+.md code { font: .92em ui-monospace, Consolas, monospace; background: var(--chip); padding: 1px 4px;
+  border-radius: 4px; white-space: pre-wrap; }
+.md pre { max-width: 100%; overflow-x: auto; background: var(--code); border: 1px solid var(--line);
+  border-radius: 7px; padding: 10px; overscroll-behavior: contain; }
+.md pre code { display: block; padding: 0; background: transparent; white-space: pre; overflow-wrap: normal; }
+.md blockquote { margin-left: 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
 .mtext.collapsed { max-height: 10.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent);
   mask-image: linear-gradient(#000 70%, transparent); }
 .mmore { font-size: 12.5px; }
@@ -635,6 +649,110 @@ const EXPANDED = new Set();
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
+// A small Markdown subset. All user text is escaped; generated links allow only HTTP(S).
+function markdownLink(label, href) {
+  try {
+    if (/[\s\u0000-\u001f\u007f]/.test(href)) return null;
+    const url = new URL(href);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return `<a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  } catch { return null; }
+}
+function markdownInline(text, depth = 0, links = true) {
+  if (depth > 8) return esc(text).replace(/\n/g, "<br>");
+  let html = "", plain = "", i = 0, bracketEnd = -1;
+  const missing = new Set(), badLinks = new Set(), flush = () => { html += esc(plain).replace(/\n/g, "<br>"); plain = ""; };
+  const endOf = (marker, start) => {
+    if (missing.has(marker)) return -1;
+    const end = text.indexOf(marker, start);
+    if (end < 0) missing.add(marker);
+    return end;
+  };
+  while (i < text.length) {
+    if (text[i] === "\\" && /[\\`*_[\]~<>]/.test(text[i + 1] || "")) { plain += text[i + 1]; i += 2; continue; }
+    if (text[i] === "`") {
+      const marker = /^`+/.exec(text.slice(i))[0], end = endOf(marker, i + marker.length);
+      if (end >= 0) { flush(); html += `<code>${esc(text.slice(i + marker.length, end))}</code>`; i = end + marker.length; continue; }
+      plain += marker; i += marker.length; continue;
+    }
+    if (links && text[i] === "[" && text[i - 1] !== "!") {
+      if (bracketEnd < i) bracketEnd = endOf("]", i + 1);
+      const end = bracketEnd;
+      if (end > i + 1 && text[end + 1] === "(" && !badLinks.has(end)) {
+        let j = end + 2, balance = 1;
+        while (j < text.length && j - end < 4096 && balance) {
+          if (text[j] === "(") balance++; else if (text[j] === ")") balance--;
+          if (balance) j++;
+        }
+        if (!balance) {
+          const href = text.slice(end + 2, j);
+          if (markdownLink("", href)) {
+            flush(); html += markdownLink(markdownInline(text.slice(i + 1, end), depth + 1, false), href); i = j + 1; continue;
+          }
+        }
+        badLinks.add(end);
+      }
+    }
+    if (links && (text.startsWith("https://", i) || text.startsWith("http://", i))) {
+      const url = /^https?:\/\/[^\s<>]+/.exec(text.slice(i))[0].replace(/[.,;:!?\])}]+$/, "");
+      const link = markdownLink(esc(url), url);
+      if (link) { flush(); html += link; i += url.length; continue; }
+    }
+    const marker = ["**", "__", "~~", "*", "_"].find(m => text.startsWith(m, i));
+    if (marker && !(marker.includes("_") && /[\p{L}\p{N}]/u.test(text[i - 1] || ""))) {
+      const end = endOf(marker, i + marker.length), inner = text.slice(i + marker.length, end);
+      if (end > i + marker.length && !/^\s|\s$/.test(inner)) {
+        const tag = marker.length === 2 ? (marker === "~~" ? "del" : "strong") : "em";
+        flush(); html += `<${tag}>${markdownInline(inner, depth + 1, links)}</${tag}>`; i = end + marker.length; continue;
+      }
+    }
+    plain += text[i++];
+  }
+  flush(); return html;
+}
+function markdown(text, depth = 0) {
+  text = String(text ?? "").replace(/\r\n?/g, "\n");
+  if (depth > 8) return `<p>${esc(text).replace(/\n/g, "<br>")}</p>`;
+  const lines = text.split("\n"), out = [];
+  const fence = line => /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  const heading = line => /^ {0,3}(#{1,6})\s+(.+)$/.exec(line);
+  const list = line => /^( {0,3})([-+*]|\d{1,9}[.)])\s+(.+)$/.exec(line);
+  const quote = line => /^ {0,3}> ?/.test(line);
+  const block = line => fence(line) || heading(line) || list(line) || quote(line);
+  for (let i = 0; i < lines.length;) {
+    if (!lines[i].trim()) { i++; continue; }
+    const f = fence(lines[i]), h = heading(lines[i]), l = list(lines[i]);
+    if (f) {
+      const code = []; i++;
+      while (i < lines.length && !new RegExp(`^ {0,3}${f[1][0]}{${f[1].length},}\\s*$`).test(lines[i])) code.push(lines[i++]);
+      out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`); if (i < lines.length) i++;
+    } else if (h) {
+      out.push(`<h${h[1].length}>${markdownInline(h[2])}</h${h[1].length}>`); i++;
+    } else if (quote(lines[i])) {
+      const part = [];
+      while (i < lines.length && quote(lines[i])) part.push(lines[i++].replace(/^ {0,3}> ?/, ""));
+      out.push(`<blockquote>${markdown(part.join("\n"), depth + 1)}</blockquote>`);
+    } else if (l) {
+      const ordered = /^\d/.test(l[2]), tag = ordered ? "ol" : "ul", indent = l[1].length, items = [];
+      while (i < lines.length) {
+        const next = list(lines[i]);
+        if (!next || next[1].length !== indent || /^\d/.test(next[2]) !== ordered) break;
+        const part = [next[3]]; i++;
+        while (i < lines.length && /^ +\S/.test(lines[i]) && /^ */.exec(lines[i])[0].length > indent) {
+          part.push(lines[i++].slice(indent + 2));
+        }
+        items.push(`<li>${markdown(part.join("\n"), depth + 1)}</li>`);
+      }
+      out.push(`<${tag}${ordered ? ` start="${parseInt(l[2], 10)}"` : ""}>${items.join("")}</${tag}>`);
+    } else {
+      const part = [lines[i++]];
+      while (i < lines.length && lines[i].trim() && !block(lines[i])) part.push(lines[i++]);
+      out.push(`<p>${markdownInline(part.join("\n"))}</p>`);
+    }
+  }
+  return out.join("");
+}
 const st = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
@@ -1160,7 +1278,7 @@ function row(m, prev) {
   const body = (m.body || m.subject || "").replace(/^\s*\n/, "");
   const long = body.split("\n").length > 10 || body.length > 900;
   const open = EXPANDED.has(m.id);
-  html += `<div class="mtext ${long && !open ? "collapsed" : ""}" data-body="${m.id}">${esc(body)}</div>`;
+  html += `<div class="mtext md ${long && !open ? "collapsed" : ""}" data-body="${m.id}">${markdown(body)}</div>`;
   if (long) html += `<a href="#" class="mmore" data-act="expand" data-id="${m.id}">${open ? "свернуть" : "показать полностью"}</a>`;
   if (m.result) html += `<div class="mextra">` + Object.entries(m.result).map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join("") + `</div>`;
   if (m.status && (m.status.ref || m.status.note))
@@ -1228,6 +1346,7 @@ $("feed").addEventListener("click", e => {
 });
 
 document.addEventListener("click", async e => {
+  if (e.target.closest(".md a")) return;
   const el = e.target.closest("[data-act]");
   if (!el) return;
   e.preventDefault();
@@ -1920,7 +2039,7 @@ function renderResults() {
         .filter(x => x[1] != null && x[1] !== "").map(x => `<span><b>${x[0]}</b> ${esc(x[1])}</span>`).join("");
       const atts = (m.attachments || []).map(a => `<div class="att">📎 ${a.inline ? `<a href="#" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}">${esc(a.name)}</a>` : esc(a.name)}
         <span class="muted">${a.size != null ? a.size + " B " : ""}${a.md5 ? "md5 " + esc(a.md5) : ""}${a.inline ? "" : " · " + esc(a.link || "")}</span></div>`).join("");
-      h += `<div class="rdetail">${kv ? `<div class="kv">${kv}</div>` : ""}${m.body ? `<div class="body">${esc(m.body)}</div>` : ""}${atts}</div>`;
+      h += `<div class="rdetail">${kv ? `<div class="kv">${kv}</div>` : ""}${m.body ? `<div class="body md">${markdown(m.body)}</div>` : ""}${atts}</div>`;
     }
     return h;
   }).join("") : `<div class="rrow muted" style="display:block;cursor:default">${RES.length ? "Ничего не подошло под фильтры." : "Пока пусто: агенты пишут результаты с --metric/--dataset/--value."}</div>`;
