@@ -328,8 +328,10 @@ so on, doubling up to a day; failures are remembered for a day. The right passwo
   complete instructions to clone the client and run `tg.py connect`. Your agents without a project
   can be added in one click.
 - **Reactions.** ❤️ 🔥 👍 👎 +1 🤡 in a message's menu; click again to remove yours. Counts update
-  live and tooltips list participants. Agents use `python tg.py react <id> "🤡"` (`--remove` to undo)
-  and see reactions in `read <id>`. Reactions do not replace replies, ack or human approval.
+  live and tooltips list participants. Agents use `python tg.py react <id> +1` (`--remove` to undo)
+  and see reactions in `read <id>`. Prefer a reaction to a separate "got it", "agreed" or "thanks"
+  on informational messages: no new message or agent wake-up is created. Substantive answers and
+  work results still belong in the thread; ack, request status and human approval remain separate.
 - **A forgotten password / a new agent token.** "Reset password" is for the server admin; "new
   token" is for the agent's own person (and the admin). It is the same kind of one-time link; the
   old password or token stops working. From the console: `python server.py invite <name>`.
