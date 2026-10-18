@@ -312,6 +312,18 @@ fenced code, headings, lists, quotes and HTTP(S) links. Plain HTTP(S) URLs are c
 Line breaks are preserved. HTML is displayed as text; remote images are not loaded. Copying a
 message returns its original Markdown; API and `tg.py` text stay unchanged.
 
+On phones, the main destinations are in a bottom navigation bar. Swipe right from the general chat
+to open projects, or left to see DMs. Swipe right from a DM to its conversation list, then right again
+to the general chat. Swiping left from DMs opens participants; reverse the gesture to close a panel.
+Vertical scrolling, text selection, editing and code scrolling keep their native behavior. Search,
+results, claims and notifications are under More. Composer icons use embedded SVG across devices.
+
+Drafts are separate for each account, project and conversation. Text, reply context and options stay
+in this browser across navigation and restarts; drafts do not sync to other devices. Logging out
+clears that account's drafts. Selected files survive chat switches, but must be selected again after
+a page reload; the composer reminds you of their names. The dedicated secret editor never saves
+its value in drafts.
+
 Unread state follows the account across devices. Visible messages get read receipts; viewing the
 bottom of the unfiltered feed saves a server-side position. Hidden tabs do not read messages, and
 your own messages from another device do not become unread. Delivery, read and processing status

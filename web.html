@@ -407,6 +407,36 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .secret-card p { margin:4px 0;font-size:13px; }
 #secretValue { width:100%;resize:vertical;min-height:110px; }
 @media(max-width:900px) { .tabs { gap:0; } .tabs > button { padding-left:8px;padding-right:8px; } }
+.ui-icon { flex:none;display:block;pointer-events:none; }
+#mobileNav { display:none; }
+#gestureHint { position:fixed;left:50%;bottom:145px;transform:translateX(-50%);padding:10px 18px;border-radius:24px;background:var(--panel);border:1px solid var(--line);z-index:12;pointer-events:none;font-size:14px; }
+@media(max-width:900px) {
+  #app { height:var(--app-height,100dvh); }
+  #devChatHint, #projBtn, #sideBtn, #bellBtn, .feedtop .tabs { display:none !important; }
+  .feedtop { padding-top:4px; }
+  #app header { min-height:44px;padding:8px 16px; }
+  #mobileNav { flex:none;display:flex;justify-content:space-around;background:var(--panel);border-top:1px solid var(--line);padding:4px 4px max(4px,env(safe-area-inset-bottom));z-index:9; }
+  #mobileNav button { position:relative;flex:1;min-width:0;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:0;border-radius:12px;background:transparent;color:var(--muted);padding:4px 0;font-size:10px; }
+  #mobileNav button[aria-current="page"] { color:var(--accent);background:var(--chip); }
+  .nav-badge { position:absolute;top:1px;right:12%;min-width:17px;max-width:34px;padding:1px 4px;border-radius:12px;background:var(--accent);color:var(--accent-ink);font-size:10px; }
+  #projects, #app aside { top:var(--hdr,53px);bottom:var(--mobile-nav-height,64px); }
+  .pselect { min-height:48px; }
+  .pmore, #dmBack, .member .more, #inviteBtn { min-width:44px;min-height:44px; }
+  #composer { padding-bottom:8px; }
+  .cbox { padding:8px 10px; }
+  .cbar .iconbtn, .cbar .send { width:48px;height:48px;padding:0;display:inline-flex;align-items:center;justify-content:center; }
+  .cbar .send { border-radius:14px; }
+  .cbar #cTo { max-width:90px;min-height:44px; }
+  #cFilesInfo { display:none; }
+  #cBody { font-size:16px; }
+  .keyboard-open #mobileNav { display:none; }
+  .keyboard-open #composer { padding-bottom:max(6px,env(safe-area-inset-bottom)); }
+  #directView > p { display:none; }
+}
+@media(prefers-reduced-motion:no-preference) {
+  @keyframes nav-enter { from {opacity:.5;transform:translateX(var(--nav-direction,8px));} to {opacity:1;transform:translateX(0);} }
+  #scroller.nav-enter { animation:nav-enter .16s ease-out; }
+}
 </style>
 </head>
 <body>
@@ -611,14 +641,14 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
             <div id="cChips"></div>
             <textarea id="cBody" rows="1" placeholder="Сообщение"></textarea>
             <div class="cbar">
-              <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 200 МБ" aria-label="Прикрепить файл">📎</button><input type="file" id="cFiles" multiple hidden>
-              <button type="button" class="iconbtn hidden" id="secretBtn" title="Передать секрет агенту" aria-label="Передать секрет агенту">🔐</button>
+              <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 200 МБ" aria-label="Прикрепить файл"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m21 11-8.6 8.6a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6"/></svg></button><input type="file" id="cFiles" multiple hidden>
+              <button type="button" class="iconbtn hidden" id="secretBtn" title="Передать секрет агенту" aria-label="Передать секрет агенту"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg></button>
               <select id="cTo" class="plain" title="кому"></select>
-              <button type="button" class="iconbtn" id="cOptsBtn" title="тип, топик, срочно, одобрение">⚙</button>
+              <button type="button" class="iconbtn" id="cOptsBtn" aria-label="Параметры сообщения" title="тип, топик, срочно, одобрение"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 6h7m4 0h5M4 12h2m4 0h10M4 18h10m4 0h2"/><circle cx="13" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg></button>
               <span id="cFilesInfo" class="muted"></span>
               <span style="flex:1"></span>
               <button id="cancelUpload" class="hidden" type="button" title="Остановить отправку">Отмена</button>
-              <button id="sendBtn" class="send" title="Отправить (Enter)">↑</button>
+              <button id="sendBtn" class="send" aria-label="Отправить сообщение" title="Отправить (Enter)"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m5 12 7-7 7 7M12 5v15"/></svg></button>
             </div>
             <div id="cOpts" class="hidden">
               <select id="cType" title="тип"></select>
@@ -648,6 +678,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
       </div>
     </aside>
   </div>
+  <nav id="mobileNav" aria-label="Навигация по проекту"><button type="button" data-mobile="projects" aria-label="Проекты"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Проекты</span></button><button type="button" data-mobile="feed" aria-label="Общий"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 1 1 19 0Z"/><path d="M7 9h9m-9 4h6"/></svg><span>Общий</span><span id="mobileGeneralBadge" class="nav-badge hidden"></span></button><button type="button" data-mobile="direct" aria-label="Личные"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 5V3m8 2V3m-8 9h8m-8 4h5"/></svg><span>Личные</span><span id="mobileDirectBadge" class="nav-badge hidden"></span></button><button type="button" data-mobile="users" aria-label="Участники"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 4a3 3 0 0 1 0 6m3 11v-3a6 6 0 0 0-3-5"/></svg><span>Участники</span></button><button type="button" data-mobile="more" aria-label="Ещё"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span>Ещё</span></button></nav>
 </div>
 
 <div id="secretDialog" class="hidden" role="dialog" aria-modal="true" aria-labelledby="secretHeading" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
@@ -675,21 +706,48 @@ let TOKEN = null, ME = null, LAST = 0, OLDEST = null, MSGS = new Map(), THREAD =
 let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREAD_FROM = 0;
 let ACTIVE_DM = null, CONVERSATIONS = [];
 const DRAFTS = new Map();
+let DRAFT_TIMER=null, COMPOSE_SCOPE=null;
 const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
+const draftStoragePrefix = () => "tg_draft_v1:"+encodeURIComponent(ME.id)+":";
+const draftStorageKey = () => draftStoragePrefix()+encodeURIComponent(PROJECT)+":"+(ACTIVE_DM?.id || "general");
 function saveDraft() {
-  if (!ME || !PROJECT || SENDING) return;
-  DRAFTS.set(draftKey(), {body:$("cBody").value, to:$("cTo").value, topic:$("cTopic").value, type:$("cType").value,
-    urgent:$("cUrgent").checked, approval:$("cApproval").checked, approver:$("cApprover").value, attachments:ATTACHED, reply:REPLY, retry:COMPOSE_RETRY});
+  clearTimeout(DRAFT_TIMER); DRAFT_TIMER=null;
+  if (!ME || !PROJECT || SENDING || COMPOSE_SCOPE!==draftKey() || !(TAB==="feed" || TAB==="direct"&&ACTIVE_DM)) return;
+  const draft={body:$("cBody").value, to:$("cTo").value, topic:$("cTopic").value, type:$("cType").value,
+    urgent:$("cUrgent").checked, approval:$("cApproval").checked, approver:$("cApprover").value, attachments:ATTACHED, reply:REPLY, retry:COMPOSE_RETRY};
+  DRAFTS.set(draftKey(),draft);
+  const {attachments,...stored}=draft;
+  stored.files=attachments.map(a=>a.file.name);
+  if(stored.reply) stored.reply={id:stored.reply.id,author:stored.reply.author,author_id:stored.reply.author_id,subject:stored.reply.subject};
+  try {
+    if(!draft.body && !draft.reply && !draft.topic && !draft.to && !draft.urgent && !draft.approval && !stored.files.length && draft.type==="info") localStorage.removeItem(draftStorageKey());
+    else localStorage.setItem(draftStorageKey(),JSON.stringify(stored));
+  } catch { /* The in-memory draft remains available if browser storage is unavailable. */ }
+}
+function scheduleDraft() { clearTimeout(DRAFT_TIMER);DRAFT_TIMER=setTimeout(saveDraft,250); }
+function clearDraft() {
+  clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;DRAFTS.delete(draftKey());st.set(draftStorageKey(),null);
+}
+function forgetDrafts() {
+  clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;COMPOSE_SCOPE=null;DRAFTS.clear();
+  try {for(const key of Object.keys(localStorage)) if(key.startsWith(draftStoragePrefix()))localStorage.removeItem(key);}catch{}
 }
 function restoreDraft() {
-  const draft = DRAFTS.get(draftKey());
+  COMPOSE_SCOPE=draftKey();
+  let draft = DRAFTS.get(draftKey());
+  if(!draft) {
+    try {draft=JSON.parse(st.get(draftStorageKey()) || "null");}catch{}
+    if(draft && (typeof draft.body!=="string" || !TYPES[draft.type]))draft=null;
+    if(draft)draft.attachments=[];
+  }
   resetCompose();
   if (draft) {
-    $("cBody").value=draft.body; $("cTo").value=draft.to; $("cTopic").value=draft.topic; $("cType").value=draft.type;
-    $("cUrgent").checked=draft.urgent; $("cApproval").checked=draft.approval; $("cApprover").value=draft.approver;
-    ATTACHED=draft.attachments; REPLY=draft.reply; COMPOSE_RETRY=draft.retry;
+    $("cBody").value=draft.body; $("cTo").value=draft.to || ""; $("cTopic").value=draft.topic || ""; $("cType").value=draft.type;
+    $("cUrgent").checked=!!draft.urgent; $("cApproval").checked=!!draft.approval; $("cApprover").value=draft.approver || "";
+    ATTACHED=draft.attachments || []; REPLY=draft.reply; COMPOSE_RETRY=draft.retry;
     if (REPLY) { $("replyBar").classList.remove("hidden"); $("replyText").textContent=`Ответ ${REPLY.author}: ${REPLY.subject}`; }
-    paintFiles(); updateChips(); $("cBody").dispatchEvent(new Event("input"));
+    paintFiles(); updateChips(); growBody();
+    if(draft.files?.length)$("sendErr").textContent="После перезагрузки выбери файлы заново: "+draft.files.join(", ");
   }
 }
 let RECEIPT_REVISION = null;
@@ -877,6 +935,104 @@ function toast(text, bad) {
   clearTimeout(TOAST_T); TOAST_T = setTimeout(() => t.className = "", bad ? 4500 : 2200);
 }
 
+// Mobile shortcuts complement the visible navigation; vertical and nested horizontal scrolling stay native.
+const mobileLayout=()=>matchMedia("(max-width:900px)").matches;
+function syncMobileNav() {
+  const active=!PROJECT || $("projects").classList.contains("open")?"projects":$("aside").classList.contains("open")?"users":["feed","direct"].includes(TAB)?TAB:"more";
+  for(const b of $("mobileNav").querySelectorAll("button")) {
+    b.disabled=!PROJECT && b.dataset.mobile!=="projects";
+    if(b.dataset.mobile===active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");
+    if(["projects","users"].includes(b.dataset.mobile))b.setAttribute("aria-expanded",String(b.dataset.mobile===active));
+  }
+  const p=PROJECTS.find(p=>p.slug===PROJECT);
+  for(const [id,n] of [["mobileGeneralBadge",p?.unread||0],["mobileDirectBadge",CONVERSATIONS.reduce((n,c)=>n+c.unread,0)]]) {
+    $(id).textContent=n>99?"99+":n;$(id).classList.toggle("hidden",!n);
+  }
+  const h=$("mobileNav").getBoundingClientRect().height;
+  if(h)document.documentElement.style.setProperty("--mobile-nav-height",h+"px");
+}
+function closeMobilePanels() {$("projects").classList.remove("open");$("aside").classList.remove("open");syncMobileNav();}
+function mobilePanel(id) {
+  saveDraft();const wasOpen=$(id).classList.contains("open");closeMobilePanels();
+  if(!wasOpen) {document.activeElement?.blur();$(id).classList.add("open");}syncMobileNav();
+}
+$("mobileNav").onclick=async e=>{
+  const b=e.target.closest("[data-mobile]");if(!b)return;
+  try {
+    const action=b.dataset.mobile;
+    if(action==="projects" || action==="users")mobilePanel(action==="projects"?"projects":"aside");
+    else if(action==="more")openMenu([{label:"Поиск и фильтры",act:"mobilesearch"},
+      {label:"Журнал результатов",act:"mobiletab",data:{tab:"results"}},
+      {label:"Занято",act:"mobiletab",data:{tab:"claims"}},
+      {label:"Уведомления",act:"mobilenotifications"}],b);
+    else await selectTab(action);
+  }catch(err){toast(err.message,true);}
+};
+new MutationObserver(syncMobileNav).observe($("projects"),{attributes:true,attributeFilter:["class"]});
+new MutationObserver(syncMobileNav).observe($("aside"),{attributes:true,attributeFilter:["class"]});
+new ResizeObserver(syncMobileNav).observe($("mobileNav"));
+let MOBILE_BASE_HEIGHT=innerHeight,MOBILE_BASE_WIDTH=innerWidth;
+function mobileViewport() {
+  if(!mobileLayout()) {document.documentElement.style.removeProperty("--app-height");document.body.classList.remove("keyboard-open");return;}
+  const viewport=window.visualViewport;
+  if(viewport && Math.abs(viewport.scale-1)>.05)return;
+  const h=Math.round(viewport?.height || innerHeight), editing=document.activeElement?.matches("input,textarea,[contenteditable=true]");
+  if(Math.abs(MOBILE_BASE_WIDTH-innerWidth)>80) {MOBILE_BASE_HEIGHT=h;MOBILE_BASE_WIDTH=innerWidth;}
+  if(!editing)MOBILE_BASE_HEIGHT=Math.max(MOBILE_BASE_HEIGHT,h);
+  document.body.classList.toggle("keyboard-open",!!editing&&MOBILE_BASE_HEIGHT-h>150);
+  document.documentElement.style.setProperty("--app-height",h+"px");syncMobileNav();
+}
+window.visualViewport?.addEventListener("resize",mobileViewport);
+window.addEventListener("resize",mobileViewport);
+document.addEventListener("focusin",mobileViewport);document.addEventListener("focusout",()=>setTimeout(mobileViewport,0));
+mobileViewport();
+function swipeAction(direction) {
+  if($("projects").classList.contains("open"))return direction<0?{label:"К чату",run:closeMobilePanels}:null;
+  if($("aside").classList.contains("open"))return direction>0?{label:"К чату",run:closeMobilePanels}:null;
+  if(!PROJECT)return direction>0?{label:"Проекты",run:()=>mobilePanel("projects")}:null;
+  if(direction>0) {
+    if(THREAD)return {label:"Назад к чату",run:async()=>{THREAD=null;await reload();}};
+    if(ACTIVE_DM)return {label:"Все личные",run:()=>$("dmBack").click()};
+    if(TAB!=="feed")return {label:"Общий чат",run:()=>selectTab("feed")};
+    return {label:"Проекты",run:()=>mobilePanel("projects")};
+  }
+  if(TAB==="feed")return {label:"Личные",run:()=>selectTab("direct")};
+  return {label:"Участники",run:()=>mobilePanel("aside")};
+}
+let NAV_TOUCH=null;
+const gestureHint=document.createElement("div");gestureHint.id="gestureHint";gestureHint.className="hidden";gestureHint.setAttribute("aria-hidden","true");$("app").append(gestureHint);
+const gestureRoot=document.querySelector("#app .wrap");
+gestureRoot.addEventListener("touchstart",e=>{
+  NAV_TOUCH=null;
+  if(!mobileLayout() || SENDING || e.touches.length!==1 || getSelection()?.toString())return;
+  const target=e.target;
+  if(target.closest("input,textarea,select,button,summary,[contenteditable=true],pre,code,#composer") || target.closest("a:not(.pselect)"))return;
+  if(["invDialog","pwDialog","npDialog","prDialog","pdDialog","secretDialog","menu"].some(id=>!$(id).classList.contains("hidden")))return;
+  for(let node=target;node&&node!==gestureRoot;node=node.parentElement) {
+    if(node.scrollWidth>node.clientWidth+2 && /auto|scroll/.test(getComputedStyle(node).overflowX))return;
+  }
+  const t=e.touches[0];if(t.clientX<24 || t.clientX>innerWidth-24)return;
+  NAV_TOUCH={x:t.clientX,y:t.clientY,at:performance.now(),scope:`${PROJECT}|${TAB}|${ACTIVE_DM?.id}`,horizontal:false};
+},{passive:true});
+gestureRoot.addEventListener("touchmove",e=>{
+  const n=NAV_TOUCH;if(!n || e.touches.length!==1) {NAV_TOUCH=null;gestureHint.classList.add("hidden");return;}
+  const dx=e.touches[0].clientX-n.x,dy=e.touches[0].clientY-n.y;
+  if(!n.horizontal && Math.abs(dy)>12 && Math.abs(dy)>Math.abs(dx)) {NAV_TOUCH=null;return;}
+  if(Math.abs(dx)>18 && Math.abs(dx)>Math.abs(dy)*1.6) {
+    n.horizontal=true;if(e.cancelable)e.preventDefault();
+    const action=swipeAction(Math.sign(dx));gestureHint.textContent=action?.label||"";gestureHint.classList.toggle("hidden",!action);
+  }
+},{passive:false});
+gestureRoot.addEventListener("touchend",async e=>{
+  const n=NAV_TOUCH;NAV_TOUCH=null;gestureHint.classList.add("hidden");
+  if(!n || !n.horizontal || e.changedTouches.length!==1 || n.scope!==`${PROJECT}|${TAB}|${ACTIVE_DM?.id}` || SENDING)return;
+  const dx=e.changedTouches[0].clientX-n.x,dy=e.changedTouches[0].clientY-n.y;
+  if(Math.abs(dx)<Math.min(90,innerWidth*.2) || Math.abs(dx)<Math.abs(dy)*1.6 || performance.now()-n.at>850)return;
+  const action=swipeAction(Math.sign(dx));if(!action)return;if(e.cancelable)e.preventDefault();
+  try {saveDraft();await action.run();const sc=$("scroller");sc.style.setProperty("--nav-direction",dx<0?"8px":"-8px");sc.classList.remove("nav-enter");void sc.offsetWidth;sc.classList.add("nav-enter");}catch(err){toast(err.message,true);}
+},{passive:false});
+gestureRoot.addEventListener("touchcancel",()=>{NAV_TOUCH=null;gestureHint.classList.add("hidden");},{passive:true});
+
 // ---- menu: a popover next to the button on desktop, a bottom sheet on phones
 let PROJECT_MENU = null;
 const projectMenuButton = slug => [...document.querySelectorAll('[data-act="projmenu"]')].find(b => b.dataset.slug === slug);
@@ -916,7 +1072,7 @@ document.addEventListener("keydown", e => {
     closeMenu(); closeSecret();
     for (const id of ["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog"]) $(id).classList.add("hidden");
     $("projects").classList.remove("open"); $("aside").classList.remove("open");
-    if (REPLY && document.activeElement === $("cBody")) resetCompose();
+    if (REPLY && document.activeElement === $("cBody")) $("cancelReply").click();
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && PROJECT) {
     e.preventDefault(); $("filters").classList.add("open"); $("q").focus();
@@ -1033,14 +1189,15 @@ async function migrateLegacyReadState(token, storedToken) {
 function showNoProject() {
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = null; st.set("tg_project", null);
+  ACTIVE_DM=null;CONVERSATIONS=[];COMPOSE_SCOPE=null;closeSecret();
   $("projTitle").textContent = "";
   $("noProject").classList.remove("hidden");
-  for (const id of ["feedView", "resultsView", "claimsView", "composer"]) $(id).classList.add("hidden");
+  for (const id of ["feedView", "directView", "dmBar", "threadBar", "resultsView", "claimsView", "composer"]) $(id).classList.add("hidden");
   document.querySelector(".feedtop").classList.add("hidden");
   $("noProjCreate").classList.toggle("hidden", ME.kind !== "human");
   $("presence").innerHTML = "";
   $("inviteBtn").classList.add("hidden");
-  renderProjects();
+  renderProjects();syncMobileNav();
 }
 
 async function setProject(slug) {
@@ -1063,8 +1220,7 @@ async function setProject(slug) {
   $("inviteBtn").classList.toggle("hidden", ME.kind !== "human" || ME.project.kind === "development");
   $("inviteBtn").textContent = ME.project.role === "owner" ? "+ Пригласить" : "+ Добавить агента";
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
-  setupCompose(); restoreDraft();
-  document.querySelector('[data-tab="feed"]').click();
+  setupCompose(); TAB="feed";restoreDraft();paintTab();
   await reload(); loadPresence(); renderProjects();
 }
 
@@ -1093,7 +1249,7 @@ function renderConversations() {
   $("dmList").innerHTML=rows.map(c=>`<button class="dm-item" data-act="dmopen" data-conversation="${esc(c.id)}">${avatar(c.peer,c.peer_kind)}<span class="dm-info"><b>${esc(c.peer)}</b><span class="dm-preview muted" style="display:block">${esc(c.preview || "Начать разговор")}</span></span>${c.unread?`<span class="pcount">${c.unread}</span>`:""}</button>`).join("") +
     (eligible.length?`<p class="muted" style="font-size:12px;margin:16px 0 4px">Начать личный чат</p>`+eligible.map(u=>`<button class="dm-item" data-act="dmnew" data-account="${esc(u.id)}">${avatar(u.name,u.kind)}<span>${esc(u.name)}</span></button>`).join(""):"") +
     (!rows.length && !eligible.length?`<p class="muted">${term?"Никого не найдено":"В проекте пока нет доступных собеседников"}</p>`:"");
-  const n=CONVERSATIONS.reduce((n,c)=>n+c.unread,0); $("directCount").textContent=n?` (${n})`:"";
+  const n=CONVERSATIONS.reduce((n,c)=>n+c.unread,0); $("directCount").textContent=n?` (${n})`:"";syncMobileNav();
 }
 async function openDirect(cid) {
   if (SENDING) { toast("Дождись отправки сообщения",true); return; }
@@ -1154,7 +1310,7 @@ async function loadProjects() {
     const current = PROJECTS.find(p => p.slug === PROJECT);
     $("generalCount").textContent=current?.unread?` (${current.unread})`:"";
     if (current) NTF.unread = document.visibilityState === "visible" ? 0 : (current.unread || 0);
-    applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects(); if (PROJECT) await loadConversations();
+    syncMobileNav(); applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects(); if (PROJECT) await loadConversations();
   } catch {}
 }
 
@@ -1238,7 +1394,7 @@ $("pwForm").onsubmit = async e => {
 
 $("logoutBtn").onclick = async () => {
   try { await api("POST", "/api/logout"); } catch {}
-  st.set("tg_token", null);
+  forgetDrafts(); closeSecret(); st.set("tg_token", null);
   if (launcher()) location.replace(launcher() + "#logout"); else location.reload();
 };
 
@@ -1605,6 +1761,12 @@ document.addEventListener("click", async e => {
         el.textContent = b.classList.contains("collapsed") ? "развернуть" : "свернуть"; break;
       }
       case "rexp": RES_OPEN.has(id) ? RES_OPEN.delete(id) : RES_OPEN.add(id); renderResults(); break;
+      case "mobiletab": await selectTab(el.dataset.tab); break;
+      case "mobilesearch":
+        if(TAB==="direct"&&!ACTIVE_DM) $("dmSearch").focus();
+        else { if(TAB!=="feed"&&TAB!=="direct")await selectTab("feed");$("filters").classList.add("open");$("q").focus(); }
+        break;
+      case "mobilenotifications": $("bellBtn").click();break;
       case "dmnew": await newDirect(el.dataset.account); break;
       case "dmopen": await openDirect(el.dataset.conversation); break;
       case "secret-revoke": await api("POST",`/api/messages/${id}/secret`,{action:"revoke"}); await refresh(); break;
@@ -1673,6 +1835,7 @@ function paintTab() {
   $("resultsView").classList.toggle("hidden",TAB!=="results");
   $("claimsView").classList.toggle("hidden",TAB!=="claims");
   $("filters").classList.toggle("hidden",!feed); $("filtersBtn").classList.toggle("hidden",!feed);
+  $("threadBar").classList.toggle("hidden",!feed || !THREAD);
   $("composer").classList.toggle("hidden",!feed); $("dmBar").classList.toggle("hidden",!ACTIVE_DM);
   $("cTo").classList.toggle("hidden",!!ACTIVE_DM); $("secretBtn").classList.toggle("hidden",!ACTIVE_DM || ME.kind!=="human");
   const approver=$("cApprover").value;
@@ -1681,15 +1844,18 @@ function paintTab() {
     .map(u=>`<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
   $("cApprover").value=approver;
   if(ACTIVE_DM) $("dmTitle").textContent=ACTIVE_DM.peer;
-  setHeaderHeight(); observeReadRows();
+  setHeaderHeight(); observeReadRows();syncMobileNav();
 }
 async function selectTab(tab) {
+  if(!PROJECT)return;
   if(SENDING) {toast("Дождись отправки сообщения",true);return;}
-  const changed=!!ACTIVE_DM; saveDraft(); closeSecret(); ACTIVE_DM=null; TAB=tab;
-  if(changed) {resetFeedState();restoreDraft();}
+  closeMobilePanels(); const changed=!!ACTIVE_DM; saveDraft(); closeSecret(); ACTIVE_DM=null; TAB=tab;
+  if(changed)resetFeedState();
+  const needsReload=changed || !MSGS.size || COMPOSE_SCOPE!==draftKey();
+  if(COMPOSE_SCOPE!==draftKey())restoreDraft();
   paintTab();
-  if(tab==="direct") {await loadConversations();$("dmSearch").focus();}
-  else if(tab==="feed") {if(changed)await reload();toBottom();}
+  if(tab==="direct") {await loadConversations();if(!mobileLayout())$("dmSearch").focus();}
+  else if(tab==="feed") {if(needsReload)await reload();toBottom();}
   else {$("scroller").scrollTop=0;if(tab==="results")loadResults();else loadClaims();}
 }
 for(const b of document.querySelectorAll("[data-tab]")) b.onclick=()=>selectTab(b.dataset.tab).catch(e=>toast(e.message,true));
@@ -1715,11 +1881,11 @@ $("cChips").onclick = e => {
   if (k === "topic") $("cTopic").value = "";
   if (k === "urgent") $("cUrgent").checked = false;
   if (k === "approval") { $("cApproval").checked = false; $("cApprover").value = ""; }
-  updateChips();
+  updateChips(); scheduleDraft();
 };
 $("cOptsBtn").onclick = () => { $("cOpts").classList.toggle("hidden"); updateChips(); };
 for (const id of ["cType", "cTopic", "cUrgent", "cApproval", "cApprover"]) $(id).addEventListener("change", updateChips);
-$("cTopic").addEventListener("input", updateChips);
+$("cTopic").addEventListener("input", () => {updateChips();scheduleDraft();});
 
 function startReply(m) {
   REPLY = m;
@@ -1727,7 +1893,7 @@ function startReply(m) {
   $("replyText").textContent = `Ответ на #${m.id} (${m.author}): ${m.subject}`;
   $("cTopic").value = m.topic || "";
   $("cTo").value = !isMine(m) ? m.author : "";
-  $("cBody").focus();
+  $("cBody").focus(); scheduleDraft();
 }
 function resetCompose(force = false) {
   if (SENDING && !force) return;
@@ -1739,7 +1905,7 @@ function resetCompose(force = false) {
   updateChips();
   growBody();
 }
-$("cancelReply").onclick = e => { e.preventDefault(); resetCompose(); };
+$("cancelReply").onclick = e => { e.preventDefault(); REPLY=null;$("replyBar").classList.add("hidden");updateChips();scheduleDraft(); };
 
 // the composer grows with the text (up to 40% of the screen); Enter sends, Shift+Enter is a new line
 function growBody() {
@@ -1748,6 +1914,10 @@ function growBody() {
   t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.4) + "px";
 }
 $("cBody").addEventListener("input", growBody);
+$("cBody").addEventListener("input",scheduleDraft);
+for(const id of ["cTo","cTopic","cType","cUrgent","cApproval","cApprover"]) $(id).addEventListener("change",scheduleDraft);
+window.addEventListener("pagehide",saveDraft);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")saveDraft();});
 // on a phone keyboard Enter is a new line and the ↑ button sends
 const TOUCH = matchMedia("(pointer: coarse)").matches;
 if (TOUCH) $("cBody").placeholder = "Написать команде…";
@@ -1842,7 +2012,7 @@ $("sendBtn").onclick = async () => {
   const signature = JSON.stringify({...data, idem_key: null, files: ATTACHED.map(a => a.key)});
   if (COMPOSE_RETRY?.signature === signature) data.idem_key = COMPOSE_RETRY.key;
   else COMPOSE_RETRY = {signature, key: data.idem_key};
-  SENDING = true; UPLOAD_ABORT = new AbortController();
+  saveDraft(); SENDING = true; UPLOAD_ABORT = new AbortController();
   $("sendBtn").disabled = true; $("attachBtn").disabled = true;
   $("cBody").disabled = true;
   $("cancelUpload").classList.toggle("hidden", !ATTACHED.length); paintFiles();
@@ -1850,7 +2020,7 @@ $("sendBtn").onclick = async () => {
     for (const a of ATTACHED) data.attachments.push(await uploadFile(a, UPLOAD_ABORT.signal));
     UPLOAD_ABORT.signal.throwIfAborted?.();
     await api("POST", "/api/messages", data, UPLOAD_ABORT.signal);
-    resetCompose(true); await refresh(); toBottom();
+    clearDraft(); resetCompose(true); await refresh(); toBottom();
   }
   catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? "Отправка остановлена. Файлы и текст сохранены — можно повторить." : err.message; }
   finally { SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
