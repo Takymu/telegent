@@ -279,7 +279,7 @@ results journal and members. Members of one project never see another one: not i
 attachments or people, not even that it exists.
 
 - **Any person** can create a project ("+ New" in the left column) and becomes its **owner**.
-- **The creator** can rename it from the participants sidebar while still a member. Its slug, links
+- **The creator** can rename it from the ⋯ menu beside its name in the project list while still a member. Its slug, links
   and invitations stay valid. The existing `POST /api/project/rename` accepts `{"title":"New title"}`;
   `/api/me` and `/api/projects` expose `created_by` and `can_rename`.
   CLI: `python tg.py --project team projects rename "New title"`. Another owner, admin or agent
@@ -308,7 +308,11 @@ attachments or people, not even that it exists.
 ## The web page
 
 On desktop, drag the participants panel's border to resize it. The browser remembers its width;
-double-click resets it. Arrow keys and Home also work. The mobile status overlay stays unchanged.
+double-click resets it. Arrow keys and Home also work. On phones, the Participants button opens the panel.
+
+Use the **⋯ menu on the right of each project row** to rename (creator), leave (participant),
+or delete (owner). Actions target that project without switching the open chat; deletion still
+requires typing its title or slug.
 
 Server admins have a private "Chat with developer" entry in the project list. Only that admin
 and the explicitly bound development session can access it; ordinary project ownership does

@@ -126,8 +126,14 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 #app aside { border-left: 0; min-width: 0; }
 #projects { border-right: 1px solid var(--line); overflow-y: auto; padding: 16px 10px; }
 #projects h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 6px 8px; }
-.pitem { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer;
+.pitem { display: flex; align-items: center; border-radius: 8px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pselect { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; padding: 7px 8px;
+  color: inherit; text-decoration: none; border-radius: 8px; }
+.pmore { flex: none; width: 28px; height: 30px; padding: 0; margin-right: 4px; border: 0;
+  background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.pmore:hover, .pmore[aria-expanded="true"] { background: var(--line); color: var(--ink); }
+.pselect:focus-visible, .pmore:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .pitem:hover { background: var(--code); }
 .pitem.active { background: var(--chip); font-weight: 600; }
 .pitem .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -143,13 +149,14 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   #projects { display: none; position: fixed; left: 0; right: 0; bottom: 0; top: var(--hdr, 53px); z-index: 8;
     background: var(--bg); border-right: 0; padding: 16px; }
   #projects.open { display: block; }
-  .pitem { padding: 10px 8px; font-size: 15px; }
+  .pitem { font-size: 15px; }
+  .pselect { padding: 10px 8px; }
+  .pmore { width: 40px; height: 40px; }
   /* phone header: project title + two buttons; account actions live in the participants panel */
   #themeBtn, #pwBtn, #logoutBtn, #meLabel, #app header h1 { display: none !important; }
   #acctBox { display: block; }
   #app aside { font-size: 16px; padding: 14px 14px 24px; }
   #app aside h2 { font-size: 14px; }
-  #projActions { font-size: 15px !important; }
   #acctBox .muted { font-size: 15px !important; }
   #inviteBtn { font-size: 14px !important; padding: 6px 12px; }
   #projTitle::before { content: none !important; }
@@ -598,7 +605,6 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         <h2 style="display:flex;align-items:center">Участники<span style="flex:1"></span>
           <button id="inviteBtn" class="hidden" style="font-size:12px;text-transform:none;letter-spacing:0">+ Пригласить</button></h2>
         <div id="presence" class="muted">—</div>
-        <div id="projActions" style="font-size:12.5px;margin:6px 0 12px"></div>
         <div id="acctBox" style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
           <span class="muted" id="acctLabel" style="font-size:12.5px"></span>
           <div class="actions"><button data-proxy="pwBtn" id="acctPw">Пароль</button><button data-proxy="themeBtn">Тема</button>
@@ -699,8 +705,13 @@ function toast(text, bad) {
 }
 
 // ---- menu: a popover next to the button on desktop, a bottom sheet on phones
+let PROJECT_MENU = null;
+const projectMenuButton = slug => [...document.querySelectorAll('[data-act="projmenu"]')].find(b => b.dataset.slug === slug);
 function openMenu(items, anchor, hint, message) {
+  if (PROJECT_MENU) projectMenuButton(PROJECT_MENU)?.setAttribute("aria-expanded", "false");
+  PROJECT_MENU = null;
   const m = $("menu");
+  m.removeAttribute("role");
   m.innerHTML = (message ? reactionPicker(message) : "") + (hint ? `<div class="mhint">${hint}</div>` : "") + items.map(i =>
     `<button class="${i.cls || ""}" data-act="${i.act}" ${Object.entries(i.data || {}).map(([k, v]) => `data-${k}="${esc(v)}"`).join(" ")}>${i.label}</button>`).join("");
   m.classList.remove("hidden"); $("menuBg").classList.remove("hidden");
@@ -711,13 +722,24 @@ function openMenu(items, anchor, hint, message) {
     m.style.top = (r.bottom + h + 8 < innerHeight ? r.bottom + 4 : Math.max(8, r.top - h - 4)) + "px";
   }
 }
-function closeMenu() {
+function closeMenu(restoreFocus = false) {
+  const anchor = PROJECT_MENU && projectMenuButton(PROJECT_MENU);
+  anchor?.setAttribute("aria-expanded", "false"); PROJECT_MENU = null;
   $("menu").classList.add("hidden"); $("menuBg").classList.add("hidden");
   document.querySelectorAll(".menu-open").forEach(e => e.classList.remove("menu-open"));
+  if (restoreFocus === true) anchor?.focus({preventScroll: true});
 }
-$("menuBg").onclick = closeMenu;
+$("menuBg").onclick = () => closeMenu(true);
 document.addEventListener("keydown", e => {
+  if (PROJECT_MENU && e.key === "Tab") { closeMenu(true); return; }
+  if (PROJECT_MENU && e.target.closest?.('#menu') && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+    const buttons = [...$("menu").querySelectorAll('button')], i = buttons.indexOf(document.activeElement);
+    const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1
+      : (i + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+    e.preventDefault(); buttons[next]?.focus(); return;
+  }
   if (e.key === "Escape") {
+    if (!$("menu").classList.contains("hidden")) { e.preventDefault(); closeMenu(true); return; }
     closeMenu();
     for (const id of ["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog"]) $(id).classList.add("hidden");
     $("projects").classList.remove("open"); $("aside").classList.remove("open");
@@ -785,13 +807,14 @@ function showNoProject() {
   for (const id of ["feedView", "resultsView", "claimsView", "composer"]) $(id).classList.add("hidden");
   document.querySelector(".feedtop").classList.add("hidden");
   $("noProjCreate").classList.toggle("hidden", ME.kind !== "human");
-  $("presence").innerHTML = ""; $("projActions").innerHTML = "";
+  $("presence").innerHTML = "";
   $("inviteBtn").classList.add("hidden");
   renderProjects();
 }
 
 async function setProject(slug) {
   if (SENDING) { toast("Дождись отправки сообщения или нажми «Отмена»", true); return; }
+  closeMenu();
   PROJECT = slug; st.set("tg_project", slug);
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
   MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;
@@ -819,10 +842,34 @@ function renderProjects() {
   }
   $("projList").innerHTML = PROJECTS.length ? PROJECTS.map(p => {
     const n = p.slug !== PROJECT ? (p.unread != null ? p.unread : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
-    return `<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-act="proj" data-slug="${esc(p.slug)}" title="${esc(p.title)} (${esc(p.slug)})">
+    return `<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
+      <a class="pselect" href="#" data-act="proj" data-slug="${esc(p.slug)}" title="${esc(p.title)} (${esc(p.slug)})" ${p.slug === PROJECT ? 'aria-current="page"' : ''}>
       <span class="pav" style="background:hsl(${hue(p.slug)} 40% 45%)">${esc(initials(p.title))}</span>
-      <span class="pname">${esc(p.title)}</span>${n ? `<span class="pcount">${n}</span>` : ""}</div>`;
+      <span class="pname">${esc(p.title)}</span>${n ? `<span class="pcount">${n}</span>` : ""}</a>
+      <button class="pmore" data-act="projmenu" data-slug="${esc(p.slug)}" title="Действия с проектом"
+        aria-label="Действия с проектом «${esc(p.title)}»" aria-haspopup="menu" aria-controls="menu"
+        aria-expanded="${PROJECT_MENU === p.slug}">⋯</button></div>`;
   }).join("") : `<div class="muted" style="padding:0 8px;font-size:13px">Пока нет проектов.</div>`;
+  if (PROJECT_MENU && !PROJECTS.some(p => p.slug === PROJECT_MENU)) closeMenu();
+}
+
+const projectInfo = slug => slug === PROJECT && ME.project ? ME.project : PROJECTS.find(p => p.slug === slug);
+function projectActions(p) {
+  if (!p) return [];
+  const data = {slug: p.slug}, items = [];
+  if (p.can_rename) items.push({label: "Переименовать проект", act: "prename", data});
+  items.push({label: "Покинуть проект", act: "pleave", data});
+  if (p.role === "owner") items.push({label: "Удалить проект", act: "pdelete", data, cls: "bad"});
+  return items;
+}
+function openProjectMenu(slug, anchor) {
+  const p = projectInfo(slug);
+  if (!p) return;
+  openMenu(projectActions(p), anchor, esc(p.title));
+  PROJECT_MENU = slug; anchor.setAttribute("aria-expanded", "true");
+  $("menu").setAttribute("role", "menu");
+  for (const button of $("menu").querySelectorAll("button")) button.setAttribute("role", "menuitem");
+  $("menu").querySelector("button")?.focus({preventScroll: true});
 }
 
 async function loadProjects() {
@@ -844,7 +891,7 @@ function applyProjectInfo(p) {
   ntfTitle(); updateChips(); setHeaderHeight();
 }
 
-let RENAME_PROJECT = null;
+let RENAME_PROJECT = null, DELETE_PROJECT = null;
 $("devChatBtn").onclick = async () => {
   $("devChatBtn").disabled = true;
   try {
@@ -1239,8 +1286,10 @@ document.addEventListener("click", async e => {
         break;
       }
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
+      case "projmenu": openProjectMenu(el.dataset.slug, el); break;
       case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
-      case "mrole": case "mremove": case "mreset": case "prename": case "pleave": case "mrename": case "pdelete": case "madd":
+      case "prename": case "pleave": case "pdelete": await projectAction(el.dataset.act, el.dataset.slug); break;
+      case "mrole": case "mremove": case "mreset": case "mrename": case "madd":
         await memberAction(el.dataset.act, el.dataset.name, el.dataset.role, el.dataset.account); break;
       case "approve": case "deny": {
         const note = prompt(el.dataset.act === "approve" ? "Одобрить. Комментарий (необязательно):" : "Отказать. Причина:");
@@ -1479,10 +1528,34 @@ async function loadPresence() {
         `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
         (acts.length ? `<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
     }).join("");
-    $("projActions").innerHTML = (me.project && me.project.can_rename ? `<a href="#" data-act="prename">переименовать проект</a> · ` : "") +
-      `<a href="#" data-act="pleave">покинуть проект</a>` +
-      (owner ? ` · <a href="#" data-act="pdelete" style="color:var(--urgent)">удалить проект</a>` : "");
   } catch {}
+}
+
+async function projectAction(act, slug) {
+  const p = projectInfo(slug);
+  if (!p || !projectActions(p).some(i => i.act === act)) return;
+  if (SENDING && slug === PROJECT && act !== "prename") {
+    toast("Дождись отправки сообщения или нажми «Отмена»", true); return;
+  }
+  if (act === "prename") {
+    RENAME_PROJECT = slug;
+    $("prTitle").value = p.title; $("prErr").textContent = "";
+    $("prDialog").classList.remove("hidden"); $("prTitle").focus(); $("prTitle").select();
+  } else if (act === "pdelete") {
+    DELETE_PROJECT = {...p};
+    $("pdTitle").textContent = p.title; $("pdConfirm").value = ""; $("pdErr").textContent = "";
+    $("pdDelete").disabled = true;
+    $("pdDialog").classList.remove("hidden"); $("pdConfirm").focus();
+  } else if (act === "pleave") {
+    if (!confirm(`Покинуть проект «${p.title}»? Вернуться можно только по новому приглашению.`)) return;
+    await api("POST", "/api/members/remove?project=" + encodeURIComponent(slug), {name: ME.name, account_id: ME.id});
+    PROJECTS = PROJECTS.filter(p => p.slug !== slug);
+    await loadProjects();
+    if (PROJECT === slug) {
+      if (PROJECTS.length) await setProject(PROJECTS[0].slug); else showNoProject();
+    }
+    toast("Ты покинул(а) проект");
+  }
 }
 
 async function memberAction(act, name, role, accountId) {
@@ -1492,24 +1565,11 @@ async function memberAction(act, name, role, accountId) {
     if (!confirm(`Убрать ${name} из проекта «${ME.project.title}»? Его агенты в этом проекте тоже уйдут.`)) return;
     await api("POST", "/api/members/remove", target);
   }
-  if (act === "pdelete") {
-    $("pdTitle").textContent = ME.project.title; $("pdConfirm").value = ""; $("pdErr").textContent = "";
-    $("pdDelete").disabled = true;
-    $("pdDialog").classList.remove("hidden"); $("pdConfirm").focus();
-    return;
-  }
   if (act === "madd") {
     await api("POST", "/api/members/add", target);
     toast(`${name} добавлен(а) в проект`);
     await loadPresence(); setupCompose(); loadCandidates();
     return;
-  }
-  if (act === "pleave") {
-    if (!confirm(`Покинуть проект «${ME.project.title}»? Вернуться можно только по новому приглашению.`)) return;
-    await api("POST", "/api/members/remove", {name: ME.name});
-    await loadProjects();
-    if (PROJECTS.length) return setProject(PROJECTS[0].slug);
-    return showNoProject();
   }
   if (act === "mrename") {
     const nn = prompt(`Новое имя для ${name} (латиница, цифры, . _ -):`, name);
@@ -1518,13 +1578,6 @@ async function memberAction(act, name, role, accountId) {
     toast(`${name} → ${nn.trim()}`);
     if (name === ME.name) return login(TOKEN);   // my own name changed everywhere on the page
     await loadPresence(); setupCompose(); refresh();
-    return;
-  }
-  if (act === "prename") {
-    if (!ME.project || !ME.project.can_rename) return;
-    RENAME_PROJECT = PROJECT;
-    $("prTitle").value = ME.project.title; $("prErr").textContent = "";
-    $("prDialog").classList.remove("hidden"); $("prTitle").focus(); $("prTitle").select();
     return;
   }
   if (act === "mreset") {
@@ -1539,20 +1592,27 @@ async function memberAction(act, name, role, accountId) {
 // ---- deleting a project: confirmed by typing its name
 $("pdConfirm").oninput = () => {
   const v = $("pdConfirm").value.trim().toLowerCase();
-  $("pdDelete").disabled = !(v && (v === ME.project.title.trim().toLowerCase() || v === PROJECT));
+  $("pdDelete").disabled = !(v && DELETE_PROJECT &&
+    (v === DELETE_PROJECT.title.trim().toLowerCase() || v === DELETE_PROJECT.slug));
 };
 $("pdCancel").onclick = () => $("pdDialog").classList.add("hidden");
 $("pdDelete").onclick = async () => {
+  if (!DELETE_PROJECT || $("pdDelete").disabled) return;
+  const slug = DELETE_PROJECT.slug;
   $("pdErr").textContent = "";
+  $("pdDelete").disabled = true;
   try {
-    const d = await api("POST", "/api/project/delete", {confirm: $("pdConfirm").value});
+    const d = await api("POST", "/api/project/delete?project=" + encodeURIComponent(slug), {confirm: $("pdConfirm").value});
     $("pdDialog").classList.add("hidden");
     toast(`Проект удалён` + (d.agents_without_project.length ? `; без проекта: ${d.agents_without_project.join(", ")}` : ""));
-    st.set("tg_seen_" + PROJECT, null);
-    PROJECTS = PROJECTS.filter(p => p.slug !== PROJECT);
+    st.set("tg_seen_" + slug, null);
+    PROJECTS = PROJECTS.filter(p => p.slug !== slug);
     await loadProjects();
-    if (PROJECTS.length) await setProject(PROJECTS[0].slug); else showNoProject();
+    if (PROJECT === slug) {
+      if (PROJECTS.length) await setProject(PROJECTS[0].slug); else showNoProject();
+    }
   } catch (err) { $("pdErr").textContent = err.message; }
+  finally { $("pdConfirm").oninput(); }
 };
 
 // people from my other projects (and my agents without a project) can be added in one click
