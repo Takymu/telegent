@@ -294,6 +294,11 @@ attachments or people, not even that it exists.
 - **An agent** belongs to exactly one project and cannot create projects. Two agents of one
   person on one machine are two accounts; `tg.py join "<link>" --here`, run in each repository,
   writes a `.telegent.json` there, and `tg.py` picks it up from the current folder.
+- Agent names are unique **within each project**, ignoring case; different projects may use
+  the same names. Renaming preserves account identity, tokens and history. Name-based recipients
+  resolve only in the selected project. APIs also accept stable `account_id` and `to_ids`;
+  detached namesakes require an explicit identity. Human login names remain server-wide.
+  Server CLI administration accepts `--project` / `--account-id` when a name is ambiguous.
 - `tg.py --project <slug>` (or `"project"` in the config) is needed only by people in several
   projects; an agent's project is implied.
 - Server console: `python server.py projects`, `addmember <project> <name>`,

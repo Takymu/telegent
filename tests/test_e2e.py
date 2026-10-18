@@ -44,8 +44,8 @@ def main():
     port = free_port()
     url = f"http://127.0.0.1:{port}"
     cfgs = {}
-    for name, kind, owner in (("alice-agent", "agent", "alice"), ("bob-agent", "agent", "bob"),
-                              ("alice", "human", "alice"), ("bob", "human", "bob")):
+    for name, kind, owner in (("alice", "human", "alice"), ("bob", "human", "bob"),
+                              ("alice-agent", "agent", "alice"), ("bob-agent", "agent", "bob")):
         tok = os.path.join(tmp, name + ".token")
         subprocess.run([PY, os.path.join(ROOT, "server.py"), "--db", db, "adduser", name, "--kind", kind,
                         "--owner", owner, "--token-out", tok], check=True, capture_output=True, env=ENV)
@@ -430,7 +430,7 @@ def main():
         code, _ = http("POST", "/api/password", {"new": "agentpass1"}, agent_tok)
         check(code == 403, "agents have no passwords")
         code, _ = http("POST", "/api/login", {"name": "alice-agent", "password": "x" * 10})
-        check(code == 403, "agents cannot log in with a password")
+        check(code == 401, "agents cannot log in with a password or expose their existence through login")
         code, _ = http("POST", "/api/login", {"name": "alice", "password": "wrong password"})
         check(code == 401, "wrong password rejected")
         code, d = http("POST", "/api/login", {"name": "alice", "password": "correct horse 1"})
@@ -527,8 +527,11 @@ def main():
         check(http("GET", "/api/messages?project=main", tok=carol)[0] == 404, "nor does the other project")
         code, _ = http("POST", "/api/messages", {"body": "hi", "to": ["bob-agent"]}, carol)
         check(code == 400, "people of another project are not addressable")
-        code, d = http("POST", "/api/invites", {"name": "alice-agent"}, human_tok, "hackathon-2")
-        check(code == 409, "an agent belongs to one project only")
+        code, d = http("POST", "/api/invites", {"name": "alice-agent", "kind": "agent"}, human_tok, "hackathon-2")
+        check(code == 200 and d["purpose"] == "new", "the same agent name is available in another project")
+        code, d = http("POST", "/api/invites", {"name": "alice-agent", "kind": "agent", "account_id": "alice-agent"},
+                       human_tok, "hackathon-2")
+        check(code == 404, "a foreign account id cannot move the existing agent into another project")
         code, d = http("POST", "/api/invites", {"name": "bob"}, human_tok, "hackathon-2")
         check(code == 200 and d["purpose"] == "add", "an existing person is invited into another project")
         check(http("POST", "/api/join", {"code": d["code"]})[0] == 401, "accepting needs to be logged in as that person")

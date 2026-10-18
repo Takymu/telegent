@@ -648,6 +648,7 @@ function avatar(name, kind, small) {
   return `<div class="mav ${kind === "agent" ? "agent" : ""} ${small ? "small" : ""}" style="background:hsl(${hue(name)} 45% 42%)"
     title="${esc(name)}${kind === "agent" ? " (агент)" : ""}">${esc(initials(name))}</div>`;
 }
+const isMine = m => m.author_id && ME.id ? m.author_id === ME.id : m.author === ME.name;
 let TOAST_T = null, MEMBER_ACTS = {};
 function toast(text, bad) {
   const t = $("toast"); t.textContent = text; t.className = "show" + (bad ? " bad" : "");
@@ -989,7 +990,7 @@ function render(force) {
   let html = "", prev = null, newShown = false;
   for (const m of list) {
     if (!prev || prev.time.slice(0, 10) !== m.time.slice(0, 10)) html += `<div class="daysep"><span>${dayLabel(m.time)}</span></div>`;
-    if (UNREAD_FROM && !newShown && m.id > UNREAD_FROM && m.author !== ME.name && !isSys(m)) {
+    if (UNREAD_FROM && !newShown && m.id > UNREAD_FROM && !isMine(m) && !isSys(m)) {
       html += `<div class="newsep"><span>Новые</span></div>`; newShown = true;
     }
     html += row(m, prev);
@@ -1030,7 +1031,7 @@ function row(m, prev) {
     return `<div class="sysrow" id="m${m.id}">${esc(m.author)}: ${esc(m.subject)}${m.body ? " — " + esc(m.body.split("\n")[0]) : ""} · ${hhmm(m.time)}</div>`;
   }
   // consecutive plain messages of one author within 5 minutes share one header
-  const grouped = prev && !isSys(prev) && prev.author === m.author && m.ts - prev.ts < 300 &&
+  const grouped = prev && !isSys(prev) && (prev.author_id || prev.author) === (m.author_id || m.author) && m.ts - prev.ts < 300 &&
     prev.time.slice(0, 10) === m.time.slice(0, 10) && m.type === "info" && !m.reply_to && m.priority !== "urgent" &&
     !m.needs_approval && !m.to.length === !prev.to.length;
   const cls = ["mrow", grouped ? "grouped" : "", m.priority === "urgent" ? "urgent" : ""].join(" ");
@@ -1088,7 +1089,7 @@ function row(m, prev) {
     `<button data-act="reactmenu" data-id="${m.id}" title="Добавить реакцию" aria-label="Добавить реакцию">☺+</button>` +
     `<button data-act="reply" data-id="${m.id}" title="ответить">↩</button>` +
     `<button data-act="thread" data-id="${m.thread_id}" title="вся ветка">≡</button>` +
-    (!m.acked && m.author !== ME.name ? `<button data-act="ack" data-id="${m.id}" title="отметить обработанным">✓</button>` : "") +
+    (!m.acked && !isMine(m) ? `<button data-act="ack" data-id="${m.id}" title="отметить обработанным">✓</button>` : "") +
     `<button data-act="more" data-id="${m.id}" title="ещё">⋯</button></div></div>`;
   return html;
 }
@@ -1107,7 +1108,7 @@ function actionsFor(m) {
     if (s === "open" || s === "taken") a.push({label: "Отклонить", act: "st", data: {st: "rejected", id: m.id}, cls: "bad"});
     if (s === "done" || s === "rejected") a.push({label: "Открыть снова", act: "st", data: {st: "open", id: m.id}});
   }
-  if (!m.acked && m.author !== ME.name) a.push({label: "✓ Обработано (ack)", act: "ack", data: {id: m.id}});
+  if (!m.acked && !isMine(m)) a.push({label: "✓ Обработано (ack)", act: "ack", data: {id: m.id}});
   a.push({label: "Скопировать текст", act: "copytext", data: {id: m.id}});
   return a;
 }
@@ -1184,7 +1185,7 @@ document.addEventListener("click", async e => {
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
       case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
       case "mrole": case "mremove": case "mreset": case "prename": case "pleave": case "mrename": case "pdelete": case "madd":
-        await memberAction(el.dataset.act, el.dataset.name, el.dataset.role); break;
+        await memberAction(el.dataset.act, el.dataset.name, el.dataset.role, el.dataset.account); break;
       case "approve": case "deny": {
         const note = prompt(el.dataset.act === "approve" ? "Одобрить. Комментарий (необязательно):" : "Отказать. Причина:");
         if (note === null) return;
@@ -1260,7 +1261,7 @@ function startReply(m) {
   $("replyBar").classList.remove("hidden");
   $("replyText").textContent = `Ответ на #${m.id} (${m.author}): ${m.subject}`;
   $("cTopic").value = m.topic || "";
-  $("cTo").value = m.author !== ME.name ? m.author : "";
+  $("cTo").value = !isMine(m) ? m.author : "";
   $("cBody").focus();
 }
 function resetCompose(force = false) {
@@ -1369,6 +1370,7 @@ $("sendBtn").onclick = async () => {
     approver: $("cApproval").checked && $("cApprover").value ? $("cApprover").value : null,
     to: $("cTo").value ? [$("cTo").value] : [], attachments: [],
     reply_to: REPLY ? REPLY.id : null, idem_key: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()),
+    ...(REPLY?.author_id && !isMine(REPLY) && $("cTo").value === REPLY.author ? {to_ids: [REPLY.author_id]} : {}),
   };
   if (!data.body.trim() && !ATTACHED.length) return;
   const signature = JSON.stringify({...data, idem_key: null, files: ATTACHED.map(a => a.key)});
@@ -1427,11 +1429,12 @@ async function loadPresence() {
   } catch {}
 }
 
-async function memberAction(act, name, role) {
-  if (act === "mrole") await api("POST", "/api/members/role", {name, role});
+async function memberAction(act, name, role, accountId) {
+  const target = {name, account_id: accountId || ME.users.find(u => u.name === name)?.id};
+  if (act === "mrole") await api("POST", "/api/members/role", {...target, role});
   if (act === "mremove") {
     if (!confirm(`Убрать ${name} из проекта «${ME.project.title}»? Его агенты в этом проекте тоже уйдут.`)) return;
-    await api("POST", "/api/members/remove", {name});
+    await api("POST", "/api/members/remove", target);
   }
   if (act === "pdelete") {
     $("pdTitle").textContent = ME.project.title; $("pdConfirm").value = ""; $("pdErr").textContent = "";
@@ -1440,7 +1443,7 @@ async function memberAction(act, name, role) {
     return;
   }
   if (act === "madd") {
-    await api("POST", "/api/members/add", {name});
+    await api("POST", "/api/members/add", target);
     toast(`${name} добавлен(а) в проект`);
     await loadPresence(); setupCompose(); loadCandidates();
     return;
@@ -1455,7 +1458,7 @@ async function memberAction(act, name, role) {
   if (act === "mrename") {
     const nn = prompt(`Новое имя для ${name} (латиница, цифры, . _ -):`, name);
     if (!nn || nn.trim() === name) return;
-    await api("POST", "/api/rename", {name, new: nn.trim()});
+    await api("POST", "/api/rename", {...target, new: nn.trim()});
     toast(`${name} → ${nn.trim()}`);
     if (name === ME.name) return login(TOKEN);   // my own name changed everywhere on the page
     await loadPresence(); setupCompose(); refresh();
@@ -1469,7 +1472,7 @@ async function memberAction(act, name, role) {
     return;
   }
   if (act === "mreset") {
-    const d = await api("POST", "/api/reset", {name});
+    const d = await api("POST", "/api/reset", target);
     openInvite(name); showInviteResult(d);
     return;
   }
@@ -1508,7 +1511,7 @@ async function loadCandidates() {
     $("invCands").innerHTML = c.map(u => `<div class="member">${avatar(u.name, u.kind, true)}
       <div class="minfo"><b>${esc(u.name)}</b><div class="muted">${u.kind === "agent" ? "твой агент, без проекта"
         : "из " + u.via.map(t => "«" + esc(t) + "»").join(", ")}</div></div>
-      <button data-act="madd" data-name="${esc(u.name)}">Добавить</button></div>`).join("");
+      <button data-act="madd" data-name="${esc(u.name)}" data-account="${esc(u.id)}">Добавить</button></div>`).join("");
   } catch { $("invPick").classList.add("hidden"); }
 }
 
@@ -1526,7 +1529,10 @@ function openInvite(name) {
   if (!TOUCH) $("invName").focus();
 }
 // someone I already work with: add at once; anyone else: a one-time link
-const typedCand = () => { const v = $("invName").value.trim().toLowerCase(); return CANDS.find(c => c.name.toLowerCase() === v); };
+const typedCand = () => {
+  const matches = CANDS.filter(c => c.name.toLowerCase() === $("invName").value.trim().toLowerCase());
+  return matches.length === 1 ? matches[0] : null;
+};
 function invNameChanged() {
   const v = $("invName").value.trim().toLowerCase();
   const u = ME.users.find(x => x.name.toLowerCase() === v);
@@ -1581,7 +1587,7 @@ $("invCreate").onclick = async () => {
   const cand = typedCand();
   if (cand) {
     try {
-      await api("POST", "/api/members/add", {name: cand.name});
+      await api("POST", "/api/members/add", {name: cand.name, account_id: cand.id});
       toast(`${cand.name} добавлен(а) в проект`);
       $("invDialog").classList.add("hidden");
       await loadPresence(); setupCompose();
@@ -1884,8 +1890,8 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("mess
 
 // why a new message deserves a notification; null = it does not
 function ntfReason(m) {
-  if (m.author === ME.name) return null;
-  if (m.type === "approval") { const o = MSGS.get(m.reply_to); return o && o.author === ME.name ? "Решение" : null; }
+  if (isMine(m)) return null;
+  if (m.type === "approval") { const o = MSGS.get(m.reply_to); return o && isMine(o) ? "Решение" : null; }
   if (m.needs_approval && !m.approvals.length && (!m.approver || m.approver === ME.name)) return "Нужно твоё решение";
   if (m.priority === "urgent") return "Срочно";
   if (m.to.includes(ME.name)) return "Тебе";

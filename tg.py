@@ -530,7 +530,7 @@ def build_result(args):
     return r or None
 
 
-def do_send(conf, args, reply_to=None, default_to=None):
+def do_send(conf, args, reply_to=None, default_to=None, default_to_ids=None):
     body = read_body(args)
     data = {
         "subject": args.subject or "", "body": body, "type": args.type, "topic": args.topic or "",
@@ -540,6 +540,8 @@ def do_send(conf, args, reply_to=None, default_to=None):
         "reply_to": reply_to, "result": build_result(args), "attachments": [],
         "idem_key": args.key or uuid.uuid4().hex,
     }
+    if default_to_ids and not args.to:
+        data["to_ids"] = default_to_ids
     if getattr(args, "claim", None):
         if args.type == "result":
             data["claim"] = args.claim
@@ -585,7 +587,8 @@ def cmd_reply(conf, args):
         die("нечего отправлять")
     me = get_me(conf)
     default_to = parent["author"] if parent["author"] != me["name"] else ""
-    do_send(conf, args, reply_to=args.id, default_to=default_to)
+    to_ids = [parent["author_id"]] if parent.get("author_id") and parent["author_id"] != me.get("id") else None
+    do_send(conf, args, reply_to=args.id, default_to=default_to, default_to_ids=to_ids)
 
 
 def expired_mine(conf):
@@ -1363,9 +1366,10 @@ def cmd_join(args):
     if info["kind"] != "agent":
         die(f"это приглашение для человека ({info['name']}): открой ссылку в браузере и задай пароль", 2)
     home = os.path.join(os.path.expanduser("~"), ".telegent")
+    file_tag = info["name"] + "-" + hashlib.sha256(code.encode()).hexdigest()[:16]
     if args.here:   # config in this folder (no secrets in it), token and state in ~/.telegent
         cfg_path = os.path.abspath(args.config or ".telegent.json")
-        tok_path = os.path.abspath(args.token_file or os.path.join(home, info["name"] + ".token"))
+        tok_path = os.path.abspath(args.token_file or os.path.join(home, file_tag + ".token"))
     else:
         cfg_path = os.path.abspath(args.config or os.environ.get("TELEGENT_CONFIG") or os.path.join(home, "config.json"))
         tok_path = os.path.abspath(args.token_file or os.path.join(os.path.dirname(cfg_path), "token"))
@@ -1396,11 +1400,11 @@ def cmd_join(args):
     if os.path.exists(cfg_path):
         with open(cfg_path, encoding="utf-8-sig") as f:
             c = json.load(f)
-    c.update({"server": server, "token_file": tok_path})
+    c.update({"server": server, "token_file": tok_path, "account_id": res.get("id")})
     if res.get("project"):
         c["project"] = res["project"]
     if args.here:
-        c["state_file"] = os.path.join(home, info["name"] + ".state.json")
+        c["state_file"] = os.path.join(home, file_tag + ".state.json")
     if args.url_source is not None:
         c["url_source"] = args.url_source
     if client:
@@ -1567,7 +1571,7 @@ def main():
     s = sub.add_parser("connect", help="подключиться и полностью настроить своего агента одной командой")
     s.add_argument("link", help="ссылка-приглашение или код tgi_…")
     s.add_argument("--client", choices=("auto", "codex", "claude"), default="auto")
-    s.add_argument("--token-file", help="куда записать токен (по умолчанию ~/.telegent/<имя>.token)")
+    s.add_argument("--token-file", help="куда записать токен (по умолчанию ~/.telegent/<имя>-<метка>.token)")
     s.add_argument("--force", action="store_true", help="заменить существующую настройку по новому приглашению")
     s.add_argument("--url-source", help=argparse.SUPPRESS)
     s.set_defaults(here=True)
