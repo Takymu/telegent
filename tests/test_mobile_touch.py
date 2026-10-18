@@ -1,0 +1,181 @@
+"""Chromium compositor touch input, overflowing chat content and nested code scrolling."""
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import struct
+import subprocess
+import time
+import unittest
+import urllib.parse
+import urllib.request
+
+import test_attachments as fixture
+
+
+def chromium_path():
+    candidates = [os.environ.get('TELEGENT_TEST_CHROMIUM'), shutil.which('chromium'),
+                  shutil.which('google-chrome'), shutil.which('msedge')]
+    for base in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA'):
+        root = Path(os.environ.get(base, '.'))
+        candidates += [str(root/'Google/Chrome/Application/chrome.exe'),
+                       str(root/'Microsoft/Edge/Application/msedge.exe')]
+        candidates += [str(p) for p in (root/'Microsoft/EdgeCore').glob('*/msedge.exe')]
+    return next((p for p in candidates if p and Path(p).is_file()), None)
+
+
+class DevTools:
+    """Minimal local-only CDP WebSocket transport, avoiding a browser-driver dependency."""
+    def __init__(self, url):
+        parsed = urllib.parse.urlsplit(url)
+        assert parsed.scheme == 'ws' and parsed.hostname in ('127.0.0.1', 'localhost')
+        self.sock = socket.create_connection((parsed.hostname, parsed.port), timeout=15)
+        self.stream = self.sock.makefile('rb')
+        self.sequence = 0
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall(('GET '+parsed.path+' HTTP/1.1\r\nHost: '+parsed.netloc+
+                           '\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: '+key+
+                           '\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+        assert b' 101 ' in self.stream.readline(), 'CDP handshake rejected'
+        headers = {}
+        while True:
+            line = self.stream.readline().strip()
+            if not line: break
+            name, value = line.split(b':', 1); headers[name.lower()] = value.strip()
+        expected = base64.b64encode(hashlib.sha1((key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+        assert headers[b'sec-websocket-accept'] == expected
+
+    def call(self, method, **params):
+        self.sequence += 1
+        raw = json.dumps({'id': self.sequence, 'method': method, 'params': params}).encode()
+        n = len(raw); mask = os.urandom(4)
+        length = bytes([0x80 | n]) if n < 126 else b'\xfe'+struct.pack('!H', n) if n < 65536 else b'\xff'+struct.pack('!Q', n)
+        self.sock.sendall(b'\x81'+length+mask+bytes(b ^ mask[i % 4] for i, b in enumerate(raw)))
+        while True:
+            head = self.stream.read(2)
+            if len(head) != 2: raise RuntimeError('CDP disconnected')
+            n = head[1] & 127
+            if n == 126: n = struct.unpack('!H', self.stream.read(2))[0]
+            elif n == 127: n = struct.unpack('!Q', self.stream.read(8))[0]
+            data = self.stream.read(n)
+            if head[0] & 15 == 8: raise RuntimeError('CDP closed')
+            reply = json.loads(data)
+            if reply.get('id') != self.sequence: continue
+            if 'error' in reply: raise RuntimeError(reply['error'])
+            return reply.get('result', {})
+
+    def evaluate(self, expression):
+        result = self.call('Runtime.evaluate', expression=expression, returnByValue=True, awaitPromise=True)
+        if result.get('exceptionDetails'): raise AssertionError(result['exceptionDetails'])
+        return result['result'].get('value')
+
+    def close(self):
+        self.stream.close(); self.sock.close()
+
+
+@unittest.skipUnless(chromium_path(), 'Chromium is required for native touch checks')
+class MobileTouchTest(unittest.TestCase):
+    def test_native_swipes_and_scrolling_with_long_messages(self):
+        fixture.AttachmentTest.setUpClass()
+        fx = fixture.AttachmentTest()
+        browser = dev = None
+        try:
+            fx.s.HERE = str(fx.work)
+            source = Path(os.environ.get('TELEGENT_TEST_WEB', str(fixture.ROOT/'web.html')))
+            (fx.work/'web.html').write_bytes(source.read_bytes())
+            with fx.s.DB_LOCK:
+                fx.s.db().execute("UPDATE users SET display_name=? WHERE name='bob-agent'", ('agent-'+'W'*26,))
+            body = '\n\n'.join(['Plain fixture message for native touch navigation. '*7]*4)
+            body += '\n\nhttps://example.org/'+'segment'*100+'\n\n`'+'inline'*80+'`'
+            body += '\n\n```text\n'+'wide_code_'*100+'\n```'
+            mid = fx.api('POST', '/api/messages?project=main', {'body': body, 'topic': 'fixture-'+'W'*52}, who='alice')['id']
+            profile = fx.work/'chromium-profile'
+            browser = subprocess.Popen([chromium_path(), '--headless', '--disable-gpu', '--no-first-run',
+                                        '--no-default-browser-check', '--remote-debugging-port=0',
+                                        '--user-data-dir='+str(profile), 'about:blank'], env=fx.env,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            active = profile/'DevToolsActivePort'
+            for _ in range(100):
+                if active.exists(): break
+                if browser.poll() is not None: self.fail('headless Chromium exited')
+                time.sleep(.1)
+            self.assertTrue(active.exists(), 'Chromium debugging endpoint unavailable')
+            port = active.read_text().splitlines()[0]
+            with urllib.request.urlopen('http://127.0.0.1:'+port+'/json/list', timeout=5) as response:
+                page = next(p for p in json.load(response) if p['type'] == 'page')
+            dev = DevTools(page['webSocketDebuggerUrl'])
+            dev.call('Emulation.setDeviceMetricsOverride', width=390, height=844, deviceScaleFactor=1, mobile=True)
+            dev.call('Emulation.setTouchEmulationEnabled', enabled=True, maxTouchPoints=5)
+            dev.call('Page.enable')
+            dev.call('Page.navigate', url=fx.url+'/#token='+fx.tokens['alice']+'&p=main')
+
+            def wait(expression):
+                for _ in range(100):
+                    if dev.evaluate(expression): return
+                    time.sleep(.05)
+                state=dev.evaluate('({tab:TAB,selection:getSelection().toString(),target:document.elementFromPoint(100,260)?.outerHTML?.slice(0,180),events:window.fixtureTouches})')
+                self.fail('Browser condition timed out: '+expression+' '+json.dumps(state))
+
+            def swipe(x, y, dx, dy=0, steps=8):
+                dev.call('Input.dispatchTouchEvent', type='touchStart', touchPoints=[{'x': x, 'y': y, 'id': 1}])
+                for step in range(1, steps+1):
+                    dev.call('Input.dispatchTouchEvent', type='touchMove', touchPoints=[{'x': x+dx*step/steps, 'y': y+dy*step/steps, 'id': 1}])
+                    time.sleep(.025)
+                dev.call('Input.dispatchTouchEvent', type='touchEnd', touchPoints=[])
+                time.sleep(.15)
+
+            wait('typeof ME!=="undefined" && ME?.project && MSGS.has('+str(mid)+')')
+            dev.evaluate('window.fixtureTouches=[];for(const name of ["touchstart","touchmove","touchend","touchcancel"])document.addEventListener(name,e=>{fixtureTouches.push({type:name,cancelable:e.cancelable,target:e.target.id||e.target.className});fixtureTouches=fixtureTouches.slice(-15)},true)')
+            dev.evaluate('EXPANDED.add('+str(mid)+');render(true);$("scroller").scrollTop=0;$("cBody").blur()')
+            sizes = dev.evaluate('({width:$("scroller").clientWidth,scroll:$("scroller").scrollWidth,body:document.documentElement.scrollWidth})')
+            self.assertLessEqual(sizes['scroll'], sizes['width']+1, sizes)
+            self.assertLessEqual(sizes['body'], 390, sizes)
+            for _ in range(3):
+                swipe(280, 260, -85, 10)
+                wait('TAB==="direct"')
+                swipe(100, 260, 85, 10)
+                wait('TAB==="feed" && MSGS.has('+str(mid)+')')
+            point = dev.evaluate('(()=>{const link=$("m'+str(mid)+'").querySelector(".mtext a");link.scrollIntoView({block:"center"});const r=link.getClientRects()[0];return {x:Math.min(280,r.left+180),y:r.top+8}})()')
+            swipe(point['x'], point['y'], -85)
+            wait('TAB==="direct"')
+            # A tap still opens the row, while a swipe over that same button navigates.
+            point = dev.evaluate('(()=>{const b=$("dmList").querySelector("button");const r=b.getBoundingClientRect();return {x:r.left+80,y:r.top+r.height/2}})()')
+            dev.call('Input.dispatchTouchEvent', type='touchStart', touchPoints=[dict(point, id=1)])
+            dev.call('Input.dispatchTouchEvent', type='touchEnd', touchPoints=[])
+            wait('!!ACTIVE_DM')
+            swipe(100, 490, 85)
+            wait('TAB==="direct" && !ACTIVE_DM')
+            swipe(100, 260, 85)
+            wait('TAB==="feed" && MSGS.has('+str(mid)+')')
+            dev.evaluate('$("scroller").scrollTop=0')
+            swipe(100, 260, 85)
+            wait('$("projects").classList.contains("open")')
+            swipe(280, 260, -85)
+            wait('!$("projects").classList.contains("open")')
+            dev.evaluate('$("scroller").scrollTop=0')
+            swipe(200, 490, 8, -230)
+            self.assertGreater(dev.evaluate('$("scroller").scrollTop'), 30, 'native vertical scrolling stopped '+json.dumps(dev.evaluate('({height:$("scroller").clientHeight,scroll:$("scroller").scrollHeight,target:document.elementFromPoint(200,490)?.outerHTML?.slice(0,100),events:fixtureTouches})')))
+            self.assertEqual(dev.evaluate('TAB'), 'feed')
+            self.assertEqual(dev.evaluate('$("scroller").scrollLeft'), 0, 'feed moved horizontally')
+            # A nested code scroller must retain native horizontal movement.
+            point = dev.evaluate('(()=>{const pre=$("m'+str(mid)+'").querySelector("pre");pre.scrollIntoView({block:"center"});const r=pre.getBoundingClientRect();return {x:r.left+160,y:r.top+r.height/2}})()')
+            swipe(point['x'], point['y'], -100)
+            self.assertGreater(dev.evaluate('$("m'+str(mid)+'").querySelector("pre").scrollLeft'), 20, 'native code scrolling stopped')
+            self.assertEqual(dev.evaluate('TAB'), 'feed', 'code gesture navigated away')
+            self.assertEqual(dev.evaluate('$("scroller").scrollLeft'), 0)
+            artifacts = os.environ.get('TELEGENT_TEST_ARTIFACTS')
+            if artifacts:
+                dest = Path(artifacts); dest.mkdir(parents=True, exist_ok=True)
+                shot = dev.call('Page.captureScreenshot', format='png')['data']
+                (dest/'chromium-mobile-touch.png').write_bytes(base64.b64decode(shot))
+        finally:
+            if dev: dev.close()
+            if browser:
+                browser.terminate(); browser.wait(timeout=10)
+            fixture.AttachmentTest.tearDownClass()
+
+
+if __name__ == '__main__': unittest.main(verbosity=2)

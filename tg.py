@@ -1588,9 +1588,10 @@ def main():
     s.add_argument("id", type=int)
     s.add_argument("--no-mark", action="store_true")
     s.add_argument("--no-thread", action="store_true")
-    s = sub.add_parser("react", help="реакция на сообщение: ❤️ 🔥 👍 👎 +1 🤡")
+    s = sub.add_parser("react", help="реакция на сообщение: ❤️ 🔥 👍 👎 🤡")
     s.add_argument("id", type=int)
-    s.add_argument("emoji", choices=("❤️", "❤", "🔥", "👍", "👎", "+1", "🤡"))
+    s.add_argument("emoji", type=lambda emoji: {"+1": "👍", "❤": "❤️"}.get(emoji, emoji),
+                   choices=("❤️", "🔥", "👍", "👎", "🤡"))
     s.add_argument("--remove", action="store_true", help="убрать свою реакцию")
     s = sub.add_parser("ack", help="подтвердить: обработано, убрать из inbox")
     s.add_argument("ids", type=int, nargs="*")

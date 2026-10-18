@@ -35,12 +35,12 @@ class ReactionsTest(unittest.TestCase):
         return self.api('POST', f'/api/messages/{mid or self.mid}/reaction', {'emoji': emoji, 'active': active}, author)
 
     def test_reactions_are_idempotent_and_personal(self):
-        for emoji in ('❤️', '🔥', '👍', '👎', '+1', '🤡'):
+        for emoji in ('❤️', '🔥', '👍', '👎', '🤡'):
             self.react(emoji)
             self.react(emoji)
         self.react('❤', author='alice')
         msg = self.api('GET', f'/api/messages/{self.mid}')['message']
-        self.assertEqual(len(msg['reactions']), 6)
+        self.assertEqual(len(msg['reactions']), 5)
         self.assertEqual(msg['reactions'][0], {'emoji': '❤️', 'count': 2, 'mine': True, 'users': ['bob-agent', 'alice']})
         self.assertFalse(msg['read']); self.assertFalse(msg['acked'])
         self.assertFalse(msg['approvals'])
@@ -101,22 +101,52 @@ class ReactionsTest(unittest.TestCase):
             self.api('POST', '/api/rename', {'name': 'alice-helper', 'new': 'alice-agent'}, 'alice')
         self.assertEqual(self.fx.cli('react', str(self.mid), '🤡', '--remove').returncode, 0)
 
-    def test_reactions_survive_server_restart(self):
-        self.react('👍')
+    def restart(self):
         old = fixture.CodexTest.server
         old.terminate(); old.wait(timeout=5)
         fixture.CodexTest.server = subprocess.Popen(old.args, env=fixture.ENV,
                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):
             try:
-                message = self.api('GET', f'/api/messages/{self.mid}')['message']
-                break
+                return self.api('GET', f'/api/messages/{self.mid}')['message']
             except OSError:
                 time.sleep(.1)
-        else:
-            self.fail('server did not restart')
+        self.fail('server did not restart')
+
+    def test_reactions_survive_server_restart(self):
+        self.react('👍')
+        message = self.restart()
         self.assertEqual(message['reactions'][0]['emoji'], '👍')
         self.assertTrue(message['reactions'][0]['mine'])
+
+    def test_legacy_agreement_merges_on_startup_without_duplicates(self):
+        self.react('👍'); self.react('🔥')
+        with closing(fixture.sqlite3.connect(fixture.CodexTest.db)) as con:
+            con.executemany('INSERT INTO reactions(message_id,user,emoji,ts) VALUES (?,?,?,?)',
+                            [(self.mid, 'bob-agent', '+1', 100), (self.mid, 'alice', '+1', 200)])
+            con.commit()
+        message = self.restart()
+        likes = next(r for r in message['reactions'] if r['emoji'] == '👍')
+        self.assertEqual(likes, {'emoji':'👍', 'count':2, 'mine':True, 'users':['alice', 'bob-agent']})
+        self.assertEqual(len(message['reactions']), 2)
+        self.assertFalse(message['read']); self.assertFalse(message['acked']); self.assertFalse(message['approvals'])
+        with closing(fixture.sqlite3.connect(fixture.CodexTest.db)) as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM reactions WHERE emoji='+1'").fetchone()[0], 0)
+            before = con.execute('SELECT * FROM reactions ORDER BY message_id,user,emoji').fetchall()
+            self.assertEqual(con.execute("SELECT ts FROM reactions WHERE message_id=? AND user='alice' AND emoji='👍'", (self.mid,)).fetchone()[0], 200)
+        self.assertEqual(self.restart()['reactions'], message['reactions'])
+        with closing(fixture.sqlite3.connect(fixture.CodexTest.db)) as con:
+            self.assertEqual(before, con.execute('SELECT * FROM reactions ORDER BY message_id,user,emoji').fetchall())
+
+    def test_old_clients_agree_and_remove_the_canonical_like(self):
+        self.react('👍')
+        before = self.api('GET', '/api/messages')['reaction_revision']
+        self.react('+1')
+        self.assertEqual(self.api('GET', '/api/messages')['reaction_revision'], before)
+        self.assertEqual(self.fx.cli('react', str(self.mid), '+1').returncode, 0)
+        self.assertNotIn('+1', self.fx.cli('react', '-h').stdout)
+        self.assertEqual(self.fx.cli('react', str(self.mid), '+1', '--remove').returncode, 0)
+        self.assertFalse(self.api('GET', f'/api/messages/{self.mid}')['message']['reactions'])
 
     def test_member_can_invite_and_add_own_agents(self):
         invite = self.api('POST', '/api/invites', {'name': 'bob-helper', 'kind': 'agent'}, 'bob')

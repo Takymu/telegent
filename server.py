@@ -39,7 +39,7 @@ SYSTEM_TYPES = ("status", "approval")
 TRACKED_TYPES = ("request", "alert", "decision")      # these carry open/taken/done/rejected
 STATES = ("open", "taken", "done", "rejected")
 PRIORITIES = ("normal", "urgent")
-REACTION_EMOJI = ("❤️", "🔥", "👍", "👎", "+1", "🤡")
+REACTION_EMOJI = ("❤️", "🔥", "👍", "👎", "🤡")
 RESULT_FIELDS = ("metric", "dataset", "value", "err", "baseline", "commit", "weights", "note")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 
@@ -255,8 +255,24 @@ def db():
         _db.execute("UPDATE messages SET body = subject || CASE WHEN body = '' THEN '' ELSE char(10) || body END "
                     "WHERE type NOT IN ('status', 'approval') AND subject != '' "
                     "AND substr(ltrim(body, ' ' || char(9) || char(10) || char(13)), 1, length(subject)) != subject")
+        migrate_reactions(_db)
         LAST_ID[0] = _db.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
     return _db
+
+
+def migrate_reactions(con):
+    """Merge legacy agreement into the same person's like without duplicating it."""
+    if not con.execute("SELECT 1 FROM reactions WHERE emoji='+1' LIMIT 1").fetchone():
+        return
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("INSERT OR IGNORE INTO reactions(message_id,user,emoji,ts) "
+                    "SELECT message_id,user,'👍',ts FROM reactions WHERE emoji='+1'")
+        con.execute("DELETE FROM reactions WHERE emoji='+1'")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
 
 
 def migrate_identities(con):
@@ -2264,8 +2280,10 @@ def api_reaction(h, user, q, data, mid):
         emoji, active = data.get("emoji"), data.get("active", True)
         if emoji == "❤":
             emoji = "❤️"
+        if emoji == "+1":
+            emoji = "👍"
         if emoji not in REACTION_EMOJI or type(active) is not bool:
-            raise ApiError(400, "реакция: ❤️, 🔥, 👍, 👎, +1, 🤡; active: true | false")
+            raise ApiError(400, "реакция: ❤️, 🔥, 👍, 👎, 🤡; active: true | false")
         if message["type"] in SYSTEM_TYPES:
             raise ApiError(400, "реакции доступны у сообщений участников")
         con = db()

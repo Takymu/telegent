@@ -96,7 +96,7 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .column { max-width: 880px; margin: 0 auto; width: 100%; }
 .feedtop { flex: none; padding: 14px 32px 0; }
 .feedtop > * { max-width: 880px; margin-left: auto; margin-right: auto; }
-#scroller { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 32px 28px; overscroll-behavior: contain; }
+#scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 32px 28px; overscroll-behavior: contain; }
 #composer { flex: none; position: relative; padding: 4px 32px 28px; }
 #replyBar { font-size: 12.5px; color: var(--muted); margin: 0 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #replyBar a { text-decoration: none; margin-left: 4px; }
@@ -224,6 +224,9 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .mgutter { font-size: 11px; color: var(--muted); text-align: right; padding-top: 3px; visibility: hidden; }
 .mrow.grouped:hover .mgutter { visibility: visible; }
 .mhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; line-height: 1.3; }
+.mmain { min-width:0; }
+.mhead > * { min-width:0;max-width:100%; }
+.mhead, .mrc, .mextra, .sysrow { overflow-wrap:anywhere; }
 .mname { font-weight: 700; }
 .mtag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 .mtime { font-size: 12px; color: var(--muted); }
@@ -307,14 +310,12 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .reaction:hover { border-color: var(--accent); }
 .reaction:active, .reaction-choice:active { transform: scale(.9); }
 .reaction-emoji { font: 19px/1.2 "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
-.reaction-agree { font: 750 15px/1.2 system-ui, sans-serif; letter-spacing: -.6px; }
 .reaction-add { min-width: 30px; padding: 3px 7px; background: transparent; color: var(--muted); font-size: 18px; }
 .reaction-picker { display: flex; justify-content: space-between; gap: 3px; padding: 5px; margin-bottom: 5px;
   border-bottom: 1px solid var(--line); }
 #menu .reaction-choice { display: inline-flex; align-items: center; justify-content: center; flex: 1; width: 40px;
   min-height: 44px; border-radius: 50%; padding: 5px; text-align: center; }
 #menu .reaction-choice .reaction-emoji { font-size: 27px; }
-#menu .reaction-choice .reaction-agree { font-size: 21px; }
 #menu .reaction-choice[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 @media (prefers-reduced-motion: no-preference) {
   .reaction, .reaction-choice { transition: transform .14s, background .14s; }
@@ -399,6 +400,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 /* Private conversations stay inside the selected project. */
 .dm-search { width:100%;margin:12px 0; }
 .dm-item { display:flex;gap:12px;width:100%;align-items:center;text-align:left;padding:14px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent; }
+.dm-item > span:not(.mav) { min-width:0;overflow-wrap:anywhere; }
 .dm-info { flex:1;min-width:0; }
 .dm-preview { white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;margin-top:4px; }
 #dmBar { display:flex;align-items:center;gap:10px;margin:10px 0; }
@@ -412,6 +414,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 #gestureHint { position:fixed;left:50%;bottom:145px;transform:translateX(-50%);padding:10px 18px;border-radius:24px;background:var(--panel);border:1px solid var(--line);z-index:12;pointer-events:none;font-size:14px; }
 @media(max-width:900px) {
   #app { height:var(--app-height,100dvh); }
+  #scroller, #projects, #app aside { touch-action:pan-y pinch-zoom; }
   #devChatHint, #projBtn, #sideBtn, #bellBtn, .feedtop .tabs { display:none !important; }
   .feedtop { padding-top:4px; }
   #app header { min-height:44px;padding:8px 16px; }
@@ -757,7 +760,7 @@ let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
 let REACTION_REVISION = null;
 const REACTION_PENDING = new Set();
 let ATTACHED = [], FILE_STORAGE = null, SENDING = false, UPLOAD_ABORT = null, COMPOSE_RETRY = null;
-const REACTIONS = [["❤️", "Сердечко"], ["🔥", "Огонёк"], ["👍", "Лайк"], ["👎", "Дизлайк"], ["+1", "Согласен (+1)"], ["🤡", "Клоун"]];
+const REACTIONS = [["❤️", "Сердечко"], ["🔥", "Огонёк"], ["👍", "Лайк"], ["👎", "Дизлайк"], ["🤡", "Клоун"]];
 const EXPANDED = new Set();
 
 const $ = id => document.getElementById(id);
@@ -1006,10 +1009,10 @@ gestureRoot.addEventListener("touchstart",e=>{
   NAV_TOUCH=null;
   if(!mobileLayout() || SENDING || e.touches.length!==1 || getSelection()?.toString())return;
   const target=e.target;
-  if(target.closest("input,textarea,select,button,summary,[contenteditable=true],pre,code,#composer") || target.closest("a:not(.pselect)"))return;
+  if(target.closest("input,textarea,select,button:not(.dm-item),summary,[contenteditable=true],pre,code,#composer"))return;
   if(["invDialog","pwDialog","npDialog","prDialog","pdDialog","secretDialog","menu"].some(id=>!$(id).classList.contains("hidden")))return;
   for(let node=target;node&&node!==gestureRoot;node=node.parentElement) {
-    if(node.scrollWidth>node.clientWidth+2 && /auto|scroll/.test(getComputedStyle(node).overflowX))return;
+    if(!["scroller","projects","aside"].includes(node.id) && node.scrollWidth>node.clientWidth+2 && /auto|scroll/.test(getComputedStyle(node).overflowX))return;
   }
   const t=e.touches[0];if(t.clientX<24 || t.clientX>innerWidth-24)return;
   NAV_TOUCH={x:t.clientX,y:t.clientY,at:performance.now(),scope:`${PROJECT}|${TAB}|${ACTIVE_DM?.id}`,horizontal:false};
@@ -1018,7 +1021,7 @@ gestureRoot.addEventListener("touchmove",e=>{
   const n=NAV_TOUCH;if(!n || e.touches.length!==1) {NAV_TOUCH=null;gestureHint.classList.add("hidden");return;}
   const dx=e.touches[0].clientX-n.x,dy=e.touches[0].clientY-n.y;
   if(!n.horizontal && Math.abs(dy)>12 && Math.abs(dy)>Math.abs(dx)) {NAV_TOUCH=null;return;}
-  if(Math.abs(dx)>18 && Math.abs(dx)>Math.abs(dy)*1.6) {
+  if(Math.abs(dx)>12 && Math.abs(dx)>Math.abs(dy)*1.4) {
     n.horizontal=true;if(e.cancelable)e.preventDefault();
     const action=swipeAction(Math.sign(dx));gestureHint.textContent=action?.label||"";gestureHint.classList.toggle("hidden",!action);
   }
@@ -1027,7 +1030,7 @@ gestureRoot.addEventListener("touchend",async e=>{
   const n=NAV_TOUCH;NAV_TOUCH=null;gestureHint.classList.add("hidden");
   if(!n || !n.horizontal || e.changedTouches.length!==1 || n.scope!==`${PROJECT}|${TAB}|${ACTIVE_DM?.id}` || SENDING)return;
   const dx=e.changedTouches[0].clientX-n.x,dy=e.changedTouches[0].clientY-n.y;
-  if(Math.abs(dx)<Math.min(90,innerWidth*.2) || Math.abs(dx)<Math.abs(dy)*1.6 || performance.now()-n.at>850)return;
+  if(Math.abs(dx)<Math.min(72,innerWidth*.15) || Math.abs(dx)<Math.abs(dy)*1.4 || performance.now()-n.at>1000)return;
   const action=swipeAction(Math.sign(dx));if(!action)return;if(e.cancelable)e.preventDefault();
   try {saveDraft();await action.run();const sc=$("scroller");sc.style.setProperty("--nav-direction",dx<0?"8px":"-8px");sc.classList.remove("nav-enter");void sc.offsetWidth;sc.classList.add("nav-enter");}catch(err){toast(err.message,true);}
 },{passive:false});
@@ -1601,7 +1604,7 @@ const isSys = m => m.type === "status" || m.type === "approval";
 const TYPE_PILL = {request: "просьба", question: "вопрос", result: "результат", alert: "тревога", decision: "решение людей"};
 
 function reactionIcon(emoji) {
-  return `<span class="${emoji === "+1" ? "reaction-agree" : "reaction-emoji"}" aria-hidden="true">${esc(emoji)}</span>`;
+  return `<span class="reaction-emoji" aria-hidden="true">${esc(emoji)}</span>`;
 }
 function reactionPicker(m) {
   return `<div class="reaction-picker" role="group" aria-label="Реакция на сообщение">` + REACTIONS.map(([emoji, label]) => {
