@@ -942,6 +942,12 @@ def cmd_whoami(conf, args):
 
 
 def cmd_projects(conf, args):
+    if args.action == "rename":
+        if args.title is None:
+            die('нужно название: projects rename "Новое название"', 2)
+        p = api_retry(conf, "POST", "/api/project/rename", {"title": args.title})["project"]
+        print(f"проект {p['slug']}: «{p['title']}»")
+        return
     rows = api_retry(conf, "GET", "/api/projects")["projects"]
     if not rows:
         print("ты пока ни в одном проекте")
@@ -1532,7 +1538,9 @@ def main():
     s.add_argument("query")
     s.add_argument("--limit", type=int, default=50)
     sub.add_parser("whoami", help="кто я, мой проект и кто сейчас слушает (у кого жив watch)")
-    sub.add_parser("projects", help="мои проекты")
+    s = sub.add_parser("projects", help="мои проекты; rename — переименовать свой проект (для человека-создателя)")
+    s.add_argument("action", nargs="?", choices=["rename"])
+    s.add_argument("title", nargs="?", help="новое название проекта")
     s = sub.add_parser("sent", help="мои сообщения: доставлено / прочитано / ack у каждого адресата")
     s.add_argument("--limit", type=int, default=15)
     s = sub.add_parser("hook", help="для хуков Claude Code: напоминание про watch и непрочитанное")

@@ -450,13 +450,23 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 <div id="npDialog" class="hidden" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
   <div class="panel" style="width:100%;max-width:400px">
     <h2 style="font-size:16px;margin:0 0 10px">Новый проект</h2>
-    <input id="npTitle" placeholder="название, например «Хакатон 2»" style="width:100%;margin-bottom:8px">
+    <input id="npTitle" maxlength="80" placeholder="название, например «Хакатон 2»" style="width:100%;margin-bottom:8px">
     <input id="npSlug" placeholder="короткое имя латиницей (необязательно)" autocapitalize="off" style="width:100%;margin-bottom:6px">
     <p class="muted" style="font-size:12.5px;margin:0 0 10px">Ты станешь владельцем и сможешь приглашать людей и агентов.
       Участники проекта видят только его, другие проекты для них не существуют.</p>
     <div class="actions"><button class="primary" id="npCreate">Создать</button><button id="npCancel">Отмена</button></div>
     <div class="err" id="npErr"></div>
   </div>
+</div>
+
+<div id="prDialog" class="hidden" role="dialog" aria-modal="true" aria-labelledby="prHeading" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
+  <form id="prForm" class="panel" style="width:100%;max-width:400px">
+    <h2 id="prHeading" style="font-size:16px;margin:0 0 10px">Название проекта</h2>
+    <label for="prTitle" class="muted">Новое название</label>
+    <input id="prTitle" maxlength="80" required autocomplete="off" style="width:100%;margin:6px 0 10px" aria-describedby="prErr">
+    <div class="actions"><button class="primary" id="prSave" type="submit">Сохранить</button><button id="prCancel" type="button">Отмена</button></div>
+    <div class="err" id="prErr" role="alert"></div>
+  </form>
 </div>
 
 <div id="pdDialog" class="hidden" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
@@ -665,7 +675,7 @@ $("menuBg").onclick = closeMenu;
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     closeMenu();
-    for (const id of ["invDialog", "pwDialog", "npDialog", "pdDialog"]) $(id).classList.add("hidden");
+    for (const id of ["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog"]) $(id).classList.add("hidden");
     $("projects").classList.remove("open"); $("aside").classList.remove("open");
     if (REPLY && document.activeElement === $("cBody")) resetCompose();
   }
@@ -772,8 +782,34 @@ function renderProjects() {
 
 async function loadProjects() {
   const q = PROJECTS.map(p => `${p.slug}:${seen(p.slug)}`).join(",");
-  try { PROJECTS = (await api("GET", "/api/projects" + (q ? "?seen=" + encodeURIComponent(q) : ""))).projects; renderProjects(); } catch {}
+  try {
+    PROJECTS = (await api("GET", "/api/projects" + (q ? "?seen=" + encodeURIComponent(q) : ""))).projects;
+    applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects();
+  } catch {}
 }
+
+function applyProjectInfo(p) {
+  if (!p || p.slug !== PROJECT) return;
+  ME.project = p;
+  $("projTitle").textContent = p.title;
+  ntfTitle(); updateChips(); setHeaderHeight();
+}
+
+let RENAME_PROJECT = null;
+$("prCancel").onclick = () => $("prDialog").classList.add("hidden");
+$("prForm").onsubmit = async e => {
+  e.preventDefault();
+  if ($("prSave").disabled) return;
+  const slug = RENAME_PROJECT;
+  $("prErr").textContent = ""; $("prSave").disabled = true;
+  try {
+    const d = await api("POST", "/api/project/rename?project=" + encodeURIComponent(slug), {title: $("prTitle").value});
+    PROJECTS = PROJECTS.map(p => p.slug === slug ? {...p, ...d.project} : p);
+    applyProjectInfo(d.project); renderProjects();
+    $("prDialog").classList.add("hidden"); toast("Название проекта изменено");
+  } catch (err) { $("prErr").textContent = err.message; }
+  finally { $("prSave").disabled = false; }
+};
 
 function openNewProject() {
   $("npTitle").value = ""; $("npSlug").value = ""; $("npErr").textContent = "";
@@ -1354,8 +1390,11 @@ $("sendBtn").onclick = async () => {
 
 async function loadPresence() {
   if (!PROJECT) return;
+  const slug = PROJECT;
   try {
     const me = await api("GET", "/api/me");
+    if (slug !== PROJECT) return;
+    applyProjectInfo(me.project);
     ME.users = me.users;
     const owner = me.project && me.project.role === "owner";
     const ROLE = {owner: "владелец", member: "участник", agent: "агент"};
@@ -1382,7 +1421,7 @@ async function loadPresence() {
         `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
         (acts.length ? `<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
     }).join("");
-    $("projActions").innerHTML = (owner ? `<a href="#" data-act="prename">переименовать проект</a> · ` : "") +
+    $("projActions").innerHTML = (me.project && me.project.can_rename ? `<a href="#" data-act="prename">переименовать проект</a> · ` : "") +
       `<a href="#" data-act="pleave">покинуть проект</a>` +
       (owner ? ` · <a href="#" data-act="pdelete" style="color:var(--urgent)">удалить проект</a>` : "");
   } catch {}
@@ -1423,10 +1462,11 @@ async function memberAction(act, name, role) {
     return;
   }
   if (act === "prename") {
-    const t = prompt("Новое название проекта:", ME.project.title);
-    if (!t) return;
-    await api("POST", "/api/project/rename", {title: t});
-    await loadProjects(); ME.project.title = t; $("projTitle").textContent = t;
+    if (!ME.project || !ME.project.can_rename) return;
+    RENAME_PROJECT = PROJECT;
+    $("prTitle").value = ME.project.title; $("prErr").textContent = "";
+    $("prDialog").classList.remove("hidden"); $("prTitle").focus(); $("prTitle").select();
+    return;
   }
   if (act === "mreset") {
     const d = await api("POST", "/api/reset", {name});
@@ -1874,7 +1914,7 @@ function ntfNew(msgs) {
 }
 function ntfTitle() {
   const n = NTF.unread || NTF.pending;
-  document.title = (n ? `(${n}) ` : "") + "telegent";
+  document.title = (n ? `(${n}) ` : "") + (PROJECT && ME && ME.project ? ME.project.title + " · " : "") + "telegent";
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { NTF.unread = 0; ntfTitle(); } });
 // ---- end browser notifications

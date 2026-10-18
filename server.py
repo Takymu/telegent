@@ -212,6 +212,16 @@ def db():
                                  ("invites", "project_id", "INTEGER"), ("invites", "role", "TEXT")):
             if col not in {r[1] for r in _db.execute(f"PRAGMA table_info({table})")}:
                 _db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        if "creator_unknown" not in {r[1] for r in _db.execute("PRAGMA table_info(projects)")}:
+            _db.execute("BEGIN IMMEDIATE")
+            try:
+                _db.execute("ALTER TABLE projects ADD COLUMN creator_unknown INTEGER NOT NULL DEFAULT 0")
+                # Old migration/console markers are not authenticated account identities.
+                _db.execute("UPDATE projects SET creator_unknown = 1 WHERE created_by IN ('migration', 'cli')")
+                _db.execute("COMMIT")
+            except Exception:
+                _db.execute("ROLLBACK")
+                raise
         _db.executescript("CREATE INDEX IF NOT EXISTS ix_msg_project ON messages(project_id, id);")
         if "project_id" not in {r[1] for r in _db.execute("PRAGMA table_info(board)")}:
             # the board used to be one per server: rebuild it keyed by (project, name)
@@ -245,13 +255,13 @@ def slugify(title):
     return s if SLUG_RE.match(s) else "project"
 
 
-def create_project_row(con, slug, title, by):
+def create_project_row(con, slug, title, by, creator_unknown=False):
     base, n = slug, 2
     while con.execute("SELECT 1 FROM projects WHERE slug = ?", (slug,)).fetchone():
         slug = f"{base[:36]}-{n}"
         n += 1
-    return con.execute("INSERT INTO projects(slug, title, created_by, created_ts) VALUES (?,?,?,?)",
-                       (slug, title[:80], by, time.time())).lastrowid
+    return con.execute("INSERT INTO projects(slug, title, created_by, created_ts, creator_unknown) VALUES (?,?,?,?,?)",
+                       (slug, title[:80], by, time.time(), int(creator_unknown))).lastrowid
 
 
 def add_member(con, pid, name, role, by):
@@ -270,7 +280,7 @@ def ensure_default_project(con):
     """A database from before projects: everything moves into one project, with all users as members."""
     if con.execute("SELECT 1 FROM projects LIMIT 1").fetchone() or not con.execute("SELECT 1 FROM users LIMIT 1").fetchone():
         return
-    pid = create_project_row(con, Cfg.default_project["slug"], Cfg.default_project["title"], "migration")
+    pid = create_project_row(con, Cfg.default_project["slug"], Cfg.default_project["title"], "migration", creator_unknown=True)
     users = con.execute("SELECT * FROM users WHERE revoked = 0 ORDER BY created_ts").fetchall()
     owners = [u["name"] for u in users if u["kind"] == "human" and u["is_admin"]] or \
              [u["name"] for u in users if u["kind"] == "human"][:1]
@@ -1185,15 +1195,36 @@ def api_info(h, user, q, data):
             "result_fields": RESULT_FIELDS, "max_inline_bytes": Cfg.max_inline, "launcher_url": Cfg.launcher_url}
 
 
-def project_dict(p):
-    return {"slug": p["slug"], "title": p["title"], "role": p["role"]}
+def can_rename_project(p, user):
+    return not p["creator_unknown"] and user["kind"] == "human" and p["created_by"] == user["name"]
+
+
+def project_dict(p, user):
+    return {"id": p["id"], "slug": p["slug"], "title": p["title"], "role": p["role"],
+            "created_by": None if p["creator_unknown"] else p["created_by"], "can_rename": can_rename_project(p, user)}
+
+
+def project_title(data):
+    title = data.get("title")
+    if not isinstance(title, str):
+        raise ApiError(400, "название проекта должно быть текстом")
+    title = title.strip()
+    if not title:
+        raise ApiError(400, "нужно название проекта")
+    if len(title) > 80:
+        raise ApiError(400, "название проекта: не больше 80 символов")
+    if any(ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF
+           or c in "\u2028\u2029" for c in title):
+        raise ApiError(400, "название проекта должно быть одной строкой без управляющих символов")
+    check_secret("название", title)
+    return title
 
 
 @route("GET", "/api/me")
 def api_me(h, user, q, data):
     """Who I am, my projects, and (if the request names one, or I am in exactly one) that project's members."""
     with DB_LOCK:
-        projects = [project_dict(p) for p in my_projects(user["name"])]
+        projects = [project_dict(p, user) for p in my_projects(user["name"])]
         try:
             p = project_for(h, user, q)
         except ApiError:
@@ -1201,7 +1232,7 @@ def api_me(h, user, q, data):
         users = users_with_presence(p["id"]) if p else []
         mine = presence(user)
     return {"name": user["name"], "kind": user["kind"], "owner": user["owner"],
-            "project": project_dict(p) if p else None, "projects": projects, "users": users,
+            "project": project_dict(p, user) if p else None, "projects": projects, "users": users,
             "listening": mine["listening"], "last_listen": mine["last_listen"],
             "has_password": bool(user["pw_hash"]), "session": bool(h.session_hash), "is_admin": bool(user["is_admin"]),
             "server_time": iso(time.time()), "last_id": LAST_ID[0]}
@@ -1364,7 +1395,7 @@ def api_projects(h, user, q, data):
         for p in my_projects(user["name"]):
             last = db().execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE project_id = ?", (p["id"],)).fetchone()[0]
             n = db().execute("SELECT COUNT(*) FROM members WHERE project_id = ?", (p["id"],)).fetchone()[0]
-            d = dict(project_dict(p), last_id=last, members=n)
+            d = dict(project_dict(p, user), last_id=last, members=n)
             if p["slug"] in seen:
                 d["unread"] = db().execute("SELECT COUNT(*) FROM messages WHERE project_id = ? AND id > ? AND author != ? "
                                            "AND type NOT IN ('status', 'approval')",
@@ -1377,10 +1408,7 @@ def api_projects(h, user, q, data):
 def api_project_create(h, user, q, data):
     if user["kind"] != "human":
         raise ApiError(403, "проекты создают люди, не агенты")
-    title = str(data.get("title") or "").strip()[:80]
-    if not title:
-        raise ApiError(400, "нужно название проекта")
-    check_secret("название", title)
+    title = project_title(data)
     slug = str(data.get("slug") or "").strip().lower() or slugify(title)
     if not SLUG_RE.match(slug):
         raise ApiError(400, "короткое имя проекта: латиница, цифры и -, от 2 до 40 символов")
@@ -1389,27 +1417,27 @@ def api_project_create(h, user, q, data):
         pid = create_project_row(con, slug, title, user["name"])
         add_member(con, pid, user["name"], "owner", user["name"])
         p = con.execute("SELECT p.*, 'owner' AS role FROM projects p WHERE id = ?", (pid,)).fetchone()
-    return {"project": project_dict(p)}
+    return {"project": project_dict(p, user)}
 
 
 @route("POST", "/api/project/rename")
 def api_project_rename(h, user, q, data):
-    p = project_for(h, user, q)
-    require_owner(p)
-    title = str(data.get("title") or "").strip()[:80]
-    if not title:
-        raise ApiError(400, "нужно название")
-    check_secret("название", title)
     with DB_LOCK:
+        p = project_for(h, user, q)
+        if not can_rename_project(p, user):
+            raise ApiError(403, "переименовать проект может только его создатель — человек из этого проекта")
+        title = project_title(data)
         db().execute("UPDATE projects SET title = ? WHERE id = ?", (title, p["id"]))
-    return {"ok": True}
+        result = project_dict(p, user)
+        result["title"] = title
+    return {"ok": True, "project": result}
 
 
 @route("GET", "/api/members")
 def api_members(h, user, q, data):
     p = project_for(h, user, q)
     with DB_LOCK:
-        return {"project": project_dict(p), "members": users_with_presence(p["id"])}
+        return {"project": project_dict(p, user), "members": users_with_presence(p["id"])}
 
 
 @route("POST", "/api/project/delete")
@@ -2205,7 +2233,8 @@ def cli_project(con, slug, create=False):
         return r["id"]
     if not create:
         sys.exit(f"проекта {slug} нет; есть: " + ", ".join(x["slug"] for x in con.execute("SELECT slug FROM projects")))
-    return create_project_row(con, slug, Cfg.default_project["title"] if slug == Cfg.default_project["slug"] else slug, "cli")
+    return create_project_row(con, slug, Cfg.default_project["title"] if slug == Cfg.default_project["slug"] else slug,
+                              "cli", creator_unknown=True)
 
 
 def cmd_projects(a):

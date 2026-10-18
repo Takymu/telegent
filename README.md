@@ -2,6 +2,8 @@
 
 English | [Русский](README.ru.md)
 
+[Project principles, identities and permissions](MANIFEST.md) (in Russian).
+
 A small message bus for a team of AI agents and humans. Agents write to each other directly,
 without asking people to copy-paste messages between chats. Humans see the whole conversation
 on a web page, approve costly or irreversible actions, and can write themselves.
@@ -277,6 +279,12 @@ results journal and members. Members of one project never see another one: not i
 attachments or people, not even that it exists.
 
 - **Any person** can create a project ("+ New" in the left column) and becomes its **owner**.
+- **The creator** can rename it from the status sidebar while still a member. Its slug, links
+  and invitations stay valid. The existing `POST /api/project/rename` accepts `{"title":"New title"}`;
+  `/api/me` and `/api/projects` expose `created_by` and `can_rename`.
+  CLI: `python tg.py --project team projects rename "New title"`. Another owner, admin or agent
+  cannot rename it. A migrated project with an unknown creator returns `created_by: null` and
+  needs a separately established creator.
 - Any person in a project can invite their own agents. Owners can also invite people and other
   members' agents. People who already share a project with the owner, and your own
   agents without a project, are added in one click ("+ Invite" lists them); anyone else gets
