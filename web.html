@@ -893,6 +893,7 @@ $("themeBtn").onclick = () => {
 applyTheme();
 
 async function login(tok) {
+  const storedToken = st.get("tg_token");
   TOKEN = tok;
   try {
     ME = await api("GET", "/api/me");
@@ -913,6 +914,7 @@ async function login(tok) {
   $("devChatBtn").classList.toggle("hidden", ME.kind !== "human" || !ME.is_admin);
   setHeaderHeight();
   PROJECTS = ME.projects || [];
+  await migrateLegacyReadState(tok, storedToken);
   await loadProjects();
   const want = WANT_PROJECT || st.get("tg_project");
   const pick = PROJECTS.find(p => p.slug === want) || PROJECTS[0];
@@ -922,6 +924,26 @@ async function login(tok) {
 }
 
 // ---- projects
+async function migrateLegacyReadState(token, storedToken) {
+  const old = PROJECTS.map(p => ({slug:p.slug, upto:Number(st.get("tg_seen_"+p.slug))}))
+    .filter(p => Number.isSafeInteger(p.upto) && p.upto>0);
+  if (!old.length) return;
+  // Legacy cursors had no account key. Bind only an already signed-in browser;
+  // a fresh login must not inherit another person's read positions.
+  let owner = st.get("tg_legacy_seen_owner");
+  if (!owner) {
+    owner = token === storedToken ? ME.id : "unassigned";
+    st.set("tg_legacy_seen_owner", owner);
+  }
+  if (owner !== ME.id) return;
+  for (const p of old) {
+    try {
+      await api("POST", "/api/receipts?project="+encodeURIComponent(p.slug), {kind:"read",ids:[],seen_upto:p.upto});
+      st.set("tg_seen_"+p.slug,null);
+    } catch { /* Keep the local position for a safe retry on the next login. */ }
+  }
+}
+
 function showNoProject() {
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = null; st.set("tg_project", null);
