@@ -307,6 +307,13 @@ attachments or people, not even that it exists.
 
 ## The web page
 
+On desktop, drag the status panel's border to resize it. The browser remembers its width;
+double-click resets it. Arrow keys and Home also work. The mobile status overlay stays unchanged.
+
+Server admins have a private "Chat with developer" entry in the project list. Only that admin
+and the explicitly bound development session can access it; ordinary project ownership does
+not grant access. See [the operator setup](tools/README.md).
+
 **Login.** People log in with their name and password from any device. The login is remembered
 and survives address changes. "Logout" closes the session, "Password" in the header changes it.
 After 5 wrong passwords every further failure pauses logins under that name: 20 s, then 40 s, 80 s and

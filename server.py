@@ -206,6 +206,7 @@ def db():
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
                                  ("attachments", "upload_id", "TEXT"),
+                                 ("projects", "admin_owner", "TEXT"), ("projects", "service_agent", "TEXT"),
                                  ("messages", "project_id", "INTEGER"), ("messages", "approver", "TEXT"),
                                  ("claims", "project_id", "INTEGER"),
                                  ("claims", "expires", "REAL"),
@@ -408,6 +409,9 @@ def create_project_row(con, slug, title, by, creator_unknown=False):
 
 def add_member(con, pid, name, role, by):
     u = con.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
+    special = con.execute("SELECT admin_owner,service_agent FROM projects WHERE id=?", (pid,)).fetchone()
+    if special["admin_owner"] and name not in (special["admin_owner"], special["service_agent"]):
+        raise ApiError(403, "это личный чат администратора с привязанной сессией разработки")
     check_member_name(con, pid, u["display_name"] or u["name"], name)
     if u["kind"] == "agent":
         if not member_role(pid, u["owner"]):
@@ -439,13 +443,24 @@ def ensure_default_project(con):
 
 
 def my_projects(name):
-    return db().execute("SELECT p.*, m.role FROM members m JOIN projects p ON p.id = m.project_id "
+    rows = db().execute("SELECT p.*, m.role FROM members m JOIN projects p ON p.id = m.project_id "
                         "WHERE m.user = ? AND p.archived = 0 ORDER BY p.id", (name,)).fetchall()
+    return [p for p in rows if member_role(p["id"], name)]
 
 
 def member_role(pid, name):
-    r = db().execute("SELECT role FROM members WHERE project_id = ? AND user = ?", (pid, name)).fetchone()
-    return r["role"] if r else None
+    r = db().execute("SELECT m.role,p.admin_owner,p.service_agent,u.kind,u.owner,u.is_admin,u.revoked "
+                     "FROM members m JOIN projects p ON p.id=m.project_id JOIN users u ON u.name=m.user "
+                     "WHERE m.project_id=? AND m.user=?", (pid, name)).fetchone()
+    if not r or r["revoked"]:
+        return None
+    if r["admin_owner"]:
+        admin = db().execute("SELECT 1 FROM users WHERE name=? AND kind='human' AND is_admin=1 AND revoked=0",
+                             (r["admin_owner"],)).fetchone()
+        if not admin or not ((name == r["admin_owner"] and r["kind"] == "human" and r["is_admin"])
+                             or (name == r["service_agent"] and r["kind"] == "agent" and r["owner"] == r["admin_owner"])):
+            return None
+    return r["role"]
 
 
 def project_for(h, user, q):
@@ -550,6 +565,8 @@ def create_invite(by, name, kind=None, owner=None, pid=None, reset=False, accoun
         raise ApiError(400, "имя: латиница, цифры, . _ -, до 32 символов")
     with DB_LOCK:
         con = db()
+        if pid and con.execute("SELECT 1 FROM projects WHERE id=? AND admin_owner IS NOT NULL", (pid,)).fetchone():
+            raise ApiError(403, "в личный чат администратора не приглашают других участников")
         if reset:
             u = resolve_account(name, account_id=account_id)
         elif account_id:
@@ -720,7 +737,8 @@ def users_with_presence(pid):
     now = time.time()
     return [dict(account_dict(r), role=r["role"], **presence(r, now))
             for r in db().execute("SELECT u.*, m.role FROM members m JOIN users u ON u.name = m.user "
-                                  "WHERE m.project_id = ? AND u.revoked = 0 ORDER BY u.kind, u.name", (pid,))]
+                                  "WHERE m.project_id = ? AND u.revoked = 0 ORDER BY u.kind, u.name", (pid,))
+            if member_role(pid, r["name"])]
 
 
 # ---------------------------------------------------------------- message helpers
@@ -731,7 +749,7 @@ def recipients_list(s):
 def project_agents(pid):
     return [r["user"] for r in db().execute("SELECT m.user FROM members m JOIN users u ON u.name = m.user "
                                             "WHERE m.project_id = ? AND m.role = 'agent' AND u.revoked = 0 "
-                                            "ORDER BY m.user", (pid,))]
+                                            "ORDER BY m.user", (pid,)) if member_role(pid, r["user"])]
 
 
 def expected_recipients(pid, author, to):
@@ -1363,7 +1381,40 @@ def can_rename_project(p, user):
 def project_dict(p, user):
     return {"id": p["id"], "slug": p["slug"], "title": p["title"], "role": p["role"],
             "created_by": None if p["creator_unknown"] else account_name(p["created_by"]),
-            "created_by_id": None if p["creator_unknown"] else p["created_by"], "can_rename": can_rename_project(p, user)}
+            "created_by_id": None if p["creator_unknown"] else p["created_by"], "can_rename": can_rename_project(p, user),
+            "kind": "development" if p["admin_owner"] else "team",
+            "developer_connected": bool(p["service_agent"] and member_role(p["id"], p["service_agent"]))}
+
+
+def development_project(con, user):
+    current = con.execute("SELECT * FROM users WHERE name=?", (user["name"],)).fetchone()
+    if not current or current["kind"] != "human" or not current["is_admin"] or current["revoked"]:
+        raise ApiError(403, "чат с разработчиком доступен только администратору сервера")
+    p = con.execute("SELECT * FROM projects WHERE admin_owner=? AND archived=0", (user["name"],)).fetchone()
+    if not p:
+        pid = create_project_row(con, "telegent-development", "Разработка telegent", user["name"])
+        con.execute("UPDATE projects SET admin_owner=? WHERE id=?", (user["name"], pid))
+        add_member(con, pid, user["name"], "owner", user["name"])
+    else:
+        pid = p["id"]
+        if not member_role(pid, user["name"]):
+            add_member(con, pid, user["name"], "owner", user["name"])
+    return con.execute("SELECT p.*,m.role FROM projects p JOIN members m ON m.project_id=p.id "
+                       "WHERE p.id=? AND m.user=?", (pid, user["name"])).fetchone()
+
+
+@route("POST", "/api/admin/development-chat")
+def api_development_chat(h, user, q, data):
+    with DB_LOCK:
+        con = db()
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            result = project_dict(development_project(con, user), user)
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        return {"project": result}
 
 
 def project_title(data):
@@ -1662,6 +1713,8 @@ def addable(con, me, pid):
 def api_member_candidates(h, user, q, data):
     p = project_for(h, user, q)
     require_human(user)
+    if p["admin_owner"]:
+        return {"candidates": []}
     with DB_LOCK:
         return {"candidates": [c for c in addable(db(), user, p["id"])
                                if p["role"] == "owner" or c["kind"] == "agent"]}
@@ -1706,6 +1759,8 @@ def api_member_remove(h, user, q, data):
             raise ApiError(404, f"{name} нет в проекте")
         if role == "owner" and not owners_left(p["id"], name):
             raise ApiError(409, "это последний владелец: сначала сделай владельцем кого-то ещё")
+        if p["service_agent"] == name:
+            db().execute("UPDATE projects SET service_agent=NULL WHERE id=?", (p["id"],))
         db().execute("DELETE FROM members WHERE project_id = ? AND user = ?", (p["id"], name))
         # their agents in this project go too: an agent without its person makes no sense here
         db().execute("DELETE FROM members WHERE project_id = ? AND user IN "
@@ -2341,6 +2396,54 @@ def api_claim_release(h, user, q, data):
 
 
 # ---------------------------------------------------------------- CLI
+def cmd_development_agent(a):
+    """Operator binds one agent to the admin's private development chat; no secret in stdout."""
+    if not NAME_RE.fullmatch(a.name):
+        raise ApiError(400, "недопустимое имя агента")
+    target = os.path.abspath(os.path.expanduser(a.token_out))
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with DB_LOCK:
+        con = db()
+        admin = resolve_account(a.admin, kind="human")
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            project = development_project(con, admin)
+            key = project["service_agent"]
+            tok = None
+            if key:
+                agent = resolve_account(account_id=key)
+                if agent["revoked"]:
+                    raise ApiError(409, "аккаунт сессии отозван; сначала реши это штатным управлением аккаунтами")
+                saved = None
+                if os.path.isfile(target):
+                    with open(target, encoding="utf-8") as f:
+                        saved = f.read().strip()
+                if saved and token_hash(saved) == agent["token_hash"] and not a.rotate:
+                    pass
+                elif not a.rotate:
+                    raise ApiError(409, "агент уже привязан; нужен его прежний файл токена или явный --rotate")
+                else:
+                    tok = "tgt_" + secrets.token_hex(24)
+                    con.execute("UPDATE users SET token_hash=? WHERE name=?", (token_hash(tok), key))
+            else:
+                if os.path.exists(target):
+                    raise ApiError(409, "файл токена уже существует: выбери другой путь")
+                tok = "tgt_" + secrets.token_hex(24)
+                key = new_account(con, a.name, "agent", admin["name"], tok)
+                con.execute("UPDATE projects SET service_agent=? WHERE id=?", (key, project["id"]))
+                add_member(con, project["id"], key, "agent", admin["name"])
+            if tok:
+                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(tok + "\n")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    print(json.dumps({"project": project["slug"], "account_id": key, "name": account_name(key),
+                      "token_file": target}, ensure_ascii=False))
+
+
 def cmd_adduser(a):
     if not NAME_RE.fullmatch(a.name):
         sys.exit("имя: латиница/цифры/._- до 32 символов")
@@ -2471,6 +2574,12 @@ def main():
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
     s.set_defaults(fn=cmd_serve)
+    s = sub.add_parser("development-agent", help="привязать агента к личному чату администратора с разработчиком")
+    s.add_argument("--admin", required=True)
+    s.add_argument("--name", default="telegent-dev")
+    s.add_argument("--token-out", required=True)
+    s.add_argument("--rotate", action="store_true")
+    s.set_defaults(fn=cmd_development_agent)
     s = sub.add_parser("adduser")
     s.add_argument("name")
     s.add_argument("--kind", choices=("agent", "human"), required=True)

@@ -115,6 +115,7 @@ python tests/test_reactions.py  # реакции, live-обновления, п�
 python tests/test_attachments.py # HTTP, нехватка места, права, прежние вложения и настоящий файл 200 МБ
 python tests/test_projects.py    # создатель, права, переименование, сохранность файлов и приглашений
 python tests/test_agent_names.py # имена внутри проекта, стабильные ключи, адресаты и миграция
+python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
 ```
 Перед каждой выкаткой. Тест не должен трогать настоящий `~/.telegent` (там подменяется `HOME`/
 `USERPROFILE`) и настоящий `url.txt` (в конфигах тестовых клиентов `"url_source": ""`).
