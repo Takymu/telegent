@@ -242,6 +242,21 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .mextra b { font-weight: 600; }
 .matt { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--line);
   border-radius: 8px; padding: 4px 8px; margin: 5px 6px 0 0; background: var(--panel); max-width: 100%; overflow-wrap: anywhere; }
+.file-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 7px; }
+.file-card { display: flex; align-items: center; gap: 10px; width: 310px; max-width: 100%; min-width: 0;
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); text-align: left; }
+.file-symbol { display: grid; place-items: center; flex: 0 0 42px; height: 46px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent); font-size: 11px; font-weight: 750; }
+.file-info { flex: 1; min-width: 0; }
+.file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.file-detail { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
+.file-download { color: var(--accent); font-size: 22px; flex: 0 0 25px; text-align: center; }
+#cPending { display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow: auto; }
+#cPending:not(:empty) { padding: 10px 12px 0; }
+#cPending .file-card { padding: 7px 9px; width: 270px; }
+#cPending progress { display: block; width: 100%; height: 4px; margin-top: 5px; accent-color: var(--accent); }
+.file-remove { border: 0; background: transparent; color: var(--muted); padding: 8px; }
+.cbox.dragging { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .mappr { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-bg); border-radius: 8px;
   padding: 7px 9px; margin: 6px 0 2px; font-size: 13px; }
 .mappr .actions { margin-top: 6px; }
@@ -536,14 +551,16 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
         <div class="column">
           <div id="replyBar" class="hidden"><span id="replyText"></span> <a href="#" id="cancelReply" title="отменить ответ">✕</a></div>
           <div class="cbox">
+            <div id="cPending" aria-live="polite"></div>
             <div id="cChips"></div>
             <textarea id="cBody" rows="1" placeholder="Сообщение"></textarea>
             <div class="cbar">
-              <label class="iconbtn" title="вложения, до 2 МБ каждое">+<input type="file" id="cFiles" multiple hidden></label>
+              <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 200 МБ" aria-label="Прикрепить файл">📎</button><input type="file" id="cFiles" multiple hidden>
               <select id="cTo" class="plain" title="кому"></select>
               <button type="button" class="iconbtn" id="cOptsBtn" title="тип, топик, срочно, одобрение">⚙</button>
               <span id="cFilesInfo" class="muted"></span>
               <span style="flex:1"></span>
+              <button id="cancelUpload" class="hidden" type="button" title="Остановить отправку">Отмена</button>
               <button id="sendBtn" class="send" title="Отправить (Enter)">↑</button>
             </div>
             <div id="cOpts" class="hidden">
@@ -591,6 +608,7 @@ const PAGE = 100;
 let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
 let REACTION_REVISION = null;
 const REACTION_PENDING = new Set();
+let ATTACHED = [], FILE_STORAGE = null, SENDING = false, UPLOAD_ABORT = null, COMPOSE_RETRY = null;
 const REACTIONS = [["❤️", "Сердечко"], ["🔥", "Огонёк"], ["👍", "Лайк"], ["👎", "Дизлайк"], ["+1", "Согласен (+1)"], ["🤡", "Клоун"]];
 const EXPANDED = new Set();
 
@@ -718,6 +736,7 @@ function showNoProject() {
 }
 
 async function setProject(slug) {
+  if (SENDING) { toast("Дождись отправки сообщения или нажми «Отмена»", true); return; }
   PROJECT = slug; st.set("tg_project", slug);
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
   MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;
@@ -1007,14 +1026,7 @@ function row(m, prev) {
   if (m.status && (m.status.ref || m.status.note))
     html += `<div class="mextra"><span><b>${STATES[m.status.state]}</b> ${esc(m.status.by)} ${shortTime(m.status.time)}</span>` +
       (m.status.ref ? `<span><b>ref</b> ${esc(m.status.ref)}</span>` : "") + (m.status.note ? `<span>${esc(m.status.note)}</span>` : "") + `</div>`;
-  if (m.attachments.length) {
-    html += `<div>` + m.attachments.map(a => {
-      const sz = a.size != null ? (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + " МБ" : a.size > 1024 ? Math.round(a.size / 1024) + " КБ" : a.size + " Б") : "";
-      return `<span class="matt" title="md5 ${esc(a.md5 || "?")}${a.inline ? "" : " · " + esc(a.link || "")}">📎 ` +
-        (a.inline ? `<a href="#" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}">${esc(a.name)}</a>` : esc(a.name)) +
-        ` <span class="muted">${sz}${a.inline ? "" : " · по ссылке"}</span></span>`;
-    }).join("") + `</div>`;
-  }
+  if (m.attachments.length) html += `<div class="file-list">${m.attachments.map(fileCard).join("")}</div>`;
   if (m.needs_approval) {
     const decided = m.approvals.map(a => `${a.decision === "approve" ? "✔ одобрил" : "✘ отказал"} ${esc(a.by)} ${hhmm(a.time)}${a.note ? ": " + esc(a.note) : ""}`);
     const canDecide = ME.kind === "human" && (!m.approver || m.approver === ME.name);
@@ -1152,11 +1164,9 @@ document.addEventListener("click", async e => {
       }
       case "ack": await api("POST", "/api/receipts", {kind: "ack", ids: [id]}); await refresh(); break;
       case "dl": {
-        const r = await fetch(`/api/attachments/${el.dataset.att}`, {headers: {"Authorization": "Bearer " + TOKEN}});
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const url = URL.createObjectURL(await r.blob());
-        const a = document.createElement("a"); a.href = url; a.download = el.dataset.name; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 5000); break;
+        const res = await api("POST", `/api/attachments/${el.dataset.att}/download`, {});
+        const a = document.createElement("a"); a.href = res.url; a.download = el.dataset.name;
+        document.body.append(a); a.click(); a.remove(); break;
       }
       case "unclaim": {
         if (!confirm("Снять заявку на эксперимент?")) return;
@@ -1217,7 +1227,9 @@ function startReply(m) {
   $("cTo").value = m.author !== ME.name ? m.author : "";
   $("cBody").focus();
 }
-function resetCompose() {
+function resetCompose(force = false) {
+  if (SENDING && !force) return;
+  ATTACHED = []; COMPOSE_RETRY = null; paintFiles();
   REPLY = null; $("replyBar").classList.add("hidden");
   $("cBody").value = ""; $("cFiles").value = ""; $("cFilesInfo").textContent = ""; $("cTo").value = "";
   $("cUrgent").checked = false; $("cApproval").checked = false; $("cApprover").value = ""; $("sendErr").textContent = "";
@@ -1240,36 +1252,104 @@ if (TOUCH) $("cBody").placeholder = "Написать команде…";
 $("cBody").addEventListener("keydown", e => {
   if (!TOUCH && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("sendBtn").click(); }
 });
-$("cFiles").onchange = () => {
-  const fs = [...$("cFiles").files];
-  $("cFilesInfo").textContent = fs.length ? "📎 " + fs.map(f => f.name).join(", ") : "";
+const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+" МБ" : n >= 1024 ? Math.ceil(n/1024)+" КБ" : n+" Б";
+const fileExt = name => (name.includes(".") ? name.split(".").pop() : "FILE").slice(0, 5).toUpperCase();
+function fileCard(a) {
+  const content = `<span class="file-symbol" aria-hidden="true">${esc(fileExt(a.name))}</span><span class="file-info"><span class="file-name">${esc(a.name)}</span>` +
+    `<span class="file-detail">${fileSize(a.size)}${a.inline ? " · Скачать" : " · Внешняя ссылка: " + esc(a.link || "")}</span></span>`;
+  return a.inline ? `<button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>`
+    : `<div class="file-card">${content}</div>`;
+}
+function paintFiles() {
+  $("cPending").innerHTML = ATTACHED.map((a, i) => `<div class="file-card"><span class="file-symbol">${esc(fileExt(a.file.name))}</span>` +
+    `<span class="file-info"><span class="file-name" title="${esc(a.file.name)}">${esc(a.file.name)}</span><span class="file-detail">${fileSize(a.file.size)} · ${esc(a.status || "Готов к отправке")}</span>` +
+    (SENDING ? `<progress value="${a.progress || 0}" max="100" aria-label="Загрузка ${esc(a.file.name)}"></progress>` : "") + `</span>` +
+    `<button class="file-remove" type="button" data-remove-file="${i}" aria-label="Убрать ${esc(a.file.name)}" ${SENDING ? "disabled" : ""}>✕</button></div>`).join("");
+  $("cFilesInfo").textContent = ATTACHED.length ? `Файлов: ${ATTACHED.length}` : "";
+}
+async function addFiles(files) {
+  if (SENDING) return;
+  for (const file of files) {
+    if (file.size > 200*1024*1024) { $("sendErr").textContent = `${file.name}: максимальный размер — 200 МБ`; continue; }
+    if (ATTACHED.length >= 30) { $("sendErr").textContent = "Не больше 30 файлов за раз"; break; }
+    ATTACHED.push({file, key: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()), progress: 0});
+  }
+  $("cFiles").value = ""; paintFiles();
+  try {
+    FILE_STORAGE = await api("GET", "/api/storage");
+    if (!FILE_STORAGE.can_upload && ATTACHED.length) $("sendErr").textContent = "На сервере свободно меньше 300 МБ. Убери файлы, чтобы отправить только текст.";
+  } catch (e) { $("sendErr").textContent = e.message; }
+}
+$("attachBtn").onclick = () => { if (!SENDING) $("cFiles").click(); };
+$("cFiles").onchange = () => addFiles([...$("cFiles").files]);
+$("cPending").onclick = e => {
+  const button = e.target.closest("[data-remove-file]");
+  if (!button || SENDING) return;
+  const [removed] = ATTACHED.splice(+button.dataset.removeFile, 1);
+  if (removed.upload) api("POST", `/api/uploads/${removed.upload}/cancel`, {}).catch(() => {});
+  $("sendErr").textContent = ""; paintFiles();
 };
+const dropBox = document.querySelector(".cbox");
+dropBox.addEventListener("dragover", e => { e.preventDefault(); dropBox.classList.add("dragging"); });
+dropBox.addEventListener("dragleave", e => { if (!dropBox.contains(e.relatedTarget)) dropBox.classList.remove("dragging"); });
+dropBox.addEventListener("drop", e => { e.preventDefault(); dropBox.classList.remove("dragging"); addFiles([...e.dataTransfer.files]); });
+$("cBody").addEventListener("paste", e => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles([...e.clipboardData.files]); } });
+$("cancelUpload").onclick = () => UPLOAD_ABORT?.abort();
 
-const toB64 = file => new Promise((ok, bad) => {
-  const r = new FileReader();
-  r.onload = () => ok(String(r.result).split(",")[1] || ""); r.onerror = bad; r.readAsDataURL(file);
-});
+async function uploadFile(a, signal) {
+  const upload = await api("POST", "/api/uploads", {name: a.file.name, size: a.file.size, key: a.key}, signal);
+  a.upload = upload.id;
+  let offset = upload.received;
+  if (!upload.complete) {
+    while (offset < a.file.size) {
+      signal.throwIfAborted?.();
+      const end = Math.min(offset+upload.chunk_size, a.file.size);
+      a.status = `Загрузка ${Math.floor(offset*100/Math.max(1, a.file.size))}%`; a.progress = offset*100/Math.max(1, a.file.size); paintFiles();
+      let result;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await fetch(`/api/uploads/${upload.id}/chunk?offset=${offset}`, {method: "POST", signal,
+            headers: {Authorization: "Bearer " + TOKEN, "Content-Type": "application/octet-stream", "X-Telegent-Project": PROJECT}, body: a.file.slice(offset, end)});
+          result = await r.json();
+          if (!r.ok) { const error = new Error(result.error || `HTTP ${r.status}`); error.refused = r.status < 500 || r.status === 507; throw error; }
+          break;
+        } catch (e) { if (signal.aborted || e.refused || attempt >= 2) throw e; await new Promise(r => setTimeout(r, 700*(attempt+1))); }
+      }
+      offset = result.received;
+    }
+    a.status = "Проверка файла…"; a.progress = 100; paintFiles();
+    await api("POST", `/api/uploads/${upload.id}/complete`, {}, signal);
+  }
+  a.status = "Загружен"; a.progress = 100; paintFiles();
+  return {upload_id: upload.id};
+}
 
 $("sendBtn").onclick = async () => {
   if ($("sendBtn").disabled) return;
   $("sendErr").textContent = "";
-  const attachments = [];
-  for (const f of $("cFiles").files) {
-    if (f.size > 2 * 1024 * 1024) { $("sendErr").textContent = `${f.name} больше 2 МБ — пришли ссылкой`; return; }
-    attachments.push({name: f.name, content_b64: await toB64(f)});
-  }
   const data = {
     type: $("cType").value, topic: $("cTopic").value.trim().replace(/^#/, ""), body: $("cBody").value,
     priority: $("cUrgent").checked ? "urgent" : "normal", needs_approval: $("cApproval").checked,
     approver: $("cApproval").checked && $("cApprover").value ? $("cApprover").value : null,
-    to: $("cTo").value ? [$("cTo").value] : [], attachments,
+    to: $("cTo").value ? [$("cTo").value] : [], attachments: [],
     reply_to: REPLY ? REPLY.id : null, idem_key: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()),
   };
-  if (!data.body.trim() && !attachments.length) return;
-  $("sendBtn").disabled = true;
-  try { await api("POST", "/api/messages", data); resetCompose(); await refresh(); toBottom(); }
-  catch (err) { $("sendErr").textContent = err.message; }
-  finally { $("sendBtn").disabled = false; }
+  if (!data.body.trim() && !ATTACHED.length) return;
+  const signature = JSON.stringify({...data, idem_key: null, files: ATTACHED.map(a => a.key)});
+  if (COMPOSE_RETRY?.signature === signature) data.idem_key = COMPOSE_RETRY.key;
+  else COMPOSE_RETRY = {signature, key: data.idem_key};
+  SENDING = true; UPLOAD_ABORT = new AbortController();
+  $("sendBtn").disabled = true; $("attachBtn").disabled = true;
+  $("cBody").disabled = true;
+  $("cancelUpload").classList.toggle("hidden", !ATTACHED.length); paintFiles();
+  try {
+    for (const a of ATTACHED) data.attachments.push(await uploadFile(a, UPLOAD_ABORT.signal));
+    UPLOAD_ABORT.signal.throwIfAborted?.();
+    await api("POST", "/api/messages", data, UPLOAD_ABORT.signal);
+    resetCompose(true); await refresh(); toBottom();
+  }
+  catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? "Отправка остановлена. Файлы и текст сохранены — можно повторить." : err.message; }
+  finally { SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
 };
 
 async function loadPresence() {

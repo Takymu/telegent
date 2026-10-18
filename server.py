@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """telegent server: a small message bus for a team's agents and humans.
 
-Stdlib only (Python 3.8+): HTTP + SQLite. One process, one file of data.
+Stdlib only (Python 3.8+): HTTP, SQLite metadata and a sibling directory for files.
 
     python server.py adduser alice-agent --kind agent --owner alice  # prints the token once
     python server.py serve --port 8765                              # http://127.0.0.1:8765/
@@ -10,12 +10,15 @@ See README.md for hosting (tunnel) and AGENTS.md for the agent protocol.
 """
 import argparse
 import base64
+import codecs
 import hashlib
+import io
 import json
 import os
 import queue
 import re
 import secrets
+import shutil
 import sqlite3
 import sys
 import threading
@@ -24,6 +27,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie, CookieError
 
 VERSION = "2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +43,10 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 
 MAX_REQUEST = 40 * 1024 * 1024
 MAX_BODY_CHARS = 200_000
+MAX_FILE_BYTES = 200 * 1024 * 1024
+UPLOAD_CHUNK = 4 * 1024 * 1024
+MIN_FREE_BYTES = 300 * 1024 * 1024
+DOWNLOADS = {}
 
 # ---------------------------------------------------------------- secret filter
 # Same list lives in tg.py (client checks first, server enforces).
@@ -142,6 +150,11 @@ CREATE TABLE IF NOT EXISTS attachments(
   id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, name TEXT NOT NULL,
   size INTEGER, md5 TEXT, link TEXT, content BLOB);
 CREATE INDEX IF NOT EXISTS ix_att_msg ON attachments(message_id);
+CREATE TABLE IF NOT EXISTS file_uploads(
+  id TEXT PRIMARY KEY, project_id INTEGER NOT NULL, user TEXT NOT NULL, name TEXT NOT NULL,
+  size INTEGER NOT NULL, received INTEGER NOT NULL DEFAULT 0, md5 TEXT, expected_md5 TEXT,
+  idem_key TEXT, created REAL NOT NULL, updated REAL NOT NULL, attachment_id INTEGER,
+  UNIQUE(project_id, user, idem_key));
 CREATE TABLE IF NOT EXISTS receipts(
   user TEXT NOT NULL, message_id INTEGER NOT NULL, read_ts REAL, ack_ts REAL,
   PRIMARY KEY(user, message_id));
@@ -171,6 +184,7 @@ CREATE INDEX IF NOT EXISTS ix_claims_key ON claims(key);
 """
 
 DB_LOCK = threading.RLock()
+UPLOAD_LOCK = DB_LOCK
 NEW_MSG = threading.Condition()
 LAST_ID = [0]
 REACTION_EPOCH = secrets.token_hex(8)
@@ -191,6 +205,7 @@ def db():
                                  ("users", "last_wait_ts", "REAL"), ("users", "pw_hash", "TEXT"),
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("attachments", "upload_id", "TEXT"),
                                  ("messages", "project_id", "INTEGER"), ("messages", "approver", "TEXT"),
                                  ("claims", "project_id", "INTEGER"),
                                  ("claims", "expires", "REAL"),
@@ -585,7 +600,7 @@ def msg_dicts(rows, me=None, full=True):
     for reaction in con.execute(f"SELECT * FROM reactions WHERE message_id IN ({qs}) ORDER BY ts, user", ids):
         groups = reactions.setdefault(reaction["message_id"], {})
         groups.setdefault(reaction["emoji"], []).append(reaction["user"])
-    for a in con.execute(f"SELECT id, message_id, name, size, md5, link, content IS NOT NULL AS inl "
+    for a in con.execute(f"SELECT id, message_id, name, size, md5, link, (content IS NOT NULL OR upload_id IS NOT NULL) AS inl "
                          f"FROM attachments WHERE message_id IN ({qs}) ORDER BY id", ids):
         atts.setdefault(a["message_id"], []).append(
             {"id": a["id"], "name": a["name"], "size": a["size"], "md5": a["md5"], "link": a["link"],
@@ -634,8 +649,21 @@ def msg_dicts(rows, me=None, full=True):
 
 
 def insert_message(user, host, data, pid, system=False):
+    # Keep file adoption, cancellation and disk-space checks atomic across senders.
+    with UPLOAD_LOCK, DB_LOCK:
+        return _insert_message(user, host, data, pid, system)
+
+
+def _insert_message(user, host, data, pid, system=False):
     """Validate and store a message in project pid. Returns (id, duplicate)."""
     con = db()
+    idem = str(data.get("idem_key") or "")[:100] or None
+    if idem:
+        dup = con.execute("SELECT id,project_id FROM messages WHERE author=? AND idem_key=?", (user["name"], idem)).fetchone()
+        if dup:
+            if dup["project_id"] != pid:
+                raise ApiError(409, "ключ сообщения уже использован в другом проекте")
+            return dup["id"], True
     mtype = data.get("type") or "info"
     allowed = USER_TYPES + (SYSTEM_TYPES if system else ())
     if mtype not in allowed:
@@ -705,10 +733,18 @@ def insert_message(user, host, data, pid, system=False):
 
     # attachments: decode + validate before writing anything
     atts = []
-    for a in data.get("attachments") or []:
-        name = os.path.basename(str(a.get("name") or "file"))[:200]
+    attachments = data.get("attachments") or []
+    if not isinstance(attachments, list) or len(attachments) > 30 or any(not isinstance(a, dict) for a in attachments):
+        raise ApiError(400, "attachments: список, не больше 30 вложений")
+    for a in attachments:
+        name = attachment_name(a.get("name"))
         check_secret("имя вложения", name)
-        if a.get("content_b64") is not None:
+        if a.get("upload_id"):
+            upload = own_upload(user, pid, a["upload_id"])
+            if upload["attachment_id"] or upload["md5"] is None:
+                raise ApiError(409, "файл ещё не загружен полностью или уже отправлен")
+            atts.append((upload["name"], upload["size"], upload["md5"], None, None, upload["id"]))
+        elif a.get("content_b64") is not None:
             try:
                 raw = base64.b64decode(a["content_b64"], validate=True)
             except Exception:
@@ -716,15 +752,20 @@ def insert_message(user, host, data, pid, system=False):
             if len(raw) > Cfg.max_inline:
                 raise ApiError(413, f"вложение {name} больше {Cfg.max_inline} байт — пришли ссылкой и md5")
             check_secret(f"вложение {name}", raw.decode("utf-8", errors="replace"))
-            atts.append((name, len(raw), hashlib.md5(raw).hexdigest(), None, raw))
+            atts.append((name, len(raw), hashlib.md5(raw).hexdigest(), None, raw, None))
         elif a.get("link"):
             link = str(a["link"])[:1000]
             check_secret(f"ссылка {name}", link)
-            atts.append((name, a.get("size"), (a.get("md5") or None), link, None))
+            atts.append((name, a.get("size"), (a.get("md5") or None), link, None, None))
         else:
             raise ApiError(400, f"вложение {name}: нужен content_b64 или link")
     if len(atts) > 30:
         raise ApiError(400, "не больше 30 вложений")
+    upload_ids = [a[5] for a in atts if a[5]]
+    if len(set(upload_ids)) != len(upload_ids):
+        raise ApiError(400, "один файл нельзя прикрепить дважды")
+    if any(a[4] is not None or a[5] for a in atts):
+        require_file_space(sum(len(a[4]) * 3 for a in atts if a[4] is not None))
 
     check_secret("тема", subject)
     check_secret("текст", body)
@@ -753,9 +794,11 @@ def insert_message(user, host, data, pid, system=False):
             mid = cur.lastrowid
             if thread_id is None:
                 con.execute("UPDATE messages SET thread_id = ? WHERE id = ?", (mid, mid))
-            for name, size, md5, link, raw in atts:
-                con.execute("INSERT INTO attachments(message_id, name, size, md5, link, content) VALUES (?,?,?,?,?,?)",
-                            (mid, name, size, md5, link, raw))
+            for name, size, md5, link, raw, upload_id in atts:
+                aid = con.execute("INSERT INTO attachments(message_id,name,size,md5,link,content,upload_id) VALUES (?,?,?,?,?,?,?)",
+                                  (mid, name, size, md5, link, raw, upload_id)).lastrowid
+                if upload_id:
+                    con.execute("UPDATE file_uploads SET attachment_id=? WHERE id=?", (aid, upload_id))
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")
@@ -998,11 +1041,11 @@ def telegram_worker():
 ROUTES = []
 
 
-def route(method, pattern, auth=True):
+def route(method, pattern, auth=True, raw=False):
     rx = re.compile("^" + pattern + "$")
 
     def deco(fn):
-        ROUTES.append((method, rx, auth, fn))
+        ROUTES.append((method, rx, auth, fn, raw))
         return fn
     return deco
 
@@ -1024,11 +1067,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         q = {k: v[-1] for k, v in urllib.parse.parse_qs(parsed.query).items()}
         try:
-            for m, rx, auth, fn in ROUTES:
+            for m, rx, auth, fn, raw in ROUTES:
                 mt = rx.match(parsed.path)
                 if m == method and mt:
                     user = self.auth() if auth else None
-                    data = self.read_json() if method == "POST" else None
+                    data = self.read_json() if method == "POST" and not raw else None
                     with_args = [int(x) if x.isdigit() else x for x in mt.groups()]
                     res = fn(self, user, q, data, *with_args)
                     if res is not None:
@@ -1040,6 +1083,9 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception as e:
+            if (isinstance(e, OSError) and e.errno == 28) or (isinstance(e, sqlite3.Error) and "disk is full" in str(e).lower()):
+                self.send_json(507, {"error": "На сервере закончилось место. Можно отправить текст без вложения."})
+                return
             import traceback
             traceback.print_exc()
             self.send_json(500, {"error": f"server error: {type(e).__name__}: {e}"})
@@ -1071,18 +1117,24 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("X-Telegent-Host", "")[:120] or "web"
 
     def read_json(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_REQUEST:
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ApiError(400, "некорректный Content-Length")
+        if n < 0 or n > MAX_REQUEST or self.headers.get("Transfer-Encoding"):
             raise ApiError(413, "запрос слишком большой")
         raw = self.rfile.read(n) if n else b"{}"
         try:
-            return json.loads(raw.decode("utf-8") or "{}")
+            data = json.loads(raw.decode("utf-8") or "{}")
+            if not isinstance(data, dict):
+                raise ValueError("object required")
+            return data
         except Exception:
             raise ApiError(400, "тело запроса — не JSON")
 
-    def send_json(self, code, obj):
+    def send_json(self, code, obj, extra=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_bytes(code, body, "application/json; charset=utf-8")
+        self.send_bytes(code, body, "application/json; charset=utf-8", extra)
 
     def send_bytes(self, code, body, ctype, extra=None):
         try:
@@ -1369,9 +1421,10 @@ def api_project_delete(h, user, q, data):
     typed = str(data.get("confirm") or "").strip().lower()
     if typed not in (p["slug"].lower(), p["title"].strip().lower()):
         raise ApiError(400, f"для подтверждения введи название проекта: {p['title']}")
-    with DB_LOCK:
+    with UPLOAD_LOCK, DB_LOCK:
         con = db()
         pid = p["id"]
+        uploaded_files = [r["id"] for r in con.execute("SELECT id FROM file_uploads WHERE project_id=?", (pid,))]
         agents = [r["user"] for r in con.execute("SELECT user FROM members WHERE project_id = ? AND role = 'agent'", (pid,))]
         n = con.execute("SELECT COUNT(*) FROM messages WHERE project_id = ?", (pid,)).fetchone()[0]
         con.execute("BEGIN IMMEDIATE")
@@ -1380,11 +1433,17 @@ def api_project_delete(h, user, q, data):
                 con.execute(f"DELETE FROM {table} WHERE message_id IN (SELECT id FROM messages WHERE project_id = ?)", (pid,))
             for table in ("messages", "board", "claims", "invites", "members"):
                 con.execute(f"DELETE FROM {table} WHERE project_id = ?", (pid,))
+            con.execute("DELETE FROM file_uploads WHERE project_id=?", (pid,))
             con.execute("DELETE FROM projects WHERE id = ?", (pid,))
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")
             raise
+        for uid in uploaded_files:
+            try:
+                os.remove(upload_path(uid))
+            except FileNotFoundError:
+                pass
     return {"ok": True, "deleted": p["slug"], "messages": n, "agents_without_project": agents}
 
 
@@ -1462,6 +1521,7 @@ def rename_account(con, old, new):
     con.execute("UPDATE users SET name = ? WHERE name = ?", (new, old))
     for table, cols in (("users", ["owner"]), ("messages", ["author", "owner", "status_by"]),
                         ("receipts", ["user"]), ("approvals", ["user"]), ("reactions", ["user"]), ("sessions", ["user"]),
+                        ("file_uploads", ["user"]),
                         ("members", ["user", "added_by"]), ("board", ["name"]), ("claims", ["owner"]),
                         ("invites", ["name", "owner", "created_by"]), ("projects", ["created_by"])):
         for col in cols:
@@ -1692,8 +1752,201 @@ def api_wait(h, user, q, data):
                 NEW_MSG.wait(remaining)
 
 
-@route("GET", r"/api/attachments/(\d+)")
-def api_attachment(h, user, q, data, aid):
+def attachment_name(value):
+    name = str(value or "file").replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(c for c in name if ord(c) >= 32 and c != chr(127))[:200]
+    return name if name and name not in (".", "..") else "file"
+
+
+def files_dir():
+    path = os.path.abspath(Cfg.db) + ".files"
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    return path
+
+
+def upload_path(uid):
+    if not isinstance(uid, str) or not re.fullmatch(r"u_[0-9a-f]{48}", uid):
+        raise ApiError(404, "загрузка не найдена")
+    return os.path.join(files_dir(), uid)
+
+
+def require_file_space(incoming=0):
+    free = shutil.disk_usage(files_dir()).free
+    if free < MIN_FREE_BYTES + incoming:
+        raise ApiError(507, "Недостаточно места на сервере для файла: свободно "
+                       f"{free // (1024*1024)} МБ. Нужно сохранить не менее 300 МБ свободными. "
+                       "Можно отправить текст без вложения.", free_bytes=free, min_free_bytes=MIN_FREE_BYTES)
+
+
+def own_upload(user, pid, uid):
+    upload_path(uid)
+    row = db().execute("SELECT * FROM file_uploads WHERE id=? AND user=? AND project_id=?",
+                       (uid, user["name"], pid)).fetchone()
+    if not row or not member_role(pid, user["name"]):
+        raise ApiError(404, "загрузка не найдена")
+    return row
+
+
+def upload_status(row):
+    return {"id": row["id"], "received": row["received"], "size": row["size"], "md5": row["md5"],
+            "complete": row["md5"] is not None, "chunk_size": UPLOAD_CHUNK}
+
+
+def discard_upload(uid):
+    try:
+        os.remove(upload_path(uid))
+    except FileNotFoundError:
+        pass
+    db().execute("DELETE FROM file_uploads WHERE id=? AND attachment_id IS NULL", (uid,))
+
+
+def scan_upload_chunk(uid, offset, raw, name):
+    # Include the previous suffix so secrets split across requests cannot evade the filter.
+    overlap = max([4096] + [len(x.encode("utf-8"))+512 for x in Cfg.deny_literals])
+    with open(upload_path(uid), "rb") as f:
+        f.seek(max(0, offset-overlap))
+        tail = f.read(min(offset, overlap))
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    text = decoder.decode(tail)
+    for start in range(0, len(raw), 256*1024):
+        part = raw[start:start+256*1024]
+        text += decoder.decode(part, final=start+len(part) == len(raw))
+        check_secret("файл " + name, text)
+        text = text[-overlap:]
+
+
+@route("GET", "/api/storage")
+def api_storage(h, user, q, data):
+    project_for(h, user, q)
+    free = shutil.disk_usage(files_dir()).free
+    return {"max_file_bytes": MAX_FILE_BYTES, "chunk_size": UPLOAD_CHUNK,
+            "min_free_bytes": MIN_FREE_BYTES, "free_bytes": free, "can_upload": free >= MIN_FREE_BYTES}
+
+
+@route("POST", "/api/uploads")
+def api_upload_start(h, user, q, data):
+    p = project_for(h, user, q)
+    size, expected = data.get("size"), data.get("md5")
+    if type(size) is not int or size < 0 or size > MAX_FILE_BYTES:
+        raise ApiError(413, "максимальный размер одного файла — 200 МБ")
+    if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{32}", expected)):
+        raise ApiError(400, "md5: ожидаются 32 шестнадцатеричных символа")
+    name = attachment_name(data.get("name"))
+    check_secret("имя файла", name)
+    key = str(data.get("key") or "")[:100] or None
+    with UPLOAD_LOCK, DB_LOCK:
+        # Abandoned drafts expire; adopted files and legacy BLOBs are never touched.
+        for row in db().execute("SELECT id FROM file_uploads WHERE attachment_id IS NULL AND updated<?",
+                                (time.time()-86400,)).fetchall():
+            discard_upload(row["id"])
+        if key:
+            old = db().execute("SELECT * FROM file_uploads WHERE user=? AND project_id=? AND idem_key=?",
+                               (user["name"], p["id"], key)).fetchone()
+            if old:
+                if (old["size"], old["name"], old["expected_md5"]) != (size, name, expected):
+                    raise ApiError(409, "ключ загрузки уже занят другим файлом")
+                return upload_status(old)
+        require_file_space(size)
+        uid, now = "u_"+secrets.token_hex(24), time.time()
+        with open(upload_path(uid), "xb"):
+            pass
+        try:
+            db().execute("INSERT INTO file_uploads(id,project_id,user,name,size,expected_md5,idem_key,created,updated) "
+                         "VALUES (?,?,?,?,?,?,?,?,?)", (uid, p["id"], user["name"], name, size, expected, key, now, now))
+        except Exception:
+            os.remove(upload_path(uid))
+            raise
+        return upload_status(own_upload(user, p["id"], uid))
+
+
+@route("POST", r"/api/uploads/(u_[0-9a-f]{48})/chunk", raw=True)
+def api_upload_chunk(h, user, q, data, uid):
+    p = project_for(h, user, q)
+    try:
+        size, offset = int(h.headers.get("Content-Length", "-1")), int(q.get("offset", "-1"))
+    except ValueError:
+        raise ApiError(400, "нужны Content-Length и offset")
+    if size < 1 or size > UPLOAD_CHUNK or offset < 0 or h.headers.get("Transfer-Encoding"):
+        raise ApiError(413, "часть файла должна быть от 1 байта до 4 МБ")
+    with DB_LOCK:
+        row = own_upload(user, p["id"], uid)
+        if row["attachment_id"] or row["md5"] is not None:
+            raise ApiError(409, "загрузка уже завершена")
+        if offset > row["received"] or offset+size > row["size"]:
+            raise ApiError(409, "неверная позиция загрузки", received=row["received"])
+    h.connection.settimeout(90)
+    raw = h.rfile.read(size)
+    if len(raw) != size:
+        raise ApiError(400, "часть файла получена не полностью — повтори загрузку")
+    with UPLOAD_LOCK, DB_LOCK:
+        row = own_upload(user, p["id"], uid)
+        if row["attachment_id"] or row["md5"] is not None:
+            raise ApiError(409, "загрузка уже завершена")
+        if offset == row["received"]:
+            try:
+                scan_upload_chunk(uid, offset, raw, row["name"])
+            except ApiError:
+                discard_upload(uid)
+                raise
+        with open(upload_path(uid), "r+b") as f:
+            if offset < row["received"]:
+                f.seek(offset)
+                if offset+size > row["received"] or f.read(size) != raw:
+                    raise ApiError(409, "повторная часть отличается от полученной")
+                return upload_status(row)
+            if offset != row["received"]:
+                raise ApiError(409, "неверная позиция загрузки", received=row["received"])
+            require_file_space(size)
+            f.truncate(offset); f.seek(offset)
+            try:
+                f.write(raw); f.flush(); os.fsync(f.fileno())
+                db().execute("UPDATE file_uploads SET received=?,updated=? WHERE id=?", (offset+size, time.time(), uid))
+            except OSError as error:
+                f.truncate(offset)
+                if error.errno == 28:
+                    raise ApiError(507, "На сервере закончилось место. Отправь текст без вложения.")
+                raise
+        return upload_status(own_upload(user, p["id"], uid))
+
+
+@route("POST", r"/api/uploads/(u_[0-9a-f]{48})/complete")
+def api_upload_complete(h, user, q, data, uid):
+    p = project_for(h, user, q)
+    with UPLOAD_LOCK, DB_LOCK:
+        row = own_upload(user, p["id"], uid)
+        if row["md5"] is not None:
+            return upload_status(row)
+        if row["received"] != row["size"]:
+            raise ApiError(409, "файл получен не полностью", received=row["received"])
+        digest = hashlib.md5()
+        try:
+            with open(upload_path(uid), "rb") as f:
+                while True:
+                    chunk = f.read(256*1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+            if row["expected_md5"] and digest.hexdigest() != row["expected_md5"]:
+                raise ApiError(409, "файл изменился во время отправки или повреждён; отправь его заново")
+        except ApiError:
+            discard_upload(uid)
+            raise
+        db().execute("UPDATE file_uploads SET md5=?,updated=? WHERE id=?", (digest.hexdigest(), time.time(), uid))
+        return upload_status(own_upload(user, p["id"], uid))
+
+
+@route("POST", r"/api/uploads/(u_[0-9a-f]{48})/cancel")
+def api_upload_cancel(h, user, q, data, uid):
+    p = project_for(h, user, q)
+    with UPLOAD_LOCK, DB_LOCK:
+        row = own_upload(user, p["id"], uid)
+        if row["attachment_id"]:
+            raise ApiError(409, "отправленный файл удаляется только вместе с проектом")
+        discard_upload(uid)
+    return {"ok": True}
+
+
+def attachment_for(user, aid):
     with DB_LOCK:
         a = db().execute("SELECT a.*, m.project_id FROM attachments a JOIN messages m ON m.id = a.message_id "
                          "WHERE a.id = ?", (aid,)).fetchone()
@@ -1701,11 +1954,83 @@ def api_attachment(h, user, q, data, aid):
             a = None
     if not a:
         raise ApiError(404, "нет такого вложения")
-    if a["content"] is None:
+    if a["content"] is None and a["upload_id"] is None:
         raise ApiError(409, f"вложение по ссылке: {a['link']}")
-    fname = urllib.parse.quote(a["name"])
-    h.send_bytes(200, bytes(a["content"]), "application/octet-stream",
-                 {"Content-Disposition": f"attachment; filename*=UTF-8''{fname}", "X-MD5": a["md5"] or ""})
+    return a
+
+
+def stream_attachment(h, user, aid):
+    a = attachment_for(user, aid)
+    stream = open(upload_path(a["upload_id"]), "rb") if a["upload_id"] else io.BytesIO(a["content"])
+    with stream:
+        size = a["size"]
+        start, end, code = 0, size-1, 200
+        if h.headers.get("Range"):
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", h.headers["Range"])
+            if not match:
+                raise ApiError(416, "некорректный диапазон файла")
+            start = int(match[1]); end = min(int(match[2]), end) if match[2] else end
+            if start > end or start >= size:
+                raise ApiError(416, "диапазон выходит за размер файла")
+            code = 206
+        h.send_response(code)
+        for key, value in {"Content-Type": "application/octet-stream", "Content-Length": str(max(0, end-start+1)),
+                           "Content-Disposition": "attachment; filename*=UTF-8''"+urllib.parse.quote(attachment_name(a["name"])),
+                           "X-MD5": a["md5"] or "", "Accept-Ranges": "bytes", "Cache-Control": "no-store",
+                           "X-Content-Type-Options": "nosniff"}.items():
+            h.send_header(key, value)
+        if code == 206:
+            h.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        h.end_headers(); stream.seek(start)
+        remaining = end-start+1
+        while remaining > 0:
+            chunk = stream.read(min(256*1024, remaining))
+            if not chunk:
+                break
+            h.wfile.write(chunk); remaining -= len(chunk)
+
+
+@route("GET", r"/api/attachments/(\d+)")
+def api_attachment(h, user, q, data, aid):
+    stream_attachment(h, user, aid)
+
+
+@route("POST", r"/api/attachments/(\d+)/download")
+def api_download_ticket(h, user, q, data, aid):
+    attachment_for(user, aid)
+    ticket, now = secrets.token_urlsafe(32), time.time()
+    with DB_LOCK:
+        for key in list(DOWNLOADS):
+            if DOWNLOADS[key][2] < now:
+                del DOWNLOADS[key]
+        if len(DOWNLOADS) >= 1024:
+            DOWNLOADS.pop(next(iter(DOWNLOADS)))
+        DOWNLOADS[token_hash(ticket)] = (aid, h.session_hash or user["token_hash"], now+300)
+    path = f"/api/downloads/{aid}"
+    cookie = f"tg_download_{aid}={ticket}; Path={path}; Max-Age=300; HttpOnly; SameSite=Strict"
+    if h.headers.get("X-Forwarded-Proto") == "https":
+        cookie += "; Secure"
+    h.send_json(200, {"url": path}, {"Set-Cookie": cookie})
+
+
+@route("GET", r"/api/downloads/(\d+)", auth=False)
+def api_browser_download(h, user, q, data, aid):
+    cookies = SimpleCookie()
+    try:
+        cookies.load(h.headers.get("Cookie", ""))
+        value = cookies[f"tg_download_{aid}"].value
+    except (KeyError, ValueError, CookieError):
+        raise ApiError(401, "нажми «Скачать» у файла в чате")
+    with DB_LOCK:
+        ticket = DOWNLOADS.get(token_hash(value))
+        if not ticket or ticket[0] != aid or ticket[2] < time.time():
+            raise ApiError(401, "ссылка на скачивание истекла; нажми «Скачать» ещё раз")
+        user = db().execute("SELECT u.* FROM users u WHERE u.revoked=0 AND (u.token_hash=? OR EXISTS "
+                            "(SELECT 1 FROM sessions s WHERE s.user=u.name AND s.token_hash=?))",
+                            (ticket[1], ticket[1])).fetchone()
+        if not user:
+            raise ApiError(401, "вход больше не действителен")
+    stream_attachment(h, user, aid)
 
 
 @route("GET", "/api/board")

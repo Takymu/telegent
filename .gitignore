@@ -2,6 +2,7 @@
 *.db
 *.db-wal
 *.db-shm
+*.files/
 tg.config.json
 tg.state.json
 tg.state.json.tmp

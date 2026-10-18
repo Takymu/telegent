@@ -13,7 +13,9 @@ Full protocol: AGENTS.md.
 """
 import argparse
 import base64
+import codecs
 import hashlib
+import http.client
 import contextlib
 import io
 import json
@@ -33,6 +35,7 @@ import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INLINE_LIMIT = 2 * 1024 * 1024
+MAX_FILE_BYTES = 200 * 1024 * 1024
 # The server's tunnel address changes when the phone restarts it; the phone publishes the new one here
 # (termux/publish_url.sh). Override with "url_source" in the config, "" turns the lookup off.
 URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt"
@@ -209,15 +212,26 @@ class Conflict(Exception):
         self.holder = holder
 
 
-def api(conf, method, path, data=None, timeout=30, raw=False):
+def api(conf, method, path, data=None, timeout=30, raw=False, sink=None):
     url = conf.server + path
-    body = json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
+    body = data if isinstance(data, bytes) else json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
     req = urllib.request.Request(url, data=body, method=method, headers={
         "Authorization": f"Bearer {conf.token}", "X-Telegent-Host": host_tag(),
-        "Content-Type": "application/json", "User-Agent": "telegent-tg/1.0",
+        "Content-Type": "application/octet-stream" if isinstance(data, bytes) else "application/json", "User-Agent": "telegent-tg/1.0",
         **({"X-Telegent-Project": conf.project} if conf.project else {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
+            if sink is not None:
+                digest, size = hashlib.md5(), 0
+                with open(sink, "wb") as f:
+                    while True:
+                        chunk = r.read(256*1024)
+                        if not chunk:
+                            break
+                        f.write(chunk); digest.update(chunk); size += len(chunk)
+                if r.headers.get("Content-Length") and size != int(r.headers["Content-Length"]):
+                    raise NetError("файл получен не полностью")
+                return {"size": size, "md5": digest.hexdigest()}
             payload = r.read()
             return (payload, dict(r.headers)) if raw else json.loads(payload.decode("utf-8"))
     except urllib.error.HTTPError as e:
@@ -228,10 +242,10 @@ def api(conf, method, path, data=None, timeout=30, raw=False):
             err, msg = {}, None
         if e.code == 409 and err.get("holder"):
             raise Conflict(msg, err["holder"])
-        if e.code >= 500:
+        if e.code >= 500 and e.code != 507:
             raise NetError(f"сервер недоступен (HTTP {e.code}{': ' + msg if msg else ''})")
         die(f"сервер ответил {e.code}: {msg or e.reason}", 2)
-    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as e:
+    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError, http.client.HTTPException) as e:
         raise NetError(str(getattr(e, "reason", e)))
 
 
@@ -440,7 +454,7 @@ def scan_local(conf, field, text):
             die(f"НЕ отправлено: в поле «{field}» (строка {text.count(chr(10), 0, i) + 1}) есть строка из secret_files.", 4)
 
 
-def build_attachments(conf, args):
+def build_attachments(conf, args, send_key):
     atts = []
     for path in args.attach or []:
         p = os.path.expanduser(path)
@@ -448,22 +462,59 @@ def build_attachments(conf, args):
             die(f"нет файла {path}")
         size = os.path.getsize(p)
         name = os.path.basename(p)
-        if size <= INLINE_LIMIT and not args.no_inline:
-            with open(p, "rb") as f:
-                raw = f.read()
-            scan_local(conf, f"вложение {name}", raw.decode("utf-8", errors="replace"))
-            atts.append({"name": name, "content_b64": base64.b64encode(raw).decode()})
+        if not args.no_inline and size > MAX_FILE_BYTES:
+            die(f"файл {name}: максимальный размер — 200 МБ", 2)
+        scan_local(conf, "имя вложения", name)
+        digest, tail = hashlib.md5(), ""
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        overlap = max([4096] + [len(x)+512 for x in conf.literals])
+        with open(p, "rb") as f:
+            while True:
+                chunk = f.read(256*1024)
+                text = tail + decoder.decode(chunk, final=not chunk)
+                if not args.no_inline:
+                    scan_local(conf, "вложение " + name, text)
+                if not chunk:
+                    break
+                digest.update(chunk); tail = text[-overlap:]
+        a = {"name": name, "size": size, "md5": digest.hexdigest()}
+        if args.no_inline:
+            a["link"] = f"{host_tag()}:{os.path.abspath(p)}"
         else:
-            h = hashlib.md5()
-            with open(p, "rb") as f:
-                for chunk in iter(lambda: f.read(1 << 20), b""):
-                    h.update(chunk)
-            atts.append({"name": name, "size": size, "md5": h.hexdigest(),
-                         "link": f"{host_tag()}:{os.path.abspath(p)}"})
+            a["_path"] = p
+        atts.append(a)
     for spec in args.link or []:
         # URL_or_path[#md5]
         link, _, md5 = spec.partition("#")
         atts.append({"name": os.path.basename(link.rstrip("/")) or "link", "link": link, "md5": md5 or None})
+    if len(atts) > 30:
+        die("не больше 30 вложений", 2)
+    for a in atts:
+        scan_local(conf, "ссылка", a.get("link") or "")
+    # Scan every local file before any bytes leave the machine.
+    for index, a in enumerate(atts):
+        if "_path" not in a:
+            continue
+        key = hashlib.sha256(json.dumps([send_key, index, a['name'], a['md5']]).encode()).hexdigest()
+        upload = api_retry(conf, "POST", "/api/uploads", {"name": a["name"], "size": a["size"], "md5": a["md5"], "key": key})
+        uid, offset = upload["id"], upload["received"]
+        if not upload["complete"]:
+            step, last_progress = min(upload["chunk_size"], 4*1024*1024), -1
+            with open(a["_path"], "rb") as f:
+                f.seek(offset)
+                while offset < a["size"]:
+                    chunk = f.read(min(step, a["size"]-offset))
+                    if not chunk:
+                        die(f"файл {a['name']} изменился во время отправки; повтори команду", 2)
+                    result = api_retry(conf, "POST", f"/api/uploads/{uid}/chunk?offset={offset}", chunk, timeout=120)
+                    offset = result["received"]
+                    f.seek(offset)
+                    progress = int(offset*100/max(1, a["size"]))
+                    if progress//20 != last_progress:
+                        print(f"tg: {a['name']}: {progress}%", file=sys.stderr)
+                        last_progress = progress//20
+            api_retry(conf, "POST", f"/api/uploads/{uid}/complete", {}, timeout=180)
+        a.clear(); a["upload_id"] = uid
     return atts
 
 
@@ -486,7 +537,7 @@ def do_send(conf, args, reply_to=None, default_to=None):
         "priority": "urgent" if args.urgent else "normal", "needs_approval": bool(args.approval or args.approver),
         "approver": args.approver or None,
         "to": [x for x in (args.to or default_to or "").split(",") if x],
-        "reply_to": reply_to, "result": build_result(args), "attachments": build_attachments(conf, args),
+        "reply_to": reply_to, "result": build_result(args), "attachments": [],
         "idem_key": args.key or uuid.uuid4().hex,
     }
     if getattr(args, "claim", None):
@@ -498,8 +549,7 @@ def do_send(conf, args, reply_to=None, default_to=None):
     for field, text in (("тема", data["subject"]), ("текст", body), ("топик", data["topic"]),
                         ("результат", json.dumps(data["result"] or {}, ensure_ascii=False))):
         scan_local(conf, field, text)
-    for a in data["attachments"]:
-        scan_local(conf, "ссылка", a.get("link") or "")
+    data["attachments"] = build_attachments(conf, args, data["idem_key"])
     res = api_retry(conf, "POST", "/api/messages", data, timeout=120)
     print(f"#{res['id']}" + (" (уже было отправлено — дубль не создан)" if res.get("duplicate") else " отправлено"))
     if res.get("released_claim"):
@@ -524,14 +574,14 @@ def do_send(conf, args, reply_to=None, default_to=None):
 
 
 def cmd_send(conf, args):
-    if not args.body and not args.file and not args.subject:
+    if not args.body and not args.file and not args.subject and not args.attach and not args.link:
         die("нечего отправлять: текст аргументом, -f файл или -f - (stdin)")
     do_send(conf, args)
 
 
 def cmd_reply(conf, args):
     parent = api_retry(conf, "GET", f"/api/messages/{args.id}")["message"]
-    if not args.body and not args.file and not args.subject:
+    if not args.body and not args.file and not args.subject and not args.attach and not args.link:
         die("нечего отправлять")
     me = get_me(conf)
     default_to = parent["author"] if parent["author"] != me["name"] else ""
@@ -664,13 +714,37 @@ def cmd_get(conf, args):
         if not a["inline"]:
             print(f"{a['name']}: по ссылке {a['link']} md5={a['md5'] or '?'} — забирать самому")
             continue
-        payload, _ = api_retry(conf, "GET", f"/api/attachments/{a['id']}", raw=True, timeout=120)
-        md5 = hashlib.md5(payload).hexdigest()
-        dst = os.path.join(out, a["name"])
-        with open(dst, "wb") as f:
-            f.write(payload)
-        ok = "md5 ok" if md5 == a["md5"] else f"md5 НЕ СОВПАЛ ({md5} != {a['md5']})"
-        print(f"{dst}  {len(payload)} B  {ok}")
+        name = a["name"].replace("\\", "/").rsplit("/", 1)[-1]
+        if os.name == "nt":
+            name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name).rstrip(" .")
+        if not name or name in (".", ".."):
+            name = "file"
+        dst = os.path.join(out, name)
+        fd, temporary = tempfile.mkstemp(prefix=".telegent-download-", dir=out)
+        os.close(fd)
+        try:
+            received = api_retry(conf, "GET", f"/api/attachments/{a['id']}", sink=temporary, timeout=120)
+            if (a.get("md5") and received["md5"] != a["md5"]) or (a.get("size") is not None and received["size"] != a["size"]):
+                die(f"файл {name} повреждён: размер или md5 НЕ СОВПАЛ; прежний файл сохранён", 2)
+            stem, extension = os.path.splitext(name)
+            suffix = 0
+            while True:
+                dst = os.path.join(out, name if not suffix else f"{stem} ({suffix}){extension}")
+                try:
+                    reserved = os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                    os.close(reserved)
+                    break
+                except FileExistsError:
+                    suffix += 1
+            try:
+                os.replace(temporary, dst)
+            except OSError:
+                os.remove(dst)
+                raise
+        finally:
+            if os.path.exists(temporary):
+                os.remove(temporary)
+        print(f"{dst}  {received['size']} B  md5 ok")
         got += 1
     if not m["attachments"]:
         print(f"у #{args.id} нет вложений")
@@ -1363,7 +1437,7 @@ def add_send_opts(p, body=True):
     p.add_argument("--approval", action="store_true", help="нужно одобрение человека (деньги/необратимое)")
     p.add_argument("--approver", metavar="NAME",
                    help="кто из людей проекта должен решить (включает --approval; решить сможет только он)")
-    p.add_argument("-a", "--attach", action="append", help="файл; ≤2 МБ уходит внутрь, больше — ссылкой с md5")
+    p.add_argument("-a", "--attach", action="append", help="прикрепить файл до 200 МБ (загрузка частями на сервер)")
     p.add_argument("--no-inline", action="store_true", help="все --attach только ссылкой+md5")
     p.add_argument("--link", action="append", help="ссылка/путь на большой файл: URL_or_path[#md5]")
     p.add_argument("--key", help="ключ идемпотентности (повтор с тем же ключом не создаст дубль)")

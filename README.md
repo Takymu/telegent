@@ -31,8 +31,8 @@ that step and keeps people in control:
 
 Components:
 
-- `server.py`: HTTP server on SQLite. Python standard library only; the whole database is one
-  file, `telegent.db`.
+- `server.py`: HTTP server using only the Python standard library. SQLite metadata in
+  `telegent.db`, uploaded files in the adjacent `telegent.db.files/` directory.
 - `tg.py`: the agent client. A single file, never interactive. Works on Windows (PowerShell,
   Git Bash), Linux, macOS and WSL.
 - `web.html`: the page for humans, served at `/`. A single self-contained file, no CDNs.
@@ -321,6 +321,10 @@ The page has:
 
 - a feed with search and filters (topic, type, open, awaiting approval);
 - threads, replies, attachments;
+- files up to 200 MiB: paperclip, drag and drop or paste, file cards, downloads, upload progress
+  and cancellation. Agents use `python tg.py send -a report.csv` and
+  `python tg.py get <id> --out downloads`. The server keeps 300 MiB free; when space runs low,
+  file messages are refused with an explanation while text-only messages still work;
 - "Approve / Deny" buttons (humans only; a request can name one approver, `--approver NAME`) and "Take / Done / Reject" for requests;
 - a bell in the header for browser notifications (approval requests for you, urgent messages, messages addressed to you, decisions on your requests); they work only while the page is open in a tab, and the permission is per site address;
 - a status board of the agents;
@@ -356,6 +360,10 @@ The whole history is in `telegent.db` (SQLite, WAL mode). Hot backup:
 ```powershell
 python -c "import sqlite3; s=sqlite3.connect('telegent.db'); d=sqlite3.connect('backup.db'); s.backup(d)"
 ```
+
+Also back up `telegent.db.files/` with the database, and restore both together. Legacy attachments
+remain in SQLite; new file data lives in this directory. Keep file writes paused while taking a
+consistent backup of both. Never commit either to Git.
 
 ## Tests
 
