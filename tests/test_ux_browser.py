@@ -40,6 +40,20 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     await fetch('/debug/result',{method:'POST',body:JSON.stringify({ok:true,viewport:VIEWPORT,checks})});return;
   }
   check(UI_LANG==='ru','Russian initial UI');
+  for(const id of ['pwInput','joinPw','joinPw2','joinLPw','pwOld','pwNew','pwNew2']){
+    const input=$(id),button=input.parentElement.querySelector('.password-eye');input.value='fixture value';
+    check(input.type==='password'&&button.type==='button','password starts hidden with a non-submit toggle');button.click();
+    check(input.type==='text'&&input.value==='fixture value'&&button.getAttribute('aria-pressed')==='true','eye shows unchanged password');button.click();
+    check(input.type==='password'&&input.value==='fixture value','eye hides unchanged password');input.value='';
+  }
+  if(VIEWPORT==='desktop'){
+    const handle=$('projectsResize');
+    check(getComputedStyle(handle).cursor==='col-resize','left border exposes resize cursor');
+    handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+    check($('projects').getBoundingClientRect().width===240,'left panel resizes by keyboard');
+    projectsWidth(10000,true);check($('projects').getBoundingClientRect().width<=500&&document.querySelector('main').getBoundingClientRect().width>=359,'left panel clamps and preserves chat space');
+    handle.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));check($('projects').getBoundingClientRect().width===220,'left panel reset');
+  }else check(getComputedStyle($('projectsResize')).display==='none','left resize border hidden on mobile');
   const originalTitle=$('projTitle').textContent;$('projTitle').textContent='Project development team';
   check($('projTitle').scrollWidth<=$('projTitle').clientWidth,'mobile title uses available header space before ellipsis');$('projTitle').textContent=originalTitle;
   const peer=ME.users.find(u=>u.name==='alice-agent');
@@ -149,9 +163,13 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='image fixture '+VIEWPORT));
   const image=[...MSGS.values()].find(m=>m.body==='image fixture '+VIEWPORT);
   const imageRow=$('m'+image.id);
-  check(getComputedStyle(imageRow.querySelector('.file-card')).color===getComputedStyle(document.body).color,'attachment text remains readable in gray scheme');
-  check(imageRow.querySelector('.file-card').getBoundingClientRect().right<=imageRow.querySelector('.mmain').getBoundingClientRect().right,'attachment fits message outline');
-  await previewFile(image.attachments[0].id,'fixture.png');await wait(()=>$('infoBody').querySelector('img')?.complete);
+  await wait(()=>imageRow.querySelector('.inline-image img')?.naturalWidth===1);
+  check(!imageRow.querySelector('.file-card')&&!imageRow.textContent.includes('Посмотреть изображение'),'image loads inline without a separate preview button');
+  check(imageRow.querySelector('.inline-image').getBoundingClientRect().right<=imageRow.querySelector('.mmain').getBoundingClientRect().right,'image fits message outline');
+  const cached=INLINE_IMAGES.get(String(image.attachments[0].id));render(true);await pause(30);
+  check(INLINE_IMAGES.get(String(image.attachments[0].id))===cached,'live render reuses authenticated image');
+  $('m'+image.id).querySelector('.inline-image').click();await wait(()=>$('infoBody').querySelector('img')?.complete);
+  check(!!$('infoBody').querySelector('[data-act="dl"]'),'image viewer has explicit download');
   check($('infoBody').querySelector('img').naturalWidth===1,'authenticated image preview decodes');closeInfo();await pause(20);check(!PREVIEW_URL,'closing preview releases blob URL');
   await actor('POST','/api/claims',{key:'fixture-'+VIEWPORT,hours:1});await selectTab('claims');await loadClaims();
   check($('claimsTable').querySelector('td[data-label]'),'mobile claims expose readable field labels');

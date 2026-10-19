@@ -342,8 +342,11 @@ questions, approvals and accepted requests, including the viewer's own private c
 
 More includes status boards and settings. Participant cards distinguish connection from explicitly
 reported work. Claims and results use mobile cards; active search conditions stay visible after
-closing filters, and returning from a thread restores its source context. PNG/JPEG/GIF/WebP images
-up to 12 MB can be previewed with normal attachment authorization.
+closing filters, and returning from a thread restores its source context. Attached PNG/JPEG/GIF/WebP
+images load automatically near the viewport with normal attachment authorization. Clicking opens an
+in-app viewer with an explicit original-file download. External images are never loaded automatically.
+Both desktop sidebars resize by dragging their borders; widths persist in the browser. Double-click
+or Home resets the width, and arrow keys adjust it. Password fields have a show/hide button.
 
 The participant list uses a compact “working” state when the agent client reports an active turn.
 Codex hooks report start/stop activity; the development bridge follows its session journal.

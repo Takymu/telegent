@@ -121,7 +121,11 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #newBtn { position: absolute; top: -44px; left: 50%; transform: translateX(-50%); z-index: 6;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .25); border-radius: 999px; padding: 7px 16px; }
 #app aside { border-left: 1px solid var(--line); overflow-y: auto; padding: 16px; }
-#app .wrap { grid-template-columns: 220px minmax(0, 1fr) 6px var(--status-width, 300px); }
+#app .wrap { grid-template-columns: var(--projects-width, 220px) 6px minmax(0, 1fr) 6px var(--status-width, 300px); }
+#projectsResize { cursor:col-resize;touch-action:none;position:relative;outline:none; }
+#projectsResize::after { content:"";position:absolute;inset:0 2px;background:var(--line); }
+#projectsResize:hover::after, #projectsResize:focus-visible::after, body.resizing-projects #projectsResize::after { background:var(--accent); }
+body.resizing-projects, body.resizing-projects * { cursor:col-resize !important;user-select:none !important; }
 #statusResize { cursor: col-resize; touch-action: none; position: relative; outline: none; }
 #statusResize::after { content: ""; position: absolute; inset: 0 2px; background: var(--line); }
 #statusResize:hover::after, #statusResize:focus-visible::after, body.resizing-status #statusResize::after { background: var(--accent); }
@@ -153,7 +157,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 #filtersBtn, #sideBtn, #projBtn, #acctBox { display: none; }
 @media (max-width: 900px) {
   #app .wrap { grid-template-columns: minmax(0, 1fr); }
-  #statusResize { display: none; }
+  #statusResize, #projectsResize { display: none; }
   #projBtn { display: inline-block; }
   #projects { display: none; position: fixed; left: 0; right: 0; bottom: 0; top: var(--hdr, 53px); z-index: 8;
     background: var(--bg); border-right: 0; padding: 16px; }
@@ -322,7 +326,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); }
 .mtools button { border: 0; background: transparent; padding: 3px 8px; font-size: 13px; border-radius: 6px; }
 .mtools button:hover { background: var(--chip); }
-.mrow:focus-within .mtools { display: flex; }
+.mrow:has(:focus-visible) .mtools { display: flex; }
 .mreactions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 6px 0 3px; }
 .reaction { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 46px;
   min-height: 30px; padding: 3px 9px; border-radius: 999px; border: 1px solid transparent;
@@ -385,9 +389,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .cbar select.plain { border-color: transparent; background: transparent; color: var(--muted); }
 .cbar select.plain:hover { border-color: var(--line); }
 .iconbtn.on { color: var(--accent); border-color: var(--accent); }
-/* ---- projects: unread counters and initials */
-.pav { width: 22px; height: 22px; border-radius: 6px; flex: none; display: flex; align-items: center; justify-content: center;
-  font-size: 10.5px; font-weight: 700; color: #fff; }
+/* ---- projects: unread counters */
 .pcount { min-width: 18px; height: 18px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 11px;
   font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 5px; flex: none; }
 /* ---- members */
@@ -519,6 +521,14 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .work-tabs button { min-height:44px; }
 .work-tabs .active { background:var(--accent);color:var(--accent-ink); }
 .file-preview { display:block;max-width:100%;max-height:65dvh;margin:auto;border-radius:8px; }
+.password-field { position:relative;display:inline-block;max-width:100%; }
+.password-field input { width:100%;padding-right:44px !important; }
+.password-field:has(input.hidden) { display:none; }
+.password-eye { position:absolute;right:2px;top:1px;bottom:1px;width:40px;padding:0;border:0;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center; }
+.password-eye:hover { color:var(--ink); }
+.inline-image { display:block;width:min(300px,60vw);max-width:100%;height:200px;padding:0;border:0;border-radius:10px;overflow:hidden;background:var(--code);color:var(--muted);cursor:zoom-in; }
+.inline-image img { display:block;width:100%;height:100%;object-fit:contain; }
+.inline-image:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
 .file-thumb { width:56px;height:56px;object-fit:cover;border-radius:6px; }
 .connection-banner { flex:none;padding:10px 16px;background:var(--warn-bg);color:var(--ink);font-size:13px; }
 .invite-choices { display:flex;flex-direction:column;gap:8px;margin:12px 0; }
@@ -699,6 +709,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         <button id="newProjBtn" class="hidden" title="новый проект" style="font-size:12px;text-transform:none;letter-spacing:0">+ Новый</button></h2>
       <div id="projList"></div>
     </nav>
+    <div id="projectsResize" role="separator" aria-orientation="vertical" aria-controls="projects" aria-label="Ширина панели проектов" tabindex="0"></div>
     <main>
       <div class="feedtop">
         <div id="devChatHint" class="muted hidden" style="font-size:12.5px;margin-bottom:10px"></div>
@@ -966,6 +977,11 @@ const UI_EN={
   "кто решает": "who decides",
   "Повторить отправку": "Retry sending",
   "Ширина панели статуса": "Status panel width",
+  "Ширина панели проектов": "Projects panel width",
+  "Показать пароль": "Show password",
+  "Скрыть пароль": "Hide password",
+  "Принято сервером": "Accepted by server",
+  "Открыть изображение: ": "Open image: ",
   "Потяни, чтобы изменить ширину. Двойной щелчок — сбросить.": "Drag to change the width. Double-click to reset.",
   "закрыть проекты": "close projects",
   "Закрыть проекты": "Close projects",
@@ -1437,6 +1453,12 @@ let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREA
 let ACTIVE_DM = null, CONVERSATIONS = [];
 let VIEW_RETURN=null, WORK_MODE="waiting", ACTION_TARGET=null, PREVIEW_URL=null, INV_TRACK=null;
 let INV_MODE=null, INFO_VERSION=0;
+const OUTGOING = new Map();
+function paintOutgoing() {
+  const pending=[...OUTGOING.values()].filter(p=>p.scope===draftKey());
+  for(const p of pending)if(p.id && MSGS.has(p.id))OUTGOING.delete(p.key);
+  $("pendingOutgoing").innerHTML=pending.filter(p=>OUTGOING.has(p.key)).map(p=>`<div class="mrow outgoing outgoing-pending"><div class="mmain"><div class="mtext md">${markdown(p.body)}</div>${p.files.map(name=>`<div class="mextra">${esc(name)}</div>`).join("")}<div class="message-footer"><span class="receipt-button" role="status" aria-label="${tr(p.id?"Принято сервером":"Отправляется…")}">${p.id?'<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 8 5 5L20 2"/></svg>':'<span class="receipt-spinner" aria-hidden="true"></span>'}</span></div></div></div>`).join("");
+}
 const DRAFTS = new Map();
 let DRAFT_TIMER=null, COMPOSE_SCOPE=null;
 const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
@@ -1616,10 +1638,34 @@ const st = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
+let PROJECTS_WIDTH=Number(st.get("tg_projects_width"))||220,PROJECTS_DRAG=null;
+function projectsWidth(value,save=false){
+  const max=Math.min(500,Math.max(160,innerWidth-(parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--status-width"))||300)-360-12));
+  const width=Math.round(Math.max(160,Math.min(max,value))),handle=$("projectsResize");
+  document.documentElement.style.setProperty("--projects-width",width+"px");
+  handle.setAttribute("aria-valuemin","160");handle.setAttribute("aria-valuemax",String(max));handle.setAttribute("aria-valuenow",String(width));
+  if(save){PROJECTS_WIDTH=width;st.set("tg_projects_width",String(width));}return width;
+}
+function endProjectsResize(e){
+  if(!PROJECTS_DRAG || e?.pointerId!=null&&e.pointerId!==PROJECTS_DRAG.pointer)return;
+  const pointer=PROJECTS_DRAG.pointer;PROJECTS_DRAG=null;document.body.classList.remove("resizing-projects");
+  if($("projectsResize").hasPointerCapture(pointer))$("projectsResize").releasePointerCapture(pointer);
+}
+$("projectsResize").onpointerdown=e=>{
+  if(!statusDesktop()||e.button!==0)return;e.preventDefault();
+  PROJECTS_DRAG={pointer:e.pointerId,x:e.clientX,width:$("projects").getBoundingClientRect().width};
+  $("projectsResize").setPointerCapture(e.pointerId);document.body.classList.add("resizing-projects");
+};
+$("projectsResize").onpointermove=e=>{if(PROJECTS_DRAG&&e.pointerId===PROJECTS_DRAG.pointer)projectsWidth(PROJECTS_DRAG.width+e.clientX-PROJECTS_DRAG.x,true);};
+for(const event of ["pointerup","pointercancel","lostpointercapture"])$("projectsResize").addEventListener(event,endProjectsResize);
+$("projectsResize").ondblclick=()=>projectsWidth(220,true);
+$("projectsResize").onkeydown=e=>{if(statusDesktop()&&["ArrowLeft","ArrowRight","Home"].includes(e.key)){e.preventDefault();projectsWidth(e.key==="Home"?220:$("projects").getBoundingClientRect().width+(e.key==="ArrowRight"?20:-20),true);}};
+window.addEventListener("resize",()=>{endProjectsResize();projectsWidth(PROJECTS_WIDTH);});
+window.addEventListener("blur",()=>endProjectsResize());
 let STATUS_WIDTH = Number(st.get("tg_status_width")) || 300, STATUS_DRAG = null;
 const statusDesktop = () => matchMedia("(min-width: 901px)").matches;
 function statusWidth(value, save = false) {
-  const max = Math.min(600, Math.max(260, innerWidth - 220 - 360 - 6));
+  const max = Math.min(600, Math.max(260, innerWidth - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--projects-width"))||220) - 360 - 12));
   const width = Math.round(Math.max(260, Math.min(max, value)));
   document.documentElement.style.setProperty("--status-width", width + "px");
   const handle = $("statusResize");
@@ -1654,6 +1700,20 @@ $("statusResize").onkeydown = e => {
 window.addEventListener("resize", () => { endStatusResize(); statusWidth(STATUS_WIDTH); });
 window.addEventListener("blur", () => endStatusResize());
 statusWidth(STATUS_WIDTH);
+projectsWidth(PROJECTS_WIDTH);
+function passwordVisibility(input,visible){
+  input.type=visible?"text":"password";
+  const button=input.parentElement.querySelector(".password-eye");
+  button.setAttribute("aria-label",tr(visible?"Скрыть пароль":"Показать пароль"));button.setAttribute("aria-pressed",String(visible));
+  button.innerHTML=`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>${visible?'<path d="m3 3 18 18"/>':""}</svg>`;
+}
+for(const input of document.querySelectorAll('input[type="password"]')){
+  const wrapper=document.createElement("span"),button=document.createElement("button");wrapper.className="password-field";
+  wrapper.style.width=input.style.width || (["pwForm","joinForm","joinLogin"].includes(input.form?.id)?"100%":"");
+  wrapper.style.marginBottom=input.style.marginBottom;input.style.marginBottom="0";
+  input.before(wrapper);wrapper.append(input);button.type="button";button.className="password-eye";button.setAttribute("aria-controls",input.id);wrapper.append(button);passwordVisibility(input,false);
+  button.onclick=()=>{const start=input.selectionStart,end=input.selectionEnd;passwordVisibility(input,input.type==="password");input.focus();if(start!=null)input.setSelectionRange(start,end);};
+}
 const shortTime = iso => iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)} ${iso.slice(11, 16)}` : "";
 const hhmm = iso => iso ? iso.slice(11, 16) : "";
 const MONTHS = [tr("января"), tr("февраля"), tr("марта"), tr("апреля"), tr("мая"), tr("июня"), tr("июля"), tr("августа"), tr("сентября"), tr("октября"), tr("ноября"), tr("декабря")];
@@ -2027,6 +2087,7 @@ function showNoProject() {
 
 async function setProject(slug) {
   if (SENDING) { toast(tr("Дождись отправки сообщения или нажми «Отмена»"), true); return; }
+  clearInlineImages();
   cancelProjectDrag();
   closeInfo();if($("actionDialog").open)$("actionDialog").close();VIEW_RETURN=null;
   saveDraft(); closeMenu();
@@ -2054,6 +2115,7 @@ async function setProject(slug) {
 
 const feedCursor = () => ACTIVE_DM ? ACTIVE_DM.read_upto || 0 : ME.project?.read_upto || 0;
 function resetFeedState() {
+  clearInlineImages(); $("pendingOutgoing").replaceChildren();
   FEED_EPOCH++;
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER=null;
   POLL_ABORT?.abort(); MSGS=new Map(); LAST=0; OLDEST=null; SIG=""; THREAD=null; REPLY=null; UNSEEN=0;
@@ -2181,7 +2243,6 @@ function renderProjects() {
     const n = p.slug !== PROJECT ? (p.unread != null ? p.unread + (p.direct_unread || 0) : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
     return ui`<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
       <a class="pselect" href="#" data-act="proj" data-slug="${esc(p.slug)}" title="${esc(p.title)} (${esc(p.slug)})" ${p.slug === PROJECT ? 'aria-current="page"' : ''}>
-      <span class="pav" style="background:hsl(${hue(p.slug)} 40% 45%)">${esc(initials(p.title))}</span>
       <span class="pname">${esc(p.title)}</span>${n ? `<span class="pcount">${n}</span>` : ""}</a>
       <button class="pmore" data-act="projmenu" data-slug="${esc(p.slug)}" title="Действия с проектом"
         aria-label="Действия с проектом «${esc(p.title)}»" aria-haspopup="menu" aria-controls="menu"
@@ -2307,6 +2368,7 @@ $("logoutBtn").onclick = async () => {
 };
 
 $("pwBtn").onclick = () => {
+  for(const id of ["pwOld","pwNew","pwNew2"])passwordVisibility($(id),false);
   $("pwOld").parentElement.classList.toggle("hidden", !ME.has_password);
   $("pwNew").value = $("pwNew2").value = $("pwOld").value = ""; $("pwErr").textContent = ""; $("pwOk").textContent = "";
   $("pwDialog").classList.remove("hidden");
@@ -2538,6 +2600,7 @@ function render(force) {
     prev = m;
   }
   $("feed").innerHTML = list.length ? html : `<div class="sysrow" style="margin-top:20vh">${hasFilters()?tr("По этим условиям сообщений нет. Измени фильтры или сбрось их."):tr("Здесь пока тихо. Напиши первым.")}</div>`;
+  paintOutgoing(); observeInlineImages();
   observeReadRows();
   $("moreBox").classList.toggle("hidden", NO_MORE || !list.length);
   $("threadBar").classList.toggle("hidden", !THREAD);
@@ -2712,7 +2775,7 @@ $("feed").addEventListener("keydown",e=>{
 });
 // phones: a tap on a message opens its actions
 $("feed").addEventListener("click", e => {
-  if (!TOUCH || e.target.closest("a, button, input, textarea, select")) return;
+  if (!TOUCH || e.pointerType==="mouse" || e.target.closest("a, button, input, textarea, select")) return;
   const r = e.target.closest(".mrow");
   if (!r) return;
   const m = MSGS.get(+r.dataset.msg);
@@ -2829,6 +2892,8 @@ document.addEventListener("click", async e => {
 });
 
 function paintTab() {
+  paintOutgoing();
+  if(statusDesktop()){projectsWidth(PROJECTS_WIDTH);statusWidth(STATUS_WIDTH);}
   document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===TAB));
   const feed=TAB==="feed" || TAB==="direct" && !!ACTIVE_DM;
   $("feedView").classList.toggle("hidden",!feed);
@@ -2934,9 +2999,10 @@ $("cBody").addEventListener("keydown", e => {
 const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+tr(" МБ") : n >= 1024 ? Math.ceil(n/1024)+tr(" КБ") : n+tr(" Б");
 const fileExt = name => (name.includes(".") ? name.split(".").pop() : "FILE").slice(0, 5).toUpperCase();
 function fileCard(a) {
+  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name))return ui`<div><button type="button" class="inline-image" data-ux="preview" data-image="${a.id}" data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button></div>`;
   const content = `<span class="file-symbol" aria-hidden="true">${esc(fileExt(a.name))}</span><span class="file-info"><span class="file-name">${esc(a.name)}</span>` +
     `<span class="file-detail">${fileSize(a.size)}${a.inline ? tr(" · Скачать") : tr(" · Внешняя ссылка: ") + esc(a.link || "")}</span></span>`;
-  return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>${a.size<=12*1024*1024&&/\.(png|jpe?g|gif|webp)$/i.test(a.name)?ui`<button data-ux="preview" data-att="${a.id}" data-name="${esc(a.name)}">Посмотреть изображение</button>`:""}</div>`
+  return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button></div>`
     : `<div class="file-card">${content}</div>`;
 }
 const FILE_PREVIEWS=new Map();
@@ -3025,7 +3091,8 @@ $("sendBtn").onclick = async () => {
   if (COMPOSE_RETRY?.signature === signature) data.idem_key = COMPOSE_RETRY.key;
   else COMPOSE_RETRY = {signature, key: data.idem_key};
   saveDraft(); SENDING = true; UPLOAD_ABORT = new AbortController();
-  $("pendingOutgoing").innerHTML=`<div class="mrow outgoing outgoing-pending"><div class="mmain"><div class="mtext md">${markdown(data.body)}</div>${ATTACHED.map(a=>`<div class="mextra">${esc(a.file.name)}</div>`).join("")}<div class="message-footer"><span class="receipt-button" role="status" aria-label="${tr("Отправляется…")}" title="${tr("Отправляется…")}"><span class="receipt-spinner" aria-hidden="true"></span></span></div></div></div>`;
+  const pending={key:data.idem_key,scope:draftKey(),body:data.body,files:ATTACHED.map(a=>a.file.name),id:null};
+  OUTGOING.set(pending.key,pending); paintOutgoing();
   toBottom();
   $("sendBtn").disabled = true; $("attachBtn").disabled = true;
   $("cBody").disabled = true;
@@ -3033,13 +3100,14 @@ $("sendBtn").onclick = async () => {
   try {
     for (const a of ATTACHED) data.attachments.push(await uploadFile(a, UPLOAD_ABORT.signal));
     UPLOAD_ABORT.signal.throwIfAborted?.();
-    await api("POST", "/api/messages", data, UPLOAD_ABORT.signal);
-    $("pendingOutgoing").replaceChildren();
+    pending.id=(await api("POST", "/api/messages", data, UPLOAD_ABORT.signal)).id; paintOutgoing();
     rememberRecipient(data.to_ids?.[0] || "");
-    clearDraft(); resetCompose(true); await refresh(); toBottom();
+    clearDraft(); resetCompose(true);
+    try { await refresh(); } catch(err) { toast(err.message,true); }
+    toBottom();
   }
-  catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? tr("Отправка остановлена. Файлы и текст сохранены — можно повторить.") : err.message;$("retrySend").classList.remove("hidden"); }
-  finally { $("pendingOutgoing").replaceChildren(); SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
+  catch (err) { if(!pending.id)OUTGOING.delete(pending.key); $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? tr("Отправка остановлена. Файлы и текст сохранены — можно повторить.") : err.message;$("retrySend").classList.remove("hidden"); }
+  finally { paintOutgoing(); SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
 };
 
 async function loadPresence() {
@@ -3620,18 +3688,61 @@ async function showMember(id){
   const b=board.board.find(b=>b.id===id),tasks=open.messages.filter(m=>m.status?.state==="taken"&&m.status.by_id===id),cs=claims.claims.filter(c=>c.owner_id===id||c.owner===u.name);
   showInfo(u.name,ui`<p>${u.kind==="agent"?tr("Агент · человек-владелец: ")+esc(u.owner):tr("Человек")}</p><p>Связь: ${u.listening?(u.kind==="agent"?tr("слушает сообщения"):tr("в сети")):u.last_check?tr("проверял входящие ")+esc(shortTime(u.last_check)):tr("нет активного слушателя")}</p>${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
 }
+const INLINE_IMAGES=new Map();let IMAGE_OBSERVER=null;
+function clearInlineImages(){
+  IMAGE_OBSERVER?.disconnect();
+  for(const entry of INLINE_IMAGES.values()){entry.abort.abort();if(entry.url)URL.revokeObjectURL(entry.url);}
+  INLINE_IMAGES.clear();
+}
+async function fetchImageBlob(id,signal){
+  const response=await appFetch(`/api/attachments/${id}`,{signal,headers:{Authorization:"Bearer "+TOKEN,"X-Telegent-Project":PROJECT}});
+  if(!response.ok)throw Error(tr("Не удалось открыть файл: HTTP ")+response.status);
+  const blob=await response.blob(),bytes=new Uint8Array(await blob.slice(0,16).arrayBuffer());
+  const mime=bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71?"image/png":bytes[0]===255&&bytes[1]===216&&bytes[2]===255?"image/jpeg":String.fromCharCode(...bytes.slice(0,6)).match(/^GIF8[79]a$/)?"image/gif":String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP"?"image/webp":null;
+  if(!mime)throw Error(tr("Формат не поддерживает просмотр. Скачай файл, чтобы открыть его на устройстве."));
+  return new Blob([blob],{type:mime});
+}
+function imageEntry(id){
+  id=String(id);let entry=INLINE_IMAGES.get(id);if(entry)return entry;
+  entry={abort:new AbortController(),url:null};INLINE_IMAGES.set(id,entry);
+  entry.promise=fetchImageBlob(id,entry.abort.signal).then(async blob=>{
+    if(INLINE_IMAGES.get(id)!==entry)throw Error("Image scope changed");
+    entry.blob=blob;entry.url=URL.createObjectURL(blob);
+    const img=new Image();img.src=entry.url;await img.decode();entry.width=img.naturalWidth;entry.height=img.naturalHeight;
+    return entry;
+  });
+  return entry;
+}
+function displayInlineImage(node,entry){
+  if(!node.isConnected || INLINE_IMAGES.get(node.dataset.image)!==entry)return;
+  const stick=feedVisible()&&nearBottom(),anchor=captureFeedAnchor();
+  const width=Math.min(300,innerWidth*.6),height=Math.min(360,width*entry.height/entry.width);
+  node.style.width=Math.min(width,height*entry.width/entry.height)+"px";node.style.height=height+"px";
+  const img=document.createElement("img");img.alt=node.dataset.name;img.src=entry.url;img.draggable=false;node.replaceChildren(img);
+  if(stick)toBottom();else restoreFeedAnchor(anchor);
+}
+function observeInlineImages(){
+  IMAGE_OBSERVER?.disconnect();
+  const nodes=[...$("feed").querySelectorAll("[data-image]")],ids=new Set(nodes.map(n=>n.dataset.image));
+  for(const [id,entry] of INLINE_IMAGES)if(!ids.has(id)){entry.abort.abort();if(entry.url)URL.revokeObjectURL(entry.url);INLINE_IMAGES.delete(id);}
+  const load=node=>{
+    const entry=imageEntry(node.dataset.image);
+    entry.promise.then(e=>displayInlineImage(node,e)).catch(err=>{
+      if(!node.isConnected || INLINE_IMAGES.get(node.dataset.image)!==entry)return;
+      // Invalid image extensions remain downloadable without rendering active content.
+      node.removeAttribute("data-ux");node.dataset.act="dl";node.style.cursor="pointer";node.textContent=node.dataset.name+tr(" · Скачать");node.title=err.message;
+    });
+  };
+  IMAGE_OBSERVER=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){IMAGE_OBSERVER.unobserve(e.target);load(e.target);}},{root:SC,rootMargin:"400px"});
+  for(const node of nodes){const entry=INLINE_IMAGES.get(node.dataset.image);if(entry?.width)displayInlineImage(node,entry);else IMAGE_OBSERVER.observe(node);}
+}
 async function previewFile(id,name){
   const scope=uiScope();showInfo(name,tr('<p role="status">Загружаем изображение…</p>'));
   const version=INFO_VERSION;
-  const headers={Authorization:"Bearer "+TOKEN,"X-Telegent-Project":PROJECT};
-  const response=await appFetch(`/api/attachments/${id}`,{headers});if(scope!==uiScope()||version!==INFO_VERSION||!$("infoDialog").open)return;if(!response.ok)throw Error(tr("Не удалось открыть файл: HTTP ")+response.status);
-  if(Number(response.headers.get("Content-Length"))>12*1024*1024)throw Error(tr("Для просмотра доступны изображения до 12 МБ. Файл можно скачать."));
-  const blob=await response.blob();if(scope!==uiScope()||!$("infoDialog").open||version!==INFO_VERSION)return;
-  const bytes=new Uint8Array(await blob.slice(0,16).arrayBuffer());
-  const mime=bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71?"image/png":bytes[0]===255&&bytes[1]===216&&bytes[2]===255?"image/jpeg":String.fromCharCode(...bytes.slice(0,6)).match(/^GIF8[79]a$/)?"image/gif":String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP"?"image/webp":null;
-  if(!mime)throw Error(tr("Формат не поддерживает просмотр. Скачай файл, чтобы открыть его на устройстве."));
-  if(version!==INFO_VERSION)return;
-  PREVIEW_URL=URL.createObjectURL(new Blob([blob],{type:mime}));$("infoBody").innerHTML=ui`<img class="file-preview" alt="${esc(name)}" src="${PREVIEW_URL}"><p><button data-act="dl" data-att="${id}" data-name="${esc(name)}">Скачать оригинал</button></p>`;
+  const entry=INLINE_IMAGES.get(String(id));
+  const blob=entry?(await entry.promise).blob:await fetchImageBlob(id);
+  if(scope!==uiScope()||version!==INFO_VERSION||!$("infoDialog").open)return;
+  PREVIEW_URL=URL.createObjectURL(blob);$("infoBody").innerHTML=ui`<img class="file-preview" alt="${esc(name)}" src="${PREVIEW_URL}"><p><button data-act="dl" data-att="${id}" data-name="${esc(name)}">Скачать оригинал</button></p>`;
 }
 document.addEventListener("click",async e=>{
   const el=e.target.closest("[data-ux]");if(!el)return;e.preventDefault();
