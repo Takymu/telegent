@@ -13,6 +13,8 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 FIREFOX = shutil.which('firefox') or str(Path(os.environ.get('PROGRAMFILES', 'C:/Program Files'))/'Mozilla Firefox/firefox.exe')
+BROWSER_LOCALE = None
+EXTRA_PROBE = None
 PROBE = r'''
 window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSON.stringify({error:e.message})}));
 (async()=>{
@@ -274,12 +276,18 @@ def test_slow(h,user,q,data):
                     subprocess.run(command+['adduser','bob-agent','--kind','agent','--owner','alice','--token-out',str(work/'other-agent.token')],env=env,check=True,capture_output=True)
                     ids={'general':api('POST','/api/messages?project=main',{'body':'general fixture'})['id']}
                     ids['agent']=api('POST','/api/messages?project=main',{'body':'agent fixture'},(work/'agent.token').read_text().strip())['id']
+                    ids['agent_token']=(work/'agent.token').read_text().strip()
                     ids['second']=api('POST','/api/projects',{'title':'Second fixture','slug':'second'})['project']['slug']
                     template = (ROOT/'web.html').read_text(encoding='utf-8')
+                    bootstrap='if(!localStorage.getItem("tg_language"))localStorage.setItem("tg_language","ru");'
+                    if BROWSER_LOCALE:
+                        bootstrap+='Object.defineProperty(navigator,"language",{value:'+json.dumps(BROWSER_LOCALE)+'});'
+                    template = template.replace('<script>', '<script>'+bootstrap+'</script><script>', 1)
                     for viewport,width,height in [('desktop',1360,1000),('mobile',390,844)]:
                         constants='const FIXTURE='+json.dumps(ids)+'; const VIEWPORT='+json.dumps(viewport)+';'
                         profile=work/('profile-'+viewport);profile.mkdir()
-                        for stage,probe in [('navigation',PROBE),('restored',RESTORE_PROBE)]:
+                        stages=[('navigation',PROBE),('restored',RESTORE_PROBE)]+([('automatic',EXTRA_PROBE)] if EXTRA_PROBE else [])
+                        for stage,probe in stages:
                             result_path=work/'result.json';result_path.unlink(missing_ok=True)
                             html=template.replace('</body>','<img src="/slow" style="display:none"><script>'+constants+probe+'</script></body>')
                             (work/'web.html').write_text(html,encoding='utf-8')
@@ -287,7 +295,7 @@ def test_slow(h,user,q,data):
                             subprocess.run([FIREFOX,'--headless','--no-remote','--profile',str(profile),'--window-size',f'{width},{height}',
                                            '--screenshot',str(work/name),url+'/#token='+token+'&p=main'],env=env,capture_output=True,timeout=45,check=True)
                             artifacts=os.environ.get('TELEGENT_TEST_ARTIFACTS')
-                            if artifacts:
+                            if artifacts and (work/name).is_file():
                                 dest=Path(artifacts);dest.mkdir(parents=True,exist_ok=True)
                                 shutil.copyfile(work/name,dest/name)
                             self.assertTrue(result_path.exists(),'browser did not report completion')

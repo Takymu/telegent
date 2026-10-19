@@ -355,7 +355,7 @@ def account_dict(row):
 
 def find_accounts(label=None, pid=None, kind=None, account_id=None, owner=None):
     if (label is not None and not isinstance(label, str)) or (account_id is not None and not isinstance(account_id, str)):
-        raise ApiError(400, "имя и account_id должны быть строками")
+        raise ApiError(400, _ui_text('имя и account_id должны быть строками'))
     sql, args = "SELECT u.* FROM users u WHERE 1=1", []
     if account_id is not None:
         sql += " AND u.name=?"; args.append(account_id)
@@ -373,9 +373,9 @@ def find_accounts(label=None, pid=None, kind=None, account_id=None, owner=None):
 def resolve_account(label=None, pid=None, kind=None, account_id=None, owner=None):
     rows = find_accounts(label, pid, kind, account_id, owner)
     if not rows:
-        raise ApiError(404, "аккаунта нет в выбранном проекте или доступном списке")
+        raise ApiError(404, _ui_text('аккаунта нет в выбранном проекте или доступном списке'))
     if len(rows) != 1:
-        raise ApiError(409, "имя неоднозначно: выбери проект или укажи account_id")
+        raise ApiError(409, _ui_text('имя неоднозначно: выбери проект или укажи account_id'))
     return rows[0]
 
 
@@ -393,7 +393,7 @@ def check_member_name(con, pid, label, excluding=None):
     if con.execute("SELECT 1 FROM members m JOIN users u ON u.name=m.user WHERE m.project_id=? "
                    "AND lower(COALESCE(u.display_name,u.name))=lower(?) AND u.name!=?",
                    (pid, label, excluding or "")).fetchone():
-        raise ApiError(409, "это имя уже занято в проекте")
+        raise ApiError(409, _ui_text('это имя уже занято в проекте'))
 
 
 def managed_account(h, user, q, data):
@@ -421,8 +421,8 @@ def managed_account(h, user, q, data):
     if len(rows) == 1:
         return rows[0]
     if len(rows) > 1:
-        raise ApiError(409, "имя неоднозначно: выбери проект или укажи account_id")
-    raise ApiError(404, "аккаунта нет в выбранном проекте или среди твоих агентов без проекта")
+        raise ApiError(409, _ui_text('имя неоднозначно: выбери проект или укажи account_id'))
+    raise ApiError(404, _ui_text('аккаунта нет в выбранном проекте или среди твоих агентов без проекта'))
 
 
 # ---------------------------------------------------------------- projects
@@ -449,16 +449,16 @@ def add_member(con, pid, name, role, by):
     u = con.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
     special = con.execute("SELECT admin_owner,service_agent FROM projects WHERE id=?", (pid,)).fetchone()
     if special["admin_owner"] and name not in (special["admin_owner"], special["service_agent"]):
-        raise ApiError(403, "это личный чат администратора с привязанной сессией разработки")
+        raise ApiError(403, _ui_text('это личный чат администратора с привязанной сессией разработки'))
     check_member_name(con, pid, u["display_name"] or u["name"], name)
     if u["kind"] == "agent":
         if not member_role(pid, u["owner"]):
-            raise ApiError(400, "человек агента должен состоять в этом проекте")
+            raise ApiError(400, _ui_text('человек агента должен состоять в этом проекте'))
         role = "agent"
         other = con.execute("SELECT p.slug FROM members m JOIN projects p ON p.id = m.project_id "
                             "WHERE m.user = ? AND m.project_id != ?", (name, pid)).fetchone()
         if other:
-            raise ApiError(409, "этот аккаунт агента уже состоит в другом проекте")
+            raise ApiError(409, _ui_text('этот аккаунт агента уже состоит в другом проекте'))
     con.execute("INSERT OR REPLACE INTO members(project_id, user, role, added_by, added_ts) VALUES (?,?,?,?,?)",
                 (pid, name, role, by, time.time()))
 
@@ -509,12 +509,12 @@ def project_for(h, user, q):
     if slug:
         p = next((r for r in rows if r["slug"] == slug), None)
         if not p:
-            raise ApiError(404, f"проекта «{slug}» нет или ты в нём не состоишь")
+            raise ApiError(404, f"{_ui_text('проекта «')}{slug}{_ui_text('» нет или ты в нём не состоишь')}")
         return p
     if len(rows) == 1:
         return rows[0]
     if not rows:
-        raise ApiError(409, "ты пока не состоишь ни в одном проекте: создай проект или попроси приглашение")
+        raise ApiError(409, _ui_text('ты пока не состоишь ни в одном проекте: создай проект или попроси приглашение'))
     raise ApiError(400, "ты в нескольких проектах, укажи какой: " + ", ".join(r["slug"] for r in rows) +
                         " (tg.py --project <имя> или \"project\" в конфиге)")
 
@@ -573,8 +573,7 @@ def login_throttle(keys):
         _login_fails[key] = fails
         lock = lock_seconds(len(fails), key.split(":")[0])
         if lock and now - fails[-1] < lock:
-            raise ApiError(429, f"много неверных попыток, подожди {human_wait(lock - (now - fails[-1]))} и попробуй ещё. "
-                                f"Забыл пароль — попроси ссылку для сброса")
+            raise ApiError(429, f"{_ui_text('много неверных попыток, подожди ')}{human_wait(lock - (now - fails[-1]))}{_ui_text(' и попробуй ещё. Забыл пароль — попроси ссылку для сброса')}")
 
 
 def login_failed(keys):
@@ -600,11 +599,11 @@ INVITE_DAYS = 7
 
 def create_invite(by, name, kind=None, owner=None, pid=None, reset=False, account_id=None):
     if not NAME_RE.fullmatch(name or ""):
-        raise ApiError(400, "имя: латиница, цифры, . _ -, до 32 символов")
+        raise ApiError(400, _ui_text('имя: латиница, цифры, . _ -, до 32 символов'))
     with DB_LOCK:
         con = db()
         if pid and con.execute("SELECT 1 FROM projects WHERE id=? AND admin_owner IS NOT NULL", (pid,)).fetchone():
-            raise ApiError(403, "в личный чат администратора не приглашают других участников")
+            raise ApiError(403, _ui_text('в личный чат администратора не приглашают других участников'))
         if reset:
             u = resolve_account(name, account_id=account_id)
         elif account_id:
@@ -616,18 +615,18 @@ def create_invite(by, name, kind=None, owner=None, pid=None, reset=False, accoun
         if u:
             name = account_name(u["name"])
             if u["revoked"]:
-                raise ApiError(400, "аккаунт отозван; создай другой аккаунт")
+                raise ApiError(400, _ui_text('аккаунт отозван; создай другой аккаунт'))
             if not reset and kind and kind != u["kind"]:
-                raise ApiError(409, "это имя уже занято в проекте")
+                raise ApiError(409, _ui_text('это имя уже занято в проекте'))
         role = None
         if reset:
             kind, owner, purpose, pid = u["kind"], u["owner"], "reset", None
         elif u:
             kind, owner, purpose = u["kind"], u["owner"], "add"
             if member_role(pid, u["name"]):
-                raise ApiError(409, "аккаунт уже в этом проекте")
+                raise ApiError(409, _ui_text('аккаунт уже в этом проекте'))
             if kind == "agent" and con.execute("SELECT 1 FROM members WHERE user=?", (u["name"],)).fetchone():
-                raise ApiError(409, "этот аккаунт агента уже состоит в другом проекте")
+                raise ApiError(409, _ui_text('этот аккаунт агента уже состоит в другом проекте'))
             check_member_name(con, pid, name)
             role = "agent" if kind == "agent" else "member"
         else:
@@ -640,7 +639,7 @@ def create_invite(by, name, kind=None, owner=None, pid=None, reset=False, accoun
         if kind == "agent" and not reset:
             person = con.execute("SELECT * FROM users WHERE name=? AND kind='human' AND revoked=0", (owner,)).fetchone()
             if not person or not member_role(pid, owner):
-                raise ApiError(400, "владелец агента должен быть человеком из этого проекта")
+                raise ApiError(400, _ui_text('владелец агента должен быть человеком из этого проекта'))
         code = "tgi_" + secrets.token_hex(24)
         now = time.time()
         target = u["name"] if u else None
@@ -662,11 +661,11 @@ def live_invite(code):
                            "LEFT JOIN projects p ON p.id = i.project_id WHERE i.code_hash = ?",
                            (token_hash(code or ""),)).fetchone()
     if not inv:
-        raise ApiError(404, "приглашение не найдено: ссылка неверная или её заменили новой")
+        raise ApiError(404, _ui_text('приглашение не найдено: ссылка неверная или её заменили новой'))
     if inv["used_ts"]:
-        raise ApiError(410, "приглашение уже использовано; если это был не ты, скажи тому, кто приглашал")
+        raise ApiError(410, _ui_text('приглашение уже использовано; если это был не ты, скажи тому, кто приглашал'))
     if inv["expires_ts"] < time.time():
-        raise ApiError(410, "приглашение просрочено; попроси новое")
+        raise ApiError(410, _ui_text('приглашение просрочено; попроси новое'))
     return inv
 
 
@@ -682,33 +681,33 @@ def redeem_invite(code, password=None, label="", me=None, as_existing=False):
             if kind == "agent" and purpose != "reset":
                 owner = con.execute("SELECT 1 FROM users WHERE name=? AND kind='human' AND revoked=0", (inv["owner"],)).fetchone()
                 if not owner or not member_role(inv["project_id"], inv["owner"]):
-                    raise ApiError(410, "владелец агента больше не состоит в проекте; попроси новое приглашение")
+                    raise ApiError(410, _ui_text('владелец агента больше не состоит в проекте; попроси новое приглашение'))
             if as_existing:
                 if purpose != "new" or kind != "human":
-                    raise ApiError(400, "так можно принять только приглашение нового человека")
+                    raise ApiError(400, _ui_text('так можно принять только приглашение нового человека'))
                 if not me or me["kind"] != "human":
-                    raise ApiError(401, "войди в свой аккаунт")
+                    raise ApiError(401, _ui_text('войди в свой аккаунт'))
                 key, name, purpose = me["name"], account_name(me["name"]), "add"
             elif purpose == "add":
                 if not me or me["name"] != key:
-                    raise ApiError(401, f"это приглашение для {name}: войди своим аккаунтом")
+                    raise ApiError(401, f"{_ui_text('это приглашение для ')}{name}{_ui_text(': войди своим аккаунтом')}")
             elif kind == "human" and len(password or "") < PW_MIN_LEN:
-                raise ApiError(400, f"придумай пароль от {PW_MIN_LEN} символов")
+                raise ApiError(400, f"{_ui_text('придумай пароль от ')}{PW_MIN_LEN}{_ui_text(' символов')}")
             pw = hash_password(password) if kind == "human" and purpose != "add" else None
             if purpose == "new":
                 check_member_name(con, inv["project_id"], name)
                 if kind == "human" and find_accounts(name, kind="human"):
-                    raise ApiError(409, "имя человека уже занято: войди существующим аккаунтом")
+                    raise ApiError(409, _ui_text('имя человека уже занято: войди существующим аккаунтом'))
                 key = new_account(con, name, kind, inv["owner"], tok, pw)
                 add_member(con, inv["project_id"], key, inv["role"], inv["created_by"])
             elif purpose == "add":
                 if member_role(inv["project_id"], key):
-                    raise ApiError(409, "аккаунт уже в этом проекте")
+                    raise ApiError(409, _ui_text('аккаунт уже в этом проекте'))
                 add_member(con, inv["project_id"], key, "member" if as_existing else inv["role"], inv["created_by"])
             else:
                 target = con.execute("SELECT * FROM users WHERE name=? AND revoked=0", (key,)).fetchone()
                 if not target or target["kind"] != kind:
-                    raise ApiError(410, "аккаунт приглашения больше недоступен")
+                    raise ApiError(410, _ui_text('аккаунт приглашения больше недоступен'))
                 name = account_name(key)
                 if kind == "human":
                     con.execute("UPDATE users SET pw_hash=? WHERE name=?", (pw, key))
@@ -725,6 +724,283 @@ def redeem_invite(code, password=None, label="", me=None, as_existing=False):
     if purpose != "add":
         res["token"] = new_session(key, label) if kind == "human" else tok
     return res
+
+
+# UI language affects exception text only; protocol values and stored messages stay unchanged.
+_UI_CONTEXT = threading.local()
+_UI_EN = {'аккаунта нет в выбранном проекте или среди твоих агентов без проекта': 'Account not found in the selected '
+                                                                         'project or among your agents '
+                                                                         'without a project',
+ 'имя и account_id должны быть строками': 'name and account_id must be strings',
+ 'аккаунта нет в выбранном проекте или доступном списке': 'Account not found in the selected project or '
+                                                          'available list',
+ 'имя неоднозначно: выбери проект или укажи account_id': 'Name is ambiguous: choose a project or specify '
+                                                         'account_id',
+ 'это имя уже занято в проекте': 'This name is already taken in the project',
+ 'это личный чат администратора с привязанной сессией разработки': 'This is the administrator’s direct chat '
+                                                                   'with the linked development session',
+ 'ты пока не состоишь ни в одном проекте: создай проект или попроси приглашение': 'You’re not in a project '
+                                                                                  'yet. Create one or ask '
+                                                                                  'for an invitation',
+ 'имя: латиница, цифры, . _ -, до 32 символов': 'name: Latin letters, digits, . _ -, up to 32 characters',
+ 'приглашение не найдено: ссылка неверная или её заменили новой': 'Invitation not found: the link is invalid '
+                                                                  'or has been replaced',
+ 'приглашение уже использовано; если это был не ты, скажи тому, кто приглашал': 'Invitation already used. If '
+                                                                                'you didn’t use it, tell the '
+                                                                                'person who invited you',
+ 'приглашение просрочено; попроси новое': 'Invitation expired. Ask for a new one',
+ 'похоже на секрет (': 'Looks like a secret (',
+ ') в поле «': ') in field “',
+ '», строка ': '”, line ',
+ '. Сообщение НЕ отправлено. Убери значение (напиши «см. файл X у меня») и пошли снова.': '. Message NOT '
+                                                                                          'sent. Remove the '
+                                                                                          'value (write “see '
+                                                                                          'file X on my '
+                                                                                          'machine”) and try '
+                                                                                          'again.',
+ 'повреждён ключ хранилища секретов': 'The secret storage key is corrupted',
+ 'нужен прежний ключ хранилища секретов': 'The previous secret storage key is required',
+ 'нет такого личного чата': 'Direct chat not found',
+ 'type должен быть одним из: ': 'type must be one of: ',
+ 'текст длиннее ': 'Message is longer than ',
+ ' символов — положи его во вложение': ' characters. Attach it as a file instead',
+ 'пустое сообщение': 'Message cannot be empty',
+ 'адресаты: список имён или to_ids': 'recipients: a list of names or to_ids',
+ 'attachments: список, не больше 30 вложений': 'attachments: must be a list of no more than 30 items',
+ 'не больше 30 вложений': 'No more than 30 attachments are allowed',
+ 'один файл нельзя прикрепить дважды': 'The same file cannot be attached twice',
+ 'сообщения #': 'Message #',
+ ' нет': ' not found',
+ 'нет доступа к проекту': 'You don’t have access to this project',
+ 'статус есть только у ': 'Only ',
+ 'одобрять может только человек': 'Only a person can approve',
+ ' не просит одобрения': ' does not request approval',
+ 'решение по #': 'Decision on #',
+ ' принимает только ': ' can only be made by ',
+ 'чат с разработчиком доступен только администратору сервера': 'The developer chat is available only to the '
+                                                               'server administrator',
+ 'название проекта должно быть текстом': 'Project name must be text',
+ 'нужно название проекта': 'Project name is required',
+ 'название проекта: не больше 80 символов': 'Project name must be no longer than 80 characters',
+ 'название проекта должно быть одной строкой без управляющих символов': 'Project name must be a single line '
+                                                                        'without control characters',
+ ' ещё нет пароля: войди один раз по ссылке с токеном и задай его (кнопка «Пароль»)': ' has no password yet. '
+                                                                                      'Sign in once with the '
+                                                                                      'token link and set '
+                                                                                      'one using the '
+                                                                                      '“Password” button',
+ 'неверное имя или пароль': 'Incorrect name or password',
+ 'пароль бывает только у людей; агенты входят по токену': 'Only people use passwords; agents sign in with a '
+                                                          'token',
+ 'пароль короче ': 'Password must be at least ',
+ ' символов': ' characters',
+ 'это может только владелец проекта «': 'Only the owner of project “',
+ 'приглашает и добавляет участников только человек': 'Only a person can invite and add members',
+ 'порядок проектов выбирает человек': 'Only a person can choose the project order',
+ 'project_ids: список разных идентификаторов проектов': 'project_ids: must be a list of distinct project IDs',
+ 'проекты создают люди, не агенты': 'Projects can be created by people, not agents',
+ 'короткое имя проекта: латиница, цифры и -, от 2 до 40 символов': 'Project slug: Latin letters, digits, and '
+                                                                   'hyphens; 2 to 40 characters',
+ 'для подтверждения введи название проекта: ': 'To confirm, enter the project name: ',
+ 'переименовывает человек: себя или своих агентов': 'Only a person can rename themselves or their own agents',
+ 'сообщение удалено': 'Message was deleted',
+ 'загрузка не найдена': 'Upload not found',
+ 'Недостаточно места на сервере для файла: свободно ': 'Not enough server space for this file: ',
+ ' МБ. Нужно сохранить не менее 300 МБ свободными. Можно отправить текст без вложения.': ' MB free. At least '
+                                                                                         '300 MB must remain '
+                                                                                         'available. You can '
+                                                                                         'send the message '
+                                                                                         'without an '
+                                                                                         'attachment.',
+ 'максимальный размер одного файла — 200 МБ': 'Maximum file size is 200 MB',
+ 'md5: ожидаются 32 шестнадцатеричных символа': 'md5: expected 32 hexadecimal characters',
+ 'часть файла должна быть от 1 байта до 4 МБ': 'File chunk must be between 1 byte and 4 MB',
+ 'часть файла получена не полностью — повтори загрузку': 'File chunk was incomplete. Retry the upload',
+ 'нет такого вложения': 'Attachment not found',
+ 'вложение по ссылке: ': 'Linked attachment: ',
+ 'нужен key — что именно занимаешь': 'key is required: specify what you’re claiming',
+ 'hours должно быть больше 0 и не больше года': 'hours must be greater than 0 and no more than one year',
+ 'недопустимое имя агента': 'Invalid agent name',
+ 'имя неоднозначно: укажи --project или --account-id': 'Name is ambiguous: specify --project or --account-id',
+ 'человек агента должен состоять в этом проекте': 'The agent’s person must be a member of this project',
+ 'этот аккаунт агента уже состоит в другом проекте': 'This agent account already belongs to another project',
+ 'проекта «': 'Project “',
+ '» нет или ты в нём не состоишь': '” does not exist or you’re not a member',
+ 'много неверных попыток, подожди ': 'Too many failed attempts. Wait ',
+ ' и попробуй ещё. Забыл пароль — попроси ссылку для сброса': ' and try again. Forgot your password? Ask for '
+                                                              'a reset link',
+ 'в личный чат администратора не приглашают других участников': 'Other members cannot be invited to the '
+                                                                'administrator’s direct chat',
+ 'передача секретов недоступна: на сервере не найдена системная libcrypto': 'Secret transfer is unavailable: '
+                                                                            'system libcrypto was not found '
+                                                                            'on the server',
+ 'повреждены параметры хранилища секретов': 'Secret storage settings are corrupted',
+ 'не удалось открыть хранилище секретов': 'Could not open secret storage',
+ 'ключ хранилища отсутствует: восстанови его из резервной копии': 'Storage key is missing. Restore it from a '
+                                                                  'backup',
+ 'ключ хранилища недоступен: восстанови его из резервной копии': 'Storage key is unavailable. Restore it '
+                                                                 'from a backup',
+ 'ответ должен оставаться в исходном чате': 'A reply must stay in the original chat',
+ 'за этим именем теперь другой аккаунт: выбери адресата по to_ids': 'A different account now uses this name. '
+                                                                    'Choose the recipient with to_ids',
+ 'result должен быть объектом': 'result must be an object',
+ 'одобряющий должен быть человеком из этого проекта': 'The approver must be a person in this project',
+ 'в личном чате только два участника': 'A direct chat can have only two participants',
+ 'заявки проекта публикуются в общем чате': 'Project claims must be posted in the team chat',
+ 'текст сообщения изменился; прочитай актуальную версию перед решением': 'The message changed. Read the '
+                                                                         'latest version before deciding',
+ 'нужен токен (Authorization: Bearer ...)': 'Token required (Authorization: Bearer ...)',
+ 'неизвестный или отозванный токен (или сессия закрыта)': 'Unknown or revoked token (or the session has '
+                                                          'ended)',
+ 'запрос слишком большой': 'Request is too large',
+ 'текущий пароль неверный': 'Current password is incorrect',
+ 'сбросить можно токен своего агента; пароль человека сбрасывает админ сервера': 'You can reset your own '
+                                                                                 'agent’s token; a person’s '
+                                                                                 'password can be reset by '
+                                                                                 'the server administrator',
+ 'проект не найден': 'Project not found',
+ 'переименовать проект может только его создатель — человек из этого проекта': 'Only the project creator, '
+                                                                               'who must be a member, can '
+                                                                               'rename it',
+ 'имя неоднозначно: выбери аккаунт по account_id': 'Name is ambiguous. Select an account with account_id',
+ 'это последний владелец: сначала сделай владельцем кого-то ещё': 'This is the last owner. Assign someone '
+                                                                  'else as owner first',
+ 'переименовать можно себя и своих агентов': 'You can rename yourself and your own agents',
+ 'имя человека уже занято': 'This person’s name is already taken',
+ 'имя занято действующим приглашением': 'This name is reserved by an active invitation',
+ 'это последний владелец': 'This is the last owner',
+ 'нет такого участника': 'Member not found',
+ 'личный чат связывает человека и агента своего проекта': 'A direct chat connects a person with an agent in '
+                                                          'their project',
+ 'секрет адресуется агенту от человека личного чата': 'A secret can be sent to the agent by the person in '
+                                                      'the direct chat',
+ 'нужен уникальный idem_key от 16 до 100 символов': 'A unique idem_key of 16 to 100 characters is required',
+ 'секрет: непустой текст до 32 КиБ': 'secret: non-empty text up to 32 KiB',
+ 'срок секрета: от 5 минут до суток': 'secret lifetime: 5 minutes to 24 hours',
+ 'нет такого секрета': 'Secret not found',
+ 'получить секрет может только адресованный агент': 'Only the addressed agent can retrieve this secret',
+ 'нужен постоянный claim_key из 64 шестнадцатеричных знаков для безопасного повтора': 'A persistent '
+                                                                                      '64-character '
+                                                                                      'hexadecimal claim_key '
+                                                                                      'is required for safe '
+                                                                                      'retries',
+ 'секрет получен, отозван или срок его действия истёк': 'Secret was retrieved, revoked, or has expired',
+ 'получение уже начато: продолжи прежнюю команду на том же устройстве': 'Retrieval has already started. '
+                                                                        'Continue with the original command '
+                                                                        'on the same device',
+ 'нет сообщения в выбранном проекте': 'Message not found in the selected project',
+ 'человек может изменить или удалить только собственное сообщение': 'A person can edit or delete only their '
+                                                                    'own messages',
+ 'нужны текущая revision и текст body для изменения': 'Current revision and body text are required for '
+                                                      'editing',
+ 'нужны emoji и active (true или false)': 'emoji and active (true or false) are required',
+ 'реакция: ❤️, 🔥, 👍, 👎, 🤡; active: true | false': 'reaction: ❤️, 🔥, 👍, 👎, 🤡; active: true | false',
+ 'реакции доступны у сообщений участников': 'Reactions are available on member messages',
+ 'нужны Content-Length и offset': 'Content-Length and offset are required',
+ 'загрузка уже завершена': 'Upload is already complete',
+ 'неверная позиция загрузки': 'Invalid upload offset',
+ 'файл получен не полностью': 'File was not fully received',
+ 'отправленный файл удаляется только вместе с проектом': 'A sent file can only be deleted along with its '
+                                                         'project',
+ 'нажми «Скачать» у файла в чате': 'Click “Download” on the file in chat',
+ 'ссылка на скачивание истекла; нажми «Скачать» ещё раз': 'Download link expired. Click “Download” again',
+ 'вход больше не действителен': 'Your sign-in is no longer valid',
+ 'hours должно быть числом (часы, можно дробное)': 'hours must be a number (hours; fractions are allowed)',
+ 'аккаунт отозван; создай другой аккаунт': 'Account was revoked. Create another account',
+ 'владелец агента должен быть человеком из этого проекта': 'The agent’s owner must be a person in this '
+                                                           'project',
+ 'системная libcrypto не поддерживает AES-GCM': 'System libcrypto does not support AES-GCM',
+ 'не удалось проверить или зашифровать секрет': 'Could not validate or encrypt the secret',
+ 'ключ сообщения уже использован в другом чате': 'Message key has already been used in another chat',
+ 'нет таких адресатов в выбранном проекте': 'No such recipients in the selected project',
+ 'файл ещё не загружен полностью или уже отправлен': 'File upload is incomplete or the file has already been '
+                                                     'sent',
+ 'участник может пригласить своего агента; людей приглашает владелец проекта': 'A member can invite their '
+                                                                               'own agent; only the project '
+                                                                               'owner can invite people',
+ 'ключ сообщения использован в другом сообщении': 'Message key was used by another message',
+ 'отозвать секрет может отправитель': 'Only the sender can revoke the secret',
+ 'секрет уже получен: отзыв не удалит его у получателя': 'Secret has already been retrieved; revoking it '
+                                                         'won’t remove it from the recipient',
+ 'получение уже началось: отзыв не удалит файл у получателя': 'Retrieval has already started; revoking it '
+                                                              'won’t remove the recipient’s file',
+ 'сначала получи пакет': 'Retrieve the package first',
+ 'карточка секрета не редактируется': 'Secret cards cannot be edited',
+ 'body: текст сообщения': 'body: message text',
+ 'текст слишком длинный': 'Message is too long',
+ 'сообщение уже изменилось; закрой редактор и открой актуальную версию': 'Message has changed. Close the '
+                                                                         'editor and open the latest version',
+ 'файл изменился во время отправки или повреждён; отправь его заново': 'File changed during upload or is '
+                                                                       'corrupted. Send it again',
+ 'некорректный диапазон файла': 'Invalid file range',
+ 'диапазон выходит за размер файла': 'Range exceeds file size',
+ 'нужен key или id': 'key or id is required',
+ 'чужую заявку снимает только человек': 'Only a person can release someone else’s claim',
+ 'аккаунт уже в этом проекте': 'Account is already in this project',
+ 'владелец агента больше не состоит в проекте; попроси новое приглашение': 'The agent’s owner is no longer '
+                                                                           'in the project. Ask for a new '
+                                                                           'invitation',
+ 'так можно принять только приглашение нового человека': 'Only an invitation for a new person can be '
+                                                         'accepted this way',
+ 'войди в свой аккаунт': 'Sign in to your account',
+ 'имя человека уже занято: войди существующим аккаунтом': 'This person’s name is already taken. Sign in with '
+                                                          'the existing account',
+ 'текст содержит недопустимый Unicode': 'Message contains invalid Unicode',
+ 'ключ загрузки уже занят другим файлом': 'Upload key is already in use by another file',
+ 'повторная часть отличается от полученной': 'Retry chunk differs from the chunk already received',
+ 'id должен быть числом': 'id must be a number',
+ 'активной заявки «': 'Active claim “',
+ '» нет': '” not found',
+ 'аккаунт сессии отозван; сначала реши это штатным управлением аккаунтами': 'Session account was revoked. '
+                                                                            'Resolve this using account '
+                                                                            'management first',
+ 'файл токена уже существует: выбери другой путь': 'Token file already exists. Choose another path',
+ 'имя уже есть в этой области; --rotate выдаст новый токен': 'Name already exists in this scope; --rotate '
+                                                             'will issue a new token',
+ 'это приглашение для ': 'This invitation is for ',
+ ': войди своим аккаунтом': ': sign in with that account',
+ 'придумай пароль от ': 'Create a password of at least ',
+ 'аккаунт приглашения больше недоступен': 'The invitation account is no longer available',
+ 'На сервере закончилось место. Отправь текст без вложения.': 'The server is out of space. Send the message '
+                                                              'without an attachment',
+ 'агент уже привязан; нужен его прежний файл токена или явный --rotate': 'Agent is already linked. Use its '
+                                                                         'existing token file or specify '
+                                                                         '--rotate',
+ 'нет такого пути': 'Path not found',
+ 'напрямую добавляются только люди из твоих общих проектов и твои агенты без проекта; ': 'You can add only '
+                                                                                         'people from '
+                                                                                         'projects you share '
+                                                                                         'and your own '
+                                                                                         'agents without a '
+                                                                                         'project; ',
+ ' пригласи ссылкой': ' invite them with a link',
+ ' нет в проекте': ' is not in the project',
+ ': строка или число до 500 символов': ': must be a string or number up to 500 characters',
+ 'некорректный Content-Length': 'Invalid Content-Length',
+ 'тело запроса — не JSON': 'Request body is not JSON',
+ 'seen_upto: целый неотрицательный номер, только вместе с kind=read': 'seen_upto: a non-negative integer, '
+                                                                      'only with kind=read',
+ '» уже занято: ': '” is already claimed by ',
+ 'заявки #': 'Claim #',
+ 'заявка #': 'Claim #',
+ '» уже снята': '” has already been released',
+ '» занял ': '” is claimed by ',
+ ': чужую заявку снимает только человек': ': only a person can release someone else’s claim',
+ 'вложение ': 'Attachment ',
+ ' больше ': ' exceeds ',
+ ' байт — пришли ссылкой и md5': ' bytes. Send it as a link with its md5',
+ ': нужен content_b64 или link': ': content_b64 or link is required',
+ ': битый base64': ': invalid base64',
+ 'у ': 'For '}
+def _ui_pattern_key(key):
+    boundary = r"[A-Za-zА-Яа-яЁё0-9_]"
+    return ("(?<!" + boundary + ")" if key[0].isalnum() else "") + re.escape(key) + ("(?!" + boundary + ")" if key[-1].isalnum() else "")
+_UI_PATTERN = re.compile("|".join(_ui_pattern_key(key) for key in sorted(_UI_EN, key=len, reverse=True)))
+
+def _ui_text(text):
+    if getattr(_UI_CONTEXT, "language", "ru") != "en":
+        return text
+    return _UI_PATTERN.sub(lambda match: _UI_EN[match.group()], text)
 
 
 class ApiError(Exception):
@@ -752,8 +1028,7 @@ def text_encoding_problem(text):
 def check_secret(field, text):
     hit = find_secret(text, Cfg.deny_literals)
     if hit:
-        raise ApiError(422, f"похоже на секрет ({hit[0]}) в поле «{field}», строка {hit[1]}. "
-                            f"Сообщение НЕ отправлено. Убери значение (напиши «см. файл X у меня») и пошли снова.")
+        raise ApiError(422, f"{_ui_text('похоже на секрет (')}{hit[0]}{_ui_text(') в поле «')}{field}{_ui_text('», строка ')}{hit[1]}{_ui_text('. Сообщение НЕ отправлено. Убери значение (напиши «см. файл X у меня») и пошли снова.')}")
 
 
 # ---------------------------------------------------------------- presence
@@ -808,7 +1083,7 @@ class SecretCipher:
                 except OSError:
                     pass
         if not self.lib:
-            raise ApiError(503, "передача секретов недоступна: на сервере не найдена системная libcrypto")
+            raise ApiError(503, _ui_text('передача секретов недоступна: на сервере не найдена системная libcrypto'))
         p, i = ctypes.c_void_p, ctypes.c_int
         signatures = {"EVP_CIPHER_CTX_new": (p, []), "EVP_CIPHER_CTX_free": (None, [p]),
                       "EVP_aes_256_gcm": (p, []), "EVP_CIPHER_CTX_ctrl": (i, [p,i,i,p])}
@@ -820,18 +1095,18 @@ class SecretCipher:
             for name, (result, args) in signatures.items():
                 f = getattr(self.lib, name); f.restype = result; f.argtypes = args
         except AttributeError:
-            raise ApiError(503, "системная libcrypto не поддерживает AES-GCM")
+            raise ApiError(503, _ui_text('системная libcrypto не поддерживает AES-GCM'))
 
     def crypt(self, key, iv, value, aad, tag=None):
         if len(key) != 32 or len(iv) != 12 or (tag is not None and len(tag) != 16):
-            raise ApiError(503, "повреждены параметры хранилища секретов")
+            raise ApiError(503, _ui_text('повреждены параметры хранилища секретов'))
         lib = self.lib; ctx = lib.EVP_CIPHER_CTX_new()
         if not ctx:
-            raise ApiError(503, "не удалось открыть хранилище секретов")
+            raise ApiError(503, _ui_text('не удалось открыть хранилище секретов'))
         prefix = "Decrypt" if tag is not None else "Encrypt"
         def check(value):
             if value != 1:
-                raise ApiError(503, "не удалось проверить или зашифровать секрет")
+                raise ApiError(503, _ui_text('не удалось проверить или зашифровать секрет'))
         try:
             check(getattr(lib, "EVP_"+prefix+"Init_ex")(ctx,lib.EVP_aes_256_gcm(),None,key,iv))
             n = ctypes.c_int()
@@ -854,7 +1129,7 @@ def storage_secret_key(create=False):
     path = os.path.abspath(Cfg.db)+".secret-key"
     if not os.path.isfile(path) and create:
         if db().execute("SELECT 1 FROM secret_envelopes WHERE envelope IS NOT NULL LIMIT 1").fetchone():
-            raise ApiError(503, "ключ хранилища отсутствует: восстанови его из резервной копии")
+            raise ApiError(503, _ui_text('ключ хранилища отсутствует: восстанови его из резервной копии'))
         try:
             fd = os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
             with os.fdopen(fd,"wb") as f:
@@ -864,9 +1139,9 @@ def storage_secret_key(create=False):
     try:
         with open(path,"rb") as f: key = f.read(33)
     except OSError:
-        raise ApiError(503, "ключ хранилища недоступен: восстанови его из резервной копии")
+        raise ApiError(503, _ui_text('ключ хранилища недоступен: восстанови его из резервной копии'))
     if len(key) != 32:
-        raise ApiError(503, "повреждён ключ хранилища секретов")
+        raise ApiError(503, _ui_text('повреждён ключ хранилища секретов'))
     return key
 
 
@@ -880,7 +1155,7 @@ def seal_secret(raw, aad):
 def unseal_secret(envelope, aad):
     key = storage_secret_key()
     if envelope["key_id"] != hashlib.sha256(key).hexdigest():
-        raise ApiError(503, "нужен прежний ключ хранилища секретов")
+        raise ApiError(503, _ui_text('нужен прежний ключ хранилища секретов'))
     raw, _ = SecretCipher().crypt(key,base64.b64decode(envelope["iv"]),base64.b64decode(envelope["ciphertext"]),aad,
                                  base64.b64decode(envelope["tag"]))
     return raw
@@ -893,11 +1168,11 @@ def purge_expired_secrets():
 
 def conversation_row(cid, user, pid=None):
     if not isinstance(cid,str) or not re.fullmatch(r"d_[0-9a-f]{48}",cid):
-        raise ApiError(404, "нет такого личного чата")
+        raise ApiError(404, _ui_text('нет такого личного чата'))
     c = db().execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
     if (not c or (pid is not None and c["project_id"] != pid) or user["name"] not in (c["human"], c["agent"])
             or not all(member_role(c["project_id"], key) for key in (c["human"], c["agent"]))):
-        raise ApiError(404, "нет такого личного чата")
+        raise ApiError(404, _ui_text('нет такого личного чата'))
     return c
 
 
@@ -977,6 +1252,14 @@ def msg_dicts(rows, me=None, full=True):
                          f"WHERE message_id IN ({qs}) ORDER BY ts", ids):
         approvals.setdefault(a["message_id"], []).append(
             {"by": account_name(a["user"]), "by_id": a["user"], "decision": a["decision"], "note": a["note"], "time": iso(a["ts"])})
+    thread_ids = list({r["thread_id"] for r in rows if r["thread_id"]})
+    project_ids = list({r["project_id"] for r in rows})
+    visible, visible_args = message_visibility(me)
+    thread_counts = {r[0]: r[1] for r in con.execute(
+        "SELECT m.thread_id,COUNT(*) FROM messages m WHERE m.thread_id IN (" +
+        ",".join("?" for _ in thread_ids) + ") AND m.project_id IN (" + ",".join("?" for _ in project_ids) +
+        ") AND m.deleted_ts IS NULL AND m.reply_to IS NOT NULL AND m.type NOT IN ('status','approval') AND " +
+        visible + " GROUP BY m.thread_id", thread_ids + project_ids + visible_args)} if thread_ids else {}
     out = []
     for r in rows:
         rc = receipts.get(r["id"], [])
@@ -990,6 +1273,7 @@ def msg_dicts(rows, me=None, full=True):
             "priority": r["priority"], "subject": r["subject"],
             "body": r["body"] if full else r["body"][:400],
             "reply_to": r["reply_to"], "thread_id": r["thread_id"],
+            "reply_count": thread_counts.get(r["thread_id"], 0),
             "conversation_id": r["conversation_id"],
             "revision": r["revision"], "edited": iso(r["edited_ts"]), "deleted": bool(r["deleted_ts"]),
             "can_edit": me==r["author"] and r["author_kind"]=="human" and r["type"] in USER_TYPES and not r["deleted_ts"],
@@ -1041,7 +1325,7 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
     if data.get("reply_to") is not None:
         parent_scope = get_message_row(int(data["reply_to"]), user)
         if parent_scope["project_id"] != pid or ("conversation_id" in data and cid != parent_scope["conversation_id"]):
-            raise ApiError(409, "ответ должен оставаться в исходном чате")
+            raise ApiError(409, _ui_text('ответ должен оставаться в исходном чате'))
         cid = parent_scope["conversation_id"]
     conversation = conversation_row(cid, user, pid) if cid else None
     idem = str(data.get("idem_key") or "")[:100] or None
@@ -1049,12 +1333,12 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
         dup = con.execute("SELECT id,project_id,conversation_id FROM messages WHERE author=? AND idem_key=?", (user["name"], idem)).fetchone()
         if dup:
             if dup["project_id"] != pid or dup["conversation_id"] != cid:
-                raise ApiError(409, "ключ сообщения уже использован в другом чате")
+                raise ApiError(409, _ui_text('ключ сообщения уже использован в другом чате'))
             return dup["id"], True
     mtype = data.get("type") or "info"
     allowed = USER_TYPES + (SYSTEM_TYPES if system else ())
     if mtype not in allowed:
-        raise ApiError(400, f"type должен быть одним из: {', '.join(USER_TYPES)}")
+        raise ApiError(400, f"{_ui_text('type должен быть одним из: ')}{', '.join(USER_TYPES)}")
     priority = data.get("priority") or "normal"
     if priority not in PRIORITIES:
         raise ApiError(400, "priority: normal | urgent")
@@ -1066,12 +1350,12 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
             body = subject + ("\n" + body if body.strip() else "")
         subject = ""
     if len(body) > MAX_BODY_CHARS:
-        raise ApiError(413, f"текст длиннее {MAX_BODY_CHARS} символов — положи его во вложение")
+        raise ApiError(413, f"{_ui_text('текст длиннее ')}{MAX_BODY_CHARS}{_ui_text(' символов — положи его во вложение')}")
     if not subject:
         first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
         subject = first[:120]   # only a short preview now: search, status lines, the journal
     if not subject and not data.get("attachments"):
-        raise ApiError(400, "пустое сообщение")
+        raise ApiError(400, _ui_text('пустое сообщение'))
     subject = subject.replace("\n", " ")[:200]
     topic = str(data.get("topic") or "").strip()[:60]
 
@@ -1081,14 +1365,14 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
     if isinstance(to, str):
         to = [x.strip() for x in to.split(",")]
     if not isinstance(to, list) or any(not isinstance(x, str) for x in to):
-        raise ApiError(400, "адресаты: список имён или to_ids")
+        raise ApiError(400, _ui_text('адресаты: список имён или to_ids'))
     to = [x for x in to if x and (x != "all" or using_ids)]
     if to:
         resolved = []
         for value in to:
             matches = find_accounts(value, pid, account_id=value if using_ids else None)
             if len(matches) != 1 or matches[0]["revoked"]:
-                raise ApiError(400, "нет таких адресатов в выбранном проекте")
+                raise ApiError(400, _ui_text('нет таких адресатов в выбранном проекте'))
             if matches[0]["name"] not in resolved:
                 resolved.append(matches[0]["name"])
         to = resolved
@@ -1098,10 +1382,10 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
     if reply_to is not None:
         parent = con.execute("SELECT * FROM messages WHERE id = ? AND project_id = ?", (int(reply_to), pid)).fetchone()
         if not parent:
-            raise ApiError(404, f"сообщения #{reply_to} нет")
+            raise ApiError(404, f"{_ui_text('сообщения #')}{reply_to}{_ui_text(' нет')}")
         if not system and not data.get("to_ids") and any(
                 x != parent["author"] and account_name(x).lower() == account_name(parent["author"]).lower() for x in to):
-            raise ApiError(409, "за этим именем теперь другой аккаунт: выбери адресата по to_ids")
+            raise ApiError(409, _ui_text('за этим именем теперь другой аккаунт: выбери адресата по to_ids'))
         reply_to = parent["id"]
         thread_id = parent["thread_id"]
         if not topic:
@@ -1110,11 +1394,11 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
     result = data.get("result") or None
     if result is not None:
         if not isinstance(result, dict):
-            raise ApiError(400, "result должен быть объектом")
+            raise ApiError(400, _ui_text('result должен быть объектом'))
         result = {k: v for k, v in result.items() if k in RESULT_FIELDS and v not in (None, "")}
         for k, v in result.items():
             if not isinstance(v, (str, int, float)) or len(str(v)) > 500:
-                raise ApiError(400, f"result.{k}: строка или число до 500 символов")
+                raise ApiError(400, f"result.{k}{_ui_text(': строка или число до 500 символов')}")
         result = result or None
 
     needs_approval = bool(data.get("needs_approval")) or mtype == "decision"
@@ -1126,15 +1410,15 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
         row = con.execute("SELECT u.kind FROM members m JOIN users u ON u.name = m.user "
                           "WHERE m.project_id = ? AND m.user = ? AND u.revoked = 0", (pid, approver)).fetchone()
         if not row or row["kind"] != "human":
-            raise ApiError(400, "одобряющий должен быть человеком из этого проекта")
+            raise ApiError(400, _ui_text('одобряющий должен быть человеком из этого проекта'))
         if to and approver not in to and approver != user["name"]:
             to.append(approver)   # the request must reach the person who decides
     if conversation:
         parties = (conversation["human"], conversation["agent"])
         if any(key not in parties for key in to) or (approver and approver not in parties):
-            raise ApiError(400, "в личном чате только два участника")
+            raise ApiError(400, _ui_text('в личном чате только два участника'))
         if data.get("claim"):
-            raise ApiError(400, "заявки проекта публикуются в общем чате")
+            raise ApiError(400, _ui_text('заявки проекта публикуются в общем чате'))
         to = [key for key in parties if key != user["name"]]
     status = "open" if mtype in TRACKED_TYPES else None
 
@@ -1142,22 +1426,22 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
     atts = []
     attachments = data.get("attachments") or []
     if not isinstance(attachments, list) or len(attachments) > 30 or any(not isinstance(a, dict) for a in attachments):
-        raise ApiError(400, "attachments: список, не больше 30 вложений")
+        raise ApiError(400, _ui_text('attachments: список, не больше 30 вложений'))
     for a in attachments:
         name = attachment_name(a.get("name"))
         check_secret("имя вложения", name)
         if a.get("upload_id"):
             upload = own_upload(user, pid, a["upload_id"])
             if upload["attachment_id"] or upload["md5"] is None:
-                raise ApiError(409, "файл ещё не загружен полностью или уже отправлен")
+                raise ApiError(409, _ui_text('файл ещё не загружен полностью или уже отправлен'))
             atts.append((upload["name"], upload["size"], upload["md5"], None, None, upload["id"]))
         elif a.get("content_b64") is not None:
             try:
                 raw = base64.b64decode(a["content_b64"], validate=True)
             except Exception:
-                raise ApiError(400, f"вложение {name}: битый base64")
+                raise ApiError(400, f"{_ui_text('вложение ')}{name}{_ui_text(': битый base64')}")
             if len(raw) > Cfg.max_inline:
-                raise ApiError(413, f"вложение {name} больше {Cfg.max_inline} байт — пришли ссылкой и md5")
+                raise ApiError(413, f"{_ui_text('вложение ')}{name}{_ui_text(' больше ')}{Cfg.max_inline}{_ui_text(' байт — пришли ссылкой и md5')}")
             check_secret(f"вложение {name}", raw.decode("utf-8", errors="replace"))
             atts.append((name, len(raw), hashlib.md5(raw).hexdigest(), None, raw, None))
         elif a.get("link"):
@@ -1165,12 +1449,12 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
             check_secret(f"ссылка {name}", link)
             atts.append((name, a.get("size"), (a.get("md5") or None), link, None, None))
         else:
-            raise ApiError(400, f"вложение {name}: нужен content_b64 или link")
+            raise ApiError(400, f"{_ui_text('вложение ')}{name}{_ui_text(': нужен content_b64 или link')}")
     if len(atts) > 30:
-        raise ApiError(400, "не больше 30 вложений")
+        raise ApiError(400, _ui_text('не больше 30 вложений'))
     upload_ids = [a[5] for a in atts if a[5]]
     if len(set(upload_ids)) != len(upload_ids):
-        raise ApiError(400, "один файл нельзя прикрепить дважды")
+        raise ApiError(400, _ui_text('один файл нельзя прикрепить дважды'))
     if any(a[4] is not None or a[5] for a in atts):
         require_file_space(sum(len(a[4]) * 3 for a in atts if a[4] is not None))
 
@@ -1230,7 +1514,7 @@ def get_message_row(mid, user=None):
     """A message by id; with user, only if the user is in its project (otherwise it "does not exist")."""
     r = db().execute("SELECT * FROM messages WHERE id = ?", (mid,)).fetchone()
     if not r or (user is not None and not can_read_message(r, user)):
-        raise ApiError(404, f"сообщения #{mid} нет")
+        raise ApiError(404, f"{_ui_text('сообщения #')}{mid}{_ui_text(' нет')}")
     return r
 
 
@@ -1257,7 +1541,7 @@ def waiting_summary(me, pid):
 
 def list_messages(me, q, pid):
     if not member_role(pid,me["name"]):
-        raise ApiError(404, "нет доступа к проекту")
+        raise ApiError(404, _ui_text('нет доступа к проекту'))
     where, args = ["m.project_id = ?"], [pid]
     visible, va = message_visibility(me["name"])
     where.append(visible); args += va
@@ -1364,7 +1648,7 @@ def set_status(me, host, mid, data):
     m = get_message_row(mid, me)
     require_active_message(m)
     if m["type"] not in TRACKED_TYPES:
-        raise ApiError(400, f"статус есть только у {', '.join(TRACKED_TYPES)}; #{mid} — {m['type']}")
+        raise ApiError(400, f"{_ui_text('статус есть только у ')}{', '.join(TRACKED_TYPES)}; #{mid} — {m['type']}")
     with DB_LOCK:
         m=get_message_row(mid,me);require_active_message(m)
         db().execute("UPDATE messages SET status = ?, status_by = ?, status_ts = ?, status_ref = ?, status_note = ?"
@@ -1379,7 +1663,7 @@ def set_status(me, host, mid, data):
 
 def set_approval(me, host, mid, data):
     if me["kind"] != "human":
-        raise ApiError(403, "одобрять может только человек")
+        raise ApiError(403, _ui_text('одобрять может только человек'))
     decision = data.get("decision")
     if decision not in ("approve", "deny"):
         raise ApiError(400, "decision: approve | deny")
@@ -1388,15 +1672,15 @@ def set_approval(me, host, mid, data):
     m = get_message_row(mid, me)
     require_active_message(m)
     if not m["needs_approval"]:
-        raise ApiError(400, f"#{mid} не просит одобрения")
+        raise ApiError(400, f"#{mid}{_ui_text(' не просит одобрения')}")
     if m["approver"] and m["approver"] != me["name"]:
-        raise ApiError(403, f"решение по #{mid} принимает только {account_name(m['approver'])}")
+        raise ApiError(403, f"{_ui_text('решение по #')}{mid}{_ui_text(' принимает только ')}{account_name(m['approver'])}")
     now = time.time()
     with DB_LOCK:
         m=get_message_row(mid,me);require_active_message(m)
         revision=data.get("revision",0)
         if type(revision) is not int or revision!=m["revision"]:
-            raise ApiError(409,"текст сообщения изменился; прочитай актуальную версию перед решением")
+            raise ApiError(409,_ui_text('текст сообщения изменился; прочитай актуальную версию перед решением'))
         db().execute("INSERT OR REPLACE INTO approvals(message_id, user, decision, note, ts) VALUES (?,?,?,?,?)",
                      (mid, me["name"], decision, note or None, now))
         if m["type"] == "decision":
@@ -1512,6 +1796,7 @@ class Handler(BaseHTTPRequestHandler):
         self.dispatch("POST")
 
     def dispatch(self, method):
+        _UI_CONTEXT.language = "en" if self.headers.get("X-Telegent-Language", "ru") == "en" else "ru"
         parsed = urllib.parse.urlsplit(self.path)
         q = {k: v[-1] for k, v in urllib.parse.parse_qs(parsed.query).items()}
         try:
@@ -1525,9 +1810,9 @@ class Handler(BaseHTTPRequestHandler):
                     if res is not None:
                         self.send_json(200, res)
                     return
-            raise ApiError(404, "нет такого пути")
+            raise ApiError(404, _ui_text('нет такого пути'))
         except ApiError as e:
-            self.send_json(e.code, dict(e.extra, error=e.msg))
+            self.send_json(e.code, dict(e.extra, error=_UI_EN.get(e.msg, e.msg) if _UI_CONTEXT.language == "en" else e.msg))
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception as e:
@@ -1542,7 +1827,7 @@ class Handler(BaseHTTPRequestHandler):
         h = self.headers.get("Authorization", "")
         tok = h[7:].strip() if h.lower().startswith("bearer ") else ""
         if not tok:
-            raise ApiError(401, "нужен токен (Authorization: Bearer ...)")
+            raise ApiError(401, _ui_text('нужен токен (Authorization: Bearer ...)'))
         th = token_hash(tok)
         self.session_hash = None
         with DB_LOCK:
@@ -1554,7 +1839,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.session_hash = th
                     db().execute("UPDATE sessions SET last_ts = ? WHERE token_hash = ?", (time.time(), th))
         if not u:
-            raise ApiError(401, "неизвестный или отозванный токен (или сессия закрыта)")
+            raise ApiError(401, _ui_text('неизвестный или отозванный токен (или сессия закрыта)'))
         touch(u)
         return u
 
@@ -1568,9 +1853,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            raise ApiError(400, "некорректный Content-Length")
+            raise ApiError(400, _ui_text('некорректный Content-Length'))
         if n < 0 or n > MAX_REQUEST or self.headers.get("Transfer-Encoding"):
-            raise ApiError(413, "запрос слишком большой")
+            raise ApiError(413, _ui_text('запрос слишком большой'))
         raw = self.rfile.read(n) if n else b"{}"
         try:
             data = json.loads(raw.decode("utf-8") or "{}")
@@ -1578,7 +1863,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("object required")
             return data
         except Exception:
-            raise ApiError(400, "тело запроса — не JSON")
+            raise ApiError(400, _ui_text('тело запроса — не JSON'))
 
     def send_json(self, code, obj, extra=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -1650,7 +1935,7 @@ def project_dict(p, user):
 def development_project(con, user):
     current = con.execute("SELECT * FROM users WHERE name=?", (user["name"],)).fetchone()
     if not current or current["kind"] != "human" or not current["is_admin"] or current["revoked"]:
-        raise ApiError(403, "чат с разработчиком доступен только администратору сервера")
+        raise ApiError(403, _ui_text('чат с разработчиком доступен только администратору сервера'))
     p = con.execute("SELECT * FROM projects WHERE admin_owner=? AND archived=0", (user["name"],)).fetchone()
     if not p:
         pid = create_project_row(con, "telegent-development", "Разработка telegent", user["name"])
@@ -1681,15 +1966,15 @@ def api_development_chat(h, user, q, data):
 def project_title(data):
     title = data.get("title")
     if not isinstance(title, str):
-        raise ApiError(400, "название проекта должно быть текстом")
+        raise ApiError(400, _ui_text('название проекта должно быть текстом'))
     title = title.strip()
     if not title:
-        raise ApiError(400, "нужно название проекта")
+        raise ApiError(400, _ui_text('нужно название проекта'))
     if len(title) > 80:
-        raise ApiError(400, "название проекта: не больше 80 символов")
+        raise ApiError(400, _ui_text('название проекта: не больше 80 символов'))
     if any(ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF
            or c in "\u2028\u2029" for c in title):
-        raise ApiError(400, "название проекта должно быть одной строкой без управляющих символов")
+        raise ApiError(400, _ui_text('название проекта должно быть одной строкой без управляющих символов'))
     check_secret("название", title)
     return title
 
@@ -1722,10 +2007,10 @@ def api_login(h, user, q, data):
         rows = find_accounts(name, kind="human")
         u = rows[0] if rows and not rows[0]["revoked"] else None
     if u and not u["pw_hash"]:
-        raise ApiError(400, f"у {name} ещё нет пароля: войди один раз по ссылке с токеном и задай его (кнопка «Пароль»)")
+        raise ApiError(400, f"{_ui_text('у ')}{name}{_ui_text(' ещё нет пароля: войди один раз по ссылке с токеном и задай его (кнопка «Пароль»)')}")
     if not u or not check_password(pw, u["pw_hash"]):
         login_failed(keys)
-        raise ApiError(401, "неверное имя или пароль")
+        raise ApiError(401, _ui_text('неверное имя или пароль'))
     _login_fails.pop(keys[0], None)
     return {"token": new_session(u["name"], h.headers.get("User-Agent", "")), **account_dict(u)}
 
@@ -1741,16 +2026,16 @@ def api_logout(h, user, q, data):
 @route("POST", "/api/password")
 def api_password(h, user, q, data):
     if user["kind"] != "human":
-        raise ApiError(403, "пароль бывает только у людей; агенты входят по токену")
+        raise ApiError(403, _ui_text('пароль бывает только у людей; агенты входят по токену'))
     new = str(data.get("new") or "")
     if len(new) < PW_MIN_LEN:
-        raise ApiError(400, f"пароль короче {PW_MIN_LEN} символов")
+        raise ApiError(400, f"{_ui_text('пароль короче ')}{PW_MIN_LEN}{_ui_text(' символов')}")
     if user["pw_hash"]:
         keys = [f"name:{account_name(user['name']).lower()}", f"ip:{h.client_ip()}"]
         login_throttle(keys)
         if not check_password(str(data.get("old") or ""), user["pw_hash"]):
             login_failed(keys)
-            raise ApiError(403, "текущий пароль неверный")
+            raise ApiError(403, _ui_text('текущий пароль неверный'))
     with DB_LOCK:
         db().execute("UPDATE users SET pw_hash = ? WHERE name = ?", (hash_password(new), user["name"]))
         # other devices logged in with the old password are signed out; this one stays
@@ -1770,12 +2055,12 @@ def invite_link(h, code):
 
 def require_owner(p):
     if p["role"] != "owner":
-        raise ApiError(403, f"это может только владелец проекта «{p['slug']}»")
+        raise ApiError(403, f"{_ui_text('это может только владелец проекта «')}{p['slug']}»")
 
 
 def require_human(user):
     if user["kind"] != "human":
-        raise ApiError(403, "приглашает и добавляет участников только человек")
+        raise ApiError(403, _ui_text('приглашает и добавляет участников только человек'))
 
 
 @route("POST", "/api/invites")
@@ -1799,7 +2084,7 @@ def api_invite_create(h, user, q, data):
             if (data.get("kind") != "agent" or owner != user["name"]
                     or any(r["kind"] != "agent" or r["owner"] != user["name"]
                            for r in ([existing] if existing else []) + pending)):
-                raise ApiError(403, "участник может пригласить своего агента; людей приглашает владелец проекта")
+                raise ApiError(403, _ui_text('участник может пригласить своего агента; людей приглашает владелец проекта'))
         inv = create_invite(user["name"], name, data.get("kind"), owner, p["id"],
                             account_id=selected["name"] if selected else None)
     inv["link"] = invite_link(h, inv["code"])
@@ -1814,7 +2099,7 @@ def api_reset(h, user, q, data):
     with DB_LOCK:
         u = managed_account(h, user, q, data)
         if not (user["is_admin"] or (u["kind"] == "agent" and u["owner"] == user["name"])):
-            raise ApiError(403, "сбросить можно токен своего агента; пароль человека сбрасывает админ сервера")
+            raise ApiError(403, _ui_text('сбросить можно токен своего агента; пароль человека сбрасывает админ сервера'))
         inv = create_invite(user["name"], account_name(u["name"]), reset=True, account_id=u["name"])
     inv["link"] = invite_link(h, inv["code"])
     return inv
@@ -1894,15 +2179,15 @@ def api_projects(h, user, q, data):
 @route("POST", "/api/projects/order")
 def api_project_order(h, user, q, data):
     if user["kind"] != "human":
-        raise ApiError(403, "порядок проектов выбирает человек")
+        raise ApiError(403, _ui_text('порядок проектов выбирает человек'))
     ids = data.get("project_ids")
     if set(data) != {"project_ids"} or not isinstance(ids, list) or any(type(x) is not int for x in ids) or len(ids) != len(set(ids)):
-        raise ApiError(400, "project_ids: список разных идентификаторов проектов")
+        raise ApiError(400, _ui_text('project_ids: список разных идентификаторов проектов'))
     with DB_LOCK:
         con = db()
         current = [p["id"] for p in my_projects(user["name"])]
         if not set(ids).issubset(current):
-            raise ApiError(404, "проект не найден")
+            raise ApiError(404, _ui_text('проект не найден'))
         # Concurrently added memberships remain visible at the end of the list.
         order = ids + [pid for pid in current if pid not in ids]
         con.execute("BEGIN IMMEDIATE")
@@ -1919,11 +2204,11 @@ def api_project_order(h, user, q, data):
 @route("POST", "/api/projects")
 def api_project_create(h, user, q, data):
     if user["kind"] != "human":
-        raise ApiError(403, "проекты создают люди, не агенты")
+        raise ApiError(403, _ui_text('проекты создают люди, не агенты'))
     title = project_title(data)
     slug = str(data.get("slug") or "").strip().lower() or slugify(title)
     if not SLUG_RE.match(slug):
-        raise ApiError(400, "короткое имя проекта: латиница, цифры и -, от 2 до 40 символов")
+        raise ApiError(400, _ui_text('короткое имя проекта: латиница, цифры и -, от 2 до 40 символов'))
     with DB_LOCK:
         con = db()
         pid = create_project_row(con, slug, title, user["name"])
@@ -1937,7 +2222,7 @@ def api_project_rename(h, user, q, data):
     with DB_LOCK:
         p = project_for(h, user, q)
         if not can_rename_project(p, user):
-            raise ApiError(403, "переименовать проект может только его создатель — человек из этого проекта")
+            raise ApiError(403, _ui_text('переименовать проект может только его создатель — человек из этого проекта'))
         title = project_title(data)
         db().execute("UPDATE projects SET title = ? WHERE id = ?", (title, p["id"]))
         result = project_dict(p, user)
@@ -1960,7 +2245,7 @@ def api_project_delete(h, user, q, data):
     require_owner(p)
     typed = str(data.get("confirm") or "").strip().lower()
     if typed not in (p["slug"].lower(), p["title"].strip().lower()):
-        raise ApiError(400, f"для подтверждения введи название проекта: {p['title']}")
+        raise ApiError(400, f"{_ui_text('для подтверждения введи название проекта: ')}{p['title']}")
     with UPLOAD_LOCK, DB_LOCK:
         con = db()
         pid = p["id"]
@@ -2026,11 +2311,10 @@ def api_member_add(h, user, q, data):
                       if c["id"] == data["account_id"]] if data.get("account_id") else \
                      [c for c in addable(con, user, p["id"]) if c["name"].lower() == name.lower()]
         if len(candidates) > 1:
-            raise ApiError(409, "имя неоднозначно: выбери аккаунт по account_id")
+            raise ApiError(409, _ui_text('имя неоднозначно: выбери аккаунт по account_id'))
         ok = candidates[0] if candidates else None
         if not ok or (p["role"] != "owner" and ok["kind"] != "agent"):
-            raise ApiError(403, f"напрямую добавляются только люди из твоих общих проектов и твои агенты без проекта; "
-                                f"{name} пригласи ссылкой")
+            raise ApiError(403, f"{_ui_text('напрямую добавляются только люди из твоих общих проектов и твои агенты без проекта; ')}{name}{_ui_text(' пригласи ссылкой')}")
         add_member(con, p["id"], ok["id"], "agent" if ok["kind"] == "agent" else "member", user["name"])
         name = ok["name"]
     insert_message(user, h.host(), {"body": f"Добавил(а) {name} в проект.", "type": "info"}, p["id"])
@@ -2051,9 +2335,9 @@ def api_member_remove(h, user, q, data):
             require_owner(p)     # anyone may leave; only owners remove others
         role = member_role(p["id"], name)
         if not role:
-            raise ApiError(404, f"{name} нет в проекте")
+            raise ApiError(404, f"{name}{_ui_text(' нет в проекте')}")
         if role == "owner" and not owners_left(p["id"], name):
-            raise ApiError(409, "это последний владелец: сначала сделай владельцем кого-то ещё")
+            raise ApiError(409, _ui_text('это последний владелец: сначала сделай владельцем кого-то ещё'))
         if p["service_agent"] == name:
             db().execute("UPDATE projects SET service_agent=NULL WHERE id=?", (p["id"],))
         db().execute("DELETE FROM members WHERE project_id = ? AND user = ?", (p["id"], name))
@@ -2076,27 +2360,27 @@ def rename_account(con, key, new):
 @route("POST", "/api/rename")
 def api_rename(h, user, q, data):
     if user["kind"] != "human":
-        raise ApiError(403, "переименовывает человек: себя или своих агентов")
+        raise ApiError(403, _ui_text('переименовывает человек: себя или своих агентов'))
     new = str(data.get("new") or "").strip()
     if not NAME_RE.fullmatch(new):
-        raise ApiError(400, "имя: латиница, цифры, . _ -, до 32 символов")
+        raise ApiError(400, _ui_text('имя: латиница, цифры, . _ -, до 32 символов'))
     with DB_LOCK:
         con = db()
         target = managed_account(h, user, q, data)
         key, old = target["name"], account_name(target["name"])
         if not (key == user["name"] or (target["kind"] == "agent" and target["owner"] == user["name"]) or user["is_admin"]):
-            raise ApiError(403, "переименовать можно себя и своих агентов")
+            raise ApiError(403, _ui_text('переименовать можно себя и своих агентов'))
         if new == old:
             return {"ok": True, "id": key, "name": new}
         if target["kind"] == "human" and any(u["name"] != key for u in find_accounts(new, kind="human")):
-            raise ApiError(409, "имя человека уже занято")
+            raise ApiError(409, _ui_text('имя человека уже занято'))
         pids = [r["project_id"] for r in con.execute("SELECT project_id FROM members WHERE user=?", (key,))]
         for pid in pids:
             check_member_name(con, pid, new, key)
         pending = con.execute("SELECT kind,project_id FROM invites WHERE lower(name)=lower(?) AND purpose='new' "
                               "AND used_ts IS NULL AND expires_ts>?", (new, time.time())).fetchall()
         if any((target["kind"] == "human" and r["kind"] == "human") or r["project_id"] in pids for r in pending):
-            raise ApiError(409, "имя занято действующим приглашением")
+            raise ApiError(409, _ui_text('имя занято действующим приглашением'))
         con.execute("BEGIN IMMEDIATE")
         try:
             rename_account(con, key, new)
@@ -2124,7 +2408,7 @@ def api_member_role(h, user, q, data):
         if cur not in ("owner", "member"):
             raise ApiError(404 if not cur else 400, f"{name} нет в проекте" if not cur else "роль бывает только у людей")
         if cur == "owner" and role == "member" and not owners_left(p["id"], name):
-            raise ApiError(409, "это последний владелец")
+            raise ApiError(409, _ui_text('это последний владелец'))
         db().execute("UPDATE members SET role = ? WHERE project_id = ? AND user = ?", (role, p["id"], name))
     return {"ok": True}
 
@@ -2182,9 +2466,9 @@ def api_conversation_create(h, user, q, data):
     with DB_LOCK:
         peer = db().execute("SELECT * FROM users WHERE name=? AND revoked=0", (data.get("peer_id"),)).fetchone()
         if not peer or not member_role(p["id"], peer["name"]):
-            raise ApiError(404, "нет такого участника")
+            raise ApiError(404, _ui_text('нет такого участника'))
         if user["kind"] == peer["kind"]:
-            raise ApiError(400, "личный чат связывает человека и агента своего проекта")
+            raise ApiError(400, _ui_text('личный чат связывает человека и агента своего проекта'))
         human, agent = (user, peer) if user["kind"] == "human" else (peer, user)
         db().execute("INSERT OR IGNORE INTO conversations(id,project_id,human,agent,created) VALUES (?,?,?,?,?)",
                      ("d_" + secrets.token_hex(24), p["id"], human["name"], agent["name"], time.time()))
@@ -2198,21 +2482,21 @@ def api_secret_send(h, user, q, data, cid):
     with UPLOAD_LOCK, DB_LOCK:
         c = conversation_row(cid, user, p["id"])
         if user["name"] != c["human"]:
-            raise ApiError(403, "секрет адресуется агенту от человека личного чата")
+            raise ApiError(403, _ui_text('секрет адресуется агенту от человека личного чата'))
         idem = data.get("idem_key")
         if not isinstance(idem, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{16,100}", idem):
-            raise ApiError(400, "нужен уникальный idem_key от 16 до 100 символов")
+            raise ApiError(400, _ui_text('нужен уникальный idem_key от 16 до 100 символов'))
         duplicate = db().execute("SELECT * FROM messages WHERE author=? AND idem_key=?", (user["name"],idem)).fetchone()
         if duplicate:
             if duplicate["conversation_id"]!=cid or not db().execute("SELECT 1 FROM secret_envelopes WHERE message_id=?",(duplicate["id"],)).fetchone():
-                raise ApiError(409,"ключ сообщения использован в другом сообщении")
+                raise ApiError(409,_ui_text('ключ сообщения использован в другом сообщении'))
             return {"id":duplicate["id"],"duplicate":True}
         value=data.get("value")
         if not isinstance(value,str) or not value or len(value.encode())>32768:
-            raise ApiError(400,"секрет: непустой текст до 32 КиБ")
+            raise ApiError(400,_ui_text('секрет: непустой текст до 32 КиБ'))
         ttl = data.get("expires_in", 3600)
         if type(ttl) is not int or not 300 <= ttl <= 86400:
-            raise ApiError(400, "срок секрета: от 5 минут до суток")
+            raise ApiError(400, _ui_text('срок секрета: от 5 минут до суток'))
         require_file_space(65536)
         aad=json.dumps(["telegent-secret-v1",cid,c["human"],c["agent"],idem],ensure_ascii=False,separators=(",",":")).encode()
         envelope=seal_secret(value.encode(),aad)
@@ -2227,22 +2511,22 @@ def api_secret_fetch(h, user, q, data, mid):
         m = get_message_row(mid, user)
         secret = db().execute("SELECT * FROM secret_envelopes WHERE message_id=?", (mid,)).fetchone()
         if not secret:
-            raise ApiError(404, "нет такого секрета")
+            raise ApiError(404, _ui_text('нет такого секрета'))
         action = data.get("action", "fetch")
         if action == "revoke":
             if m["author"] != user["name"]:
-                raise ApiError(403, "отозвать секрет может отправитель")
+                raise ApiError(403, _ui_text('отозвать секрет может отправитель'))
             if secret["consumed"]:
-                raise ApiError(410, "секрет уже получен: отзыв не удалит его у получателя")
+                raise ApiError(410, _ui_text('секрет уже получен: отзыв не удалит его у получателя'))
             if secret["claimed_ts"]:
-                raise ApiError(409, "получение уже началось: отзыв не удалит файл у получателя")
+                raise ApiError(409, _ui_text('получение уже началось: отзыв не удалит файл у получателя'))
             db().execute("UPDATE secret_envelopes SET envelope=NULL,revoked=COALESCE(revoked,?) WHERE message_id=?", (time.time(), mid))
             return {"ok": True}
         if secret["recipient"] != user["name"]:
-            raise ApiError(403, "получить секрет может только адресованный агент")
+            raise ApiError(403, _ui_text('получить секрет может только адресованный агент'))
         claim = data.get("claim_key")
         if not isinstance(claim, str) or not re.fullmatch(r"[0-9a-f]{64}", claim):
-            raise ApiError(400, "нужен постоянный claim_key из 64 шестнадцатеричных знаков для безопасного повтора")
+            raise ApiError(400, _ui_text('нужен постоянный claim_key из 64 шестнадцатеричных знаков для безопасного повтора'))
         claim = token_hash(claim)
         if action == "consume" and secret["consumed"] and secret["claimed_by"] == claim:
             return {"ok": True}
@@ -2254,12 +2538,12 @@ def api_secret_fetch(h, user, q, data, mid):
         require_active_message(m)
         if secret["revoked"] or secret["consumed"] or secret["expires"] <= time.time():
             db().execute("UPDATE secret_envelopes SET envelope=NULL WHERE message_id=?", (mid,))
-            raise ApiError(410, "секрет получен, отозван или срок его действия истёк")
+            raise ApiError(410, _ui_text('секрет получен, отозван или срок его действия истёк'))
         if secret["claimed_by"] and secret["claimed_by"] != claim:
-            raise ApiError(409, "получение уже начато: продолжи прежнюю команду на том же устройстве")
+            raise ApiError(409, _ui_text('получение уже начато: продолжи прежнюю команду на том же устройстве'))
         if action == "consume":
             if secret["claimed_by"] != claim:
-                raise ApiError(409, "сначала получи пакет")
+                raise ApiError(409, _ui_text('сначала получи пакет'))
             db().execute("UPDATE secret_envelopes SET envelope=NULL,consumed=? WHERE message_id=?", (time.time(), mid))
             mark(user, [mid], "read")
             return {"ok": True}
@@ -2329,7 +2613,7 @@ def content_revision(pid, who):
 
 def require_active_message(message):
     if message["deleted_ts"]:
-        raise ApiError(410,"сообщение удалено")
+        raise ApiError(410,_ui_text('сообщение удалено'))
 
 
 def publish_message_change(message):
@@ -2350,28 +2634,28 @@ def mutate_message(h,user,q,data,mid,deleting=False):
     with DB_LOCK:
         message=get_message_row(mid,user)
         if message["project_id"]!=p["id"]:
-            raise ApiError(404,"нет сообщения в выбранном проекте")
+            raise ApiError(404,_ui_text('нет сообщения в выбранном проекте'))
         if user["kind"]!="human" or message["author"]!=user["name"] or message["author_kind"]!="human" or message["type"] not in USER_TYPES:
-            raise ApiError(403,"человек может изменить или удалить только собственное сообщение")
+            raise ApiError(403,_ui_text('человек может изменить или удалить только собственное сообщение'))
         if not isinstance(data,dict) or set(data)-({"revision"} if deleting else {"revision","body"}) or type(data.get("revision")) is not int:
-            raise ApiError(400,"нужны текущая revision и текст body для изменения")
+            raise ApiError(400,_ui_text('нужны текущая revision и текст body для изменения'))
         if message["deleted_ts"]:
             if not deleting:require_active_message(message)
             return {"ok":True,"message":msg_dicts([message],user["name"])[0]}
         body=data.get("body")
         if not deleting:
             if db().execute("SELECT 1 FROM secret_envelopes WHERE message_id=?",(mid,)).fetchone():
-                raise ApiError(400,"карточка секрета не редактируется")
-            if not isinstance(body,str):raise ApiError(400,"body: текст сообщения")
+                raise ApiError(400,_ui_text('карточка секрета не редактируется'))
+            if not isinstance(body,str):raise ApiError(400,_ui_text('body: текст сообщения'))
             try:body.encode("utf-8")
-            except UnicodeError:raise ApiError(400,"текст содержит недопустимый Unicode")
-            if len(body)>MAX_BODY_CHARS:raise ApiError(413,"текст слишком длинный")
+            except UnicodeError:raise ApiError(400,_ui_text('текст содержит недопустимый Unicode'))
+            if len(body)>MAX_BODY_CHARS:raise ApiError(413,_ui_text('текст слишком длинный'))
             if not body.strip() and not db().execute("SELECT 1 FROM attachments WHERE message_id=?",(mid,)).fetchone():
-                raise ApiError(400,"пустое сообщение")
+                raise ApiError(400,_ui_text('пустое сообщение'))
             check_secret("текст",body)
         if data["revision"]!=message["revision"]:
             if deleting or body!=message["body"]:
-                raise ApiError(409,"сообщение уже изменилось; закрой редактор и открой актуальную версию")
+                raise ApiError(409,_ui_text('сообщение уже изменилось; закрой редактор и открой актуальную версию'))
         if not deleting and body==message["body"]:
             return {"ok":True,"message":msg_dicts([message],user["name"])[0]}
         con,now=db(),time.time()
@@ -2431,16 +2715,16 @@ def api_reaction(h, user, q, data, mid):
         message = get_message_row(mid, user)
         require_active_message(message)
         if not isinstance(data, dict):
-            raise ApiError(400, "нужны emoji и active (true или false)")
+            raise ApiError(400, _ui_text('нужны emoji и active (true или false)'))
         emoji, active = data.get("emoji"), data.get("active", True)
         if emoji == "❤":
             emoji = "❤️"
         if emoji == "+1":
             emoji = "👍"
         if emoji not in REACTION_EMOJI or type(active) is not bool:
-            raise ApiError(400, "реакция: ❤️, 🔥, 👍, 👎, 🤡; active: true | false")
+            raise ApiError(400, _ui_text('реакция: ❤️, 🔥, 👍, 👎, 🤡; active: true | false'))
         if message["type"] in SYSTEM_TYPES:
-            raise ApiError(400, "реакции доступны у сообщений участников")
+            raise ApiError(400, _ui_text('реакции доступны у сообщений участников'))
         con = db()
         if active:
             changed = con.execute("INSERT OR IGNORE INTO reactions(message_id,user,emoji,ts) VALUES (?,?,?,?)",
@@ -2478,7 +2762,7 @@ def api_receipts(h, user, q, data):
         cursor = None
         if "seen_upto" in data:
             if kind != "read" or type(data["seen_upto"]) is not int or not 0 <= data["seen_upto"] < 2**63:
-                raise ApiError(400, "seen_upto: целый неотрицательный номер, только вместе с kind=read")
+                raise ApiError(400, _ui_text('seen_upto: целый неотрицательный номер, только вместе с kind=read'))
             p = project_for(h, user, q)
             # Never pre-read messages that do not exist yet, or use another project's cursor.
             if q.get("conversation"):
@@ -2556,16 +2840,14 @@ def files_dir():
 
 def upload_path(uid):
     if not isinstance(uid, str) or not re.fullmatch(r"u_[0-9a-f]{48}", uid):
-        raise ApiError(404, "загрузка не найдена")
+        raise ApiError(404, _ui_text('загрузка не найдена'))
     return os.path.join(files_dir(), uid)
 
 
 def require_file_space(incoming=0):
     free = shutil.disk_usage(files_dir()).free
     if free < MIN_FREE_BYTES + incoming:
-        raise ApiError(507, "Недостаточно места на сервере для файла: свободно "
-                       f"{free // (1024*1024)} МБ. Нужно сохранить не менее 300 МБ свободными. "
-                       "Можно отправить текст без вложения.", free_bytes=free, min_free_bytes=MIN_FREE_BYTES)
+        raise ApiError(507, f"{_ui_text('Недостаточно места на сервере для файла: свободно ')}{free // (1024 * 1024)}{_ui_text(' МБ. Нужно сохранить не менее 300 МБ свободными. Можно отправить текст без вложения.')}", free_bytes=free, min_free_bytes=MIN_FREE_BYTES)
 
 
 def own_upload(user, pid, uid):
@@ -2573,7 +2855,7 @@ def own_upload(user, pid, uid):
     row = db().execute("SELECT * FROM file_uploads WHERE id=? AND user=? AND project_id=?",
                        (uid, user["name"], pid)).fetchone()
     if not row or not member_role(pid, user["name"]):
-        raise ApiError(404, "загрузка не найдена")
+        raise ApiError(404, _ui_text('загрузка не найдена'))
     return row
 
 
@@ -2618,9 +2900,9 @@ def api_upload_start(h, user, q, data):
     p = project_for(h, user, q)
     size, expected = data.get("size"), data.get("md5")
     if type(size) is not int or size < 0 or size > MAX_FILE_BYTES:
-        raise ApiError(413, "максимальный размер одного файла — 200 МБ")
+        raise ApiError(413, _ui_text('максимальный размер одного файла — 200 МБ'))
     if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{32}", expected)):
-        raise ApiError(400, "md5: ожидаются 32 шестнадцатеричных символа")
+        raise ApiError(400, _ui_text('md5: ожидаются 32 шестнадцатеричных символа'))
     name = attachment_name(data.get("name"))
     check_secret("имя файла", name)
     key = str(data.get("key") or "")[:100] or None
@@ -2634,7 +2916,7 @@ def api_upload_start(h, user, q, data):
                                (user["name"], p["id"], key)).fetchone()
             if old:
                 if (old["size"], old["name"], old["expected_md5"]) != (size, name, expected):
-                    raise ApiError(409, "ключ загрузки уже занят другим файлом")
+                    raise ApiError(409, _ui_text('ключ загрузки уже занят другим файлом'))
                 return upload_status(old)
         require_file_space(size)
         uid, now = "u_"+secrets.token_hex(24), time.time()
@@ -2655,23 +2937,23 @@ def api_upload_chunk(h, user, q, data, uid):
     try:
         size, offset = int(h.headers.get("Content-Length", "-1")), int(q.get("offset", "-1"))
     except ValueError:
-        raise ApiError(400, "нужны Content-Length и offset")
+        raise ApiError(400, _ui_text('нужны Content-Length и offset'))
     if size < 1 or size > UPLOAD_CHUNK or offset < 0 or h.headers.get("Transfer-Encoding"):
-        raise ApiError(413, "часть файла должна быть от 1 байта до 4 МБ")
+        raise ApiError(413, _ui_text('часть файла должна быть от 1 байта до 4 МБ'))
     with DB_LOCK:
         row = own_upload(user, p["id"], uid)
         if row["attachment_id"] or row["md5"] is not None:
-            raise ApiError(409, "загрузка уже завершена")
+            raise ApiError(409, _ui_text('загрузка уже завершена'))
         if offset > row["received"] or offset+size > row["size"]:
-            raise ApiError(409, "неверная позиция загрузки", received=row["received"])
+            raise ApiError(409, _ui_text('неверная позиция загрузки'), received=row["received"])
     h.connection.settimeout(90)
     raw = h.rfile.read(size)
     if len(raw) != size:
-        raise ApiError(400, "часть файла получена не полностью — повтори загрузку")
+        raise ApiError(400, _ui_text('часть файла получена не полностью — повтори загрузку'))
     with UPLOAD_LOCK, DB_LOCK:
         row = own_upload(user, p["id"], uid)
         if row["attachment_id"] or row["md5"] is not None:
-            raise ApiError(409, "загрузка уже завершена")
+            raise ApiError(409, _ui_text('загрузка уже завершена'))
         if offset == row["received"]:
             try:
                 scan_upload_chunk(uid, offset, raw, row["name"])
@@ -2682,10 +2964,10 @@ def api_upload_chunk(h, user, q, data, uid):
             if offset < row["received"]:
                 f.seek(offset)
                 if offset+size > row["received"] or f.read(size) != raw:
-                    raise ApiError(409, "повторная часть отличается от полученной")
+                    raise ApiError(409, _ui_text('повторная часть отличается от полученной'))
                 return upload_status(row)
             if offset != row["received"]:
-                raise ApiError(409, "неверная позиция загрузки", received=row["received"])
+                raise ApiError(409, _ui_text('неверная позиция загрузки'), received=row["received"])
             require_file_space(size)
             f.truncate(offset); f.seek(offset)
             try:
@@ -2694,7 +2976,7 @@ def api_upload_chunk(h, user, q, data, uid):
             except OSError as error:
                 f.truncate(offset)
                 if error.errno == 28:
-                    raise ApiError(507, "На сервере закончилось место. Отправь текст без вложения.")
+                    raise ApiError(507, _ui_text('На сервере закончилось место. Отправь текст без вложения.'))
                 raise
         return upload_status(own_upload(user, p["id"], uid))
 
@@ -2707,7 +2989,7 @@ def api_upload_complete(h, user, q, data, uid):
         if row["md5"] is not None:
             return upload_status(row)
         if row["received"] != row["size"]:
-            raise ApiError(409, "файл получен не полностью", received=row["received"])
+            raise ApiError(409, _ui_text('файл получен не полностью'), received=row["received"])
         digest = hashlib.md5()
         try:
             with open(upload_path(uid), "rb") as f:
@@ -2717,7 +2999,7 @@ def api_upload_complete(h, user, q, data, uid):
                         break
                     digest.update(chunk)
             if row["expected_md5"] and digest.hexdigest() != row["expected_md5"]:
-                raise ApiError(409, "файл изменился во время отправки или повреждён; отправь его заново")
+                raise ApiError(409, _ui_text('файл изменился во время отправки или повреждён; отправь его заново'))
         except ApiError:
             discard_upload(uid)
             raise
@@ -2731,7 +3013,7 @@ def api_upload_cancel(h, user, q, data, uid):
     with UPLOAD_LOCK, DB_LOCK:
         row = own_upload(user, p["id"], uid)
         if row["attachment_id"]:
-            raise ApiError(409, "отправленный файл удаляется только вместе с проектом")
+            raise ApiError(409, _ui_text('отправленный файл удаляется только вместе с проектом'))
         discard_upload(uid)
     return {"ok": True}
 
@@ -2743,9 +3025,9 @@ def attachment_for(user, aid):
         if a and not can_read_message(db().execute("SELECT * FROM messages WHERE id=?", (a["message_id"],)).fetchone(), user):
             a = None
     if not a:
-        raise ApiError(404, "нет такого вложения")
+        raise ApiError(404, _ui_text('нет такого вложения'))
     if a["content"] is None and a["upload_id"] is None:
-        raise ApiError(409, f"вложение по ссылке: {a['link']}")
+        raise ApiError(409, f"{_ui_text('вложение по ссылке: ')}{a['link']}")
     return a
 
 
@@ -2758,10 +3040,10 @@ def stream_attachment(h, user, aid):
         if h.headers.get("Range"):
             match = re.fullmatch(r"bytes=(\d+)-(\d*)", h.headers["Range"])
             if not match:
-                raise ApiError(416, "некорректный диапазон файла")
+                raise ApiError(416, _ui_text('некорректный диапазон файла'))
             start = int(match[1]); end = min(int(match[2]), end) if match[2] else end
             if start > end or start >= size:
-                raise ApiError(416, "диапазон выходит за размер файла")
+                raise ApiError(416, _ui_text('диапазон выходит за размер файла'))
             code = 206
         h.send_response(code)
         for key, value in {"Content-Type": "application/octet-stream", "Content-Length": str(max(0, end-start+1)),
@@ -2810,16 +3092,16 @@ def api_browser_download(h, user, q, data, aid):
         cookies.load(h.headers.get("Cookie", ""))
         value = cookies[f"tg_download_{aid}"].value
     except (KeyError, ValueError, CookieError):
-        raise ApiError(401, "нажми «Скачать» у файла в чате")
+        raise ApiError(401, _ui_text('нажми «Скачать» у файла в чате'))
     with DB_LOCK:
         ticket = DOWNLOADS.get(token_hash(value))
         if not ticket or ticket[0] != aid or ticket[2] < time.time():
-            raise ApiError(401, "ссылка на скачивание истекла; нажми «Скачать» ещё раз")
+            raise ApiError(401, _ui_text('ссылка на скачивание истекла; нажми «Скачать» ещё раз'))
         user = db().execute("SELECT u.* FROM users u WHERE u.revoked=0 AND (u.token_hash=? OR EXISTS "
                             "(SELECT 1 FROM sessions s WHERE s.user=u.name AND s.token_hash=?))",
                             (ticket[1], ticket[1])).fetchone()
         if not user:
-            raise ApiError(401, "вход больше не действителен")
+            raise ApiError(401, _ui_text('вход больше не действителен'))
     stream_attachment(h, user, aid)
 
 
@@ -2864,7 +3146,7 @@ def api_claim(h, user, q, data):
     display = str(data.get("key") or "").strip()[:200]
     key = norm_key(display)
     if not key:
-        raise ApiError(400, "нужен key — что именно занимаешь")
+        raise ApiError(400, _ui_text('нужен key — что именно занимаешь'))
     check_secret("key", display)
     p = project_for(h, user, q)
     vals = {"topic": claim_text(data, "topic", 60), "note": claim_text(data, "note", 500),
@@ -2872,9 +3154,9 @@ def api_claim(h, user, q, data):
     try:
         hours = float(data["hours"]) if data.get("hours") is not None else CLAIM_HOURS
     except (TypeError, ValueError):
-        raise ApiError(400, "hours должно быть числом (часы, можно дробное)")
+        raise ApiError(400, _ui_text('hours должно быть числом (часы, можно дробное)'))
     if not 0 < hours <= 24 * 365:
-        raise ApiError(400, "hours должно быть больше 0 и не больше года")
+        raise ApiError(400, _ui_text('hours должно быть больше 0 и не больше года'))
     expires = time.time() + hours * 3600
     with DB_LOCK:
         con = db()
@@ -2895,7 +3177,7 @@ def api_claim(h, user, q, data):
             res_expired = None
         if cur:
             if not data.get("force"):
-                raise ApiError(409, f"«{cur['display_key']}» уже занято: {account_name(cur['owner'])}", holder=claim_dict(cur))
+                raise ApiError(409, f"«{cur['display_key']}{_ui_text('» уже занято: ')}{account_name(cur['owner'])}", holder=claim_dict(cur))
             taken = release_claim(cur, f"перехвачено {account_name(user['name'])}")
         cid = con.execute("INSERT INTO claims(key, display_key, topic, owner, owner_kind, host, note, until, created,"
                           " project_id, expires) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -2919,22 +3201,22 @@ def api_claim_release(h, user, q, data):
             try:
                 row = con.execute("SELECT * FROM claims WHERE id = ? AND project_id = ?", (int(data["id"]), p["id"])).fetchone()
             except (TypeError, ValueError):
-                raise ApiError(400, "id должен быть числом")
+                raise ApiError(400, _ui_text('id должен быть числом'))
             if not row:
-                raise ApiError(404, f"заявки #{data['id']} нет")
+                raise ApiError(404, f"{_ui_text('заявки #')}{data['id']}{_ui_text(' нет')}")
             if row["released"] is not None:
-                raise ApiError(409, f"заявка #{row['id']} «{row['display_key']}» уже снята")
+                raise ApiError(409, f"{_ui_text('заявка #')}{row['id']} «{row['display_key']}{_ui_text('» уже снята')}")
         elif data.get("key"):
             rows = con.execute("SELECT * FROM claims WHERE key = ? AND released IS NULL AND project_id = ? ORDER BY id DESC",
                                (norm_key(data["key"]), p["id"])).fetchall()
             if not rows:
-                raise ApiError(404, f"активной заявки «{str(data['key'])[:80]}» нет")
+                raise ApiError(404, f"{_ui_text('активной заявки «')}{str(data['key'])[:80]}{_ui_text('» нет')}")
             row = next((r for r in rows if r["owner"] == user["name"]), rows[0])
         else:
-            raise ApiError(400, "нужен key или id")
+            raise ApiError(400, _ui_text('нужен key или id'))
         if row["owner"] != user["name"]:
             if user["kind"] != "human":
-                raise ApiError(403, f"«{row['display_key']}» занял {account_name(row['owner'])}: чужую заявку снимает только человек")
+                raise ApiError(403, f"«{row['display_key']}{_ui_text('» занял ')}{account_name(row['owner'])}{_ui_text(': чужую заявку снимает только человек')}")
             note = note or f"снято {account_name(user['name'])}"
         return {"claim": release_claim(row, note)}
 
@@ -2943,7 +3225,7 @@ def api_claim_release(h, user, q, data):
 def cmd_development_agent(a):
     """Operator binds one agent to the admin's private development chat; no secret in stdout."""
     if not NAME_RE.fullmatch(a.name):
-        raise ApiError(400, "недопустимое имя агента")
+        raise ApiError(400, _ui_text('недопустимое имя агента'))
     target = os.path.abspath(os.path.expanduser(a.token_out))
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with DB_LOCK:
@@ -2957,7 +3239,7 @@ def cmd_development_agent(a):
             if key:
                 agent = resolve_account(account_id=key)
                 if agent["revoked"]:
-                    raise ApiError(409, "аккаунт сессии отозван; сначала реши это штатным управлением аккаунтами")
+                    raise ApiError(409, _ui_text('аккаунт сессии отозван; сначала реши это штатным управлением аккаунтами'))
                 saved = None
                 if os.path.isfile(target):
                     with open(target, encoding="utf-8") as f:
@@ -2965,13 +3247,13 @@ def cmd_development_agent(a):
                 if saved and token_hash(saved) == agent["token_hash"] and not a.rotate:
                     pass
                 elif not a.rotate:
-                    raise ApiError(409, "агент уже привязан; нужен его прежний файл токена или явный --rotate")
+                    raise ApiError(409, _ui_text('агент уже привязан; нужен его прежний файл токена или явный --rotate'))
                 else:
                     tok = "tgt_" + secrets.token_hex(24)
                     con.execute("UPDATE users SET token_hash=? WHERE name=?", (token_hash(tok), key))
             else:
                 if os.path.exists(target):
-                    raise ApiError(409, "файл токена уже существует: выбери другой путь")
+                    raise ApiError(409, _ui_text('файл токена уже существует: выбери другой путь'))
                 tok = "tgt_" + secrets.token_hex(24)
                 key = new_account(con, a.name, "agent", admin["name"], tok)
                 con.execute("UPDATE projects SET service_agent=? WHERE id=?", (key, project["id"]))
@@ -3000,7 +3282,7 @@ def cmd_adduser(a):
         try:
             if rows:
                 if not a.rotate:
-                    raise ApiError(409, "имя уже есть в этой области; --rotate выдаст новый токен")
+                    raise ApiError(409, _ui_text('имя уже есть в этой области; --rotate выдаст новый токен'))
                 key = rows[0]["name"]
                 con.execute("UPDATE users SET token_hash=?,revoked=0 WHERE name=?", (token_hash(tok), key))
             else:
@@ -3078,7 +3360,7 @@ def cmd_addmember(a):
 def cmd_invite(a):
     rows = find_accounts(a.name, account_id=a.account_id)
     if len(rows) > 1 and not a.project and not a.account_id:
-        raise ApiError(409, "имя неоднозначно: укажи --project или --account-id")
+        raise ApiError(409, _ui_text('имя неоднозначно: укажи --project или --account-id'))
     if rows and (a.reset or not a.project):
         inv = create_invite("cli", a.name, reset=True, account_id=rows[0]["name"])
     else:

@@ -85,7 +85,7 @@ class MobileTouchTest(unittest.TestCase):
         try:
             fx.s.HERE = str(fx.work)
             source = Path(os.environ.get('TELEGENT_TEST_WEB', str(fixture.ROOT/'web.html')))
-            (fx.work/'web.html').write_bytes(source.read_bytes())
+            (fx.work/'web.html').write_text(source.read_text(encoding='utf-8').replace('<script>', '<script>localStorage.setItem("tg_language","ru");</script><script>', 1),encoding='utf-8')
             with fx.s.DB_LOCK:
                 fx.s.db().execute("UPDATE users SET display_name=? WHERE name='bob-agent'", ('agent-'+'W'*26,))
             body = '\n\n'.join(['Plain fixture message for native touch navigation. '*7]*4)

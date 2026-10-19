@@ -428,6 +428,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .medited { font-size:11px;color:var(--muted); }
 #gestureHint { position:fixed;left:50%;bottom:145px;transform:translateX(-50%);padding:10px 18px;border-radius:24px;background:var(--panel);border:1px solid var(--line);z-index:12;pointer-events:none;font-size:14px; }
 @media(max-width:900px) {
+  #menu { max-width:none; }
   #app { height:var(--app-height,100dvh); }
   #scroller, #projects, #app aside { touch-action:pan-y pinch-zoom; }
   #devChatHint, #projBtn, #sideBtn, #bellBtn, .feedtop .tabs { display:none !important; }
@@ -460,9 +461,64 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   @keyframes nav-enter { from {opacity:.5;transform:translateX(var(--nav-direction,8px));} to {opacity:1;transform:translateX(0);} }
   #scroller.nav-enter { animation:nav-enter .16s ease-out; }
 }
+/* Shared surfaces keep controls and explanations consistent across screens. */
+.ux-dialog { color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:16px;width:min(540px,calc(100% - 24px));max-height:85dvh;padding:20px;overflow:auto; }
+.ux-dialog::backdrop { background:#0008; }
+.ux-head { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px; }
+.ux-head h2 { margin:0;font-size:18px; }
+.ux-head button,.ux-dialog .actions button { min-height:44px; }
+.ux-card { padding:14px;border:1px solid var(--line);border-radius:12px;margin:10px 0;background:var(--panel); }
+.ux-card p { margin:8px 0;overflow-wrap:anywhere; }
+.ux-card button { min-height:44px; }
+.ux-muted { font-size:13px;color:var(--muted); }
+.receipt-button { display:block;margin:4px 0 0 auto;padding:2px 8px;min-width:44px;min-height:28px;border:0;background:transparent;color:var(--muted);font-size:12px; }
+.receipt-button.read { color:var(--accent); }
+.message-footer { display:flex;justify-content:flex-end;gap:8px;align-items:center;min-height:28px; }
+.message-footer .receipt-button { display:inline-flex;align-items:center;margin:0; }
+.receipt-button svg { width:21px;height:16px;vertical-align:middle; }
+.receipt-person { padding:10px 0;border-bottom:1px solid var(--line); }
+.reaction-count { border:0;background:transparent;color:inherit;padding:6px;min-height:32px; }
+.reaction-group { display:inline-flex;align-items:center;gap:0; }
+#filterSummary { display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0; }
+#filterSummary:empty { display:none; }
+#filterSummary button { min-height:36px; }
+.section-heading { display:flex;align-items:center;gap:12px;justify-content:space-between;margin:16px 0; }
+.section-heading h2 { margin:0; }
+.work-tabs { display:flex;flex-wrap:wrap;gap:6px; }
+.work-tabs button { min-height:44px; }
+.work-tabs .active { background:var(--accent);color:var(--accent-ink); }
+.file-preview { display:block;max-width:100%;max-height:65dvh;margin:auto;border-radius:8px; }
+.file-thumb { width:56px;height:56px;object-fit:cover;border-radius:6px; }
+.connection-banner { flex:none;padding:10px 16px;background:var(--warn-bg);color:var(--ink);font-size:13px; }
+.invite-choices { display:flex;flex-direction:column;gap:8px;margin:12px 0; }
+.invite-choices button { min-height:48px;text-align:left; }
+.inv-stage { padding:10px;background:var(--code);border-radius:8px;font-size:13px;margin-top:12px; }
+#settingsBtn { min-width:44px;min-height:44px; }
+.participant-card { cursor:pointer; }
+.participant-card:focus-visible { outline:2px solid var(--accent); }
+#menu { max-height:82dvh;overflow:auto;max-width:min(540px,92vw); }
+.menu-message { padding:12px;margin:4px;border:1px solid var(--line);border-radius:8px;max-height:140px;overflow:auto;overflow-wrap:anywhere;background:var(--code); }
+.menu-details { padding:4px 12px;font-size:12px; }
+.menu-details p { margin:6px 0;overflow-wrap:anywhere; }
+@media(max-width:900px) {
+  .ux-dialog { margin:auto auto 8px;width:calc(100% - 16px);max-height:88dvh;padding:16px; }
+  .receipt-button { min-height:36px; }
+  #claimsTable,#releasedTable { display:block; }
+  #claimsTable tbody,#releasedTable tbody { display:block; }
+  #claimsTable tr,#releasedTable tr { display:block;margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:12px; }
+  #claimsTable tr:first-child,#releasedTable tr:first-child { display:none; }
+  #claimsTable td,#releasedTable td { display:block;border:0;padding:4px;white-space:normal;overflow-wrap:anywhere; }
+  #claimsTable td::before,#releasedTable td::before { content:attr(data-label);font-size:12px;color:var(--muted);margin-right:8px; }
+  .rhead { display:none; }
+  .rrow:not(.rhead) { display:flex;flex-wrap:wrap;gap:8px;padding:14px; }
+  .rrow .rwhat { flex-basis:100%;white-space:normal;font-size:15px;order:-2; }
+  .rrow .rval { font-size:18px;order:-1; }
+  .rdetail { overflow-wrap:anywhere; }
+}
 </style>
 </head>
 <body>
+<div id="languageBar" style="padding:12px;text-align:right"><label>Язык <select data-language aria-label="Язык"><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label></div>
 <div id="login" class="hidden">
   <div class="panel">
     <h1 style="font-size:18px;margin:0 0 10px">telegent</h1>
@@ -508,14 +564,15 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 
 <div id="invDialog" class="hidden" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
   <div class="panel" style="width:100%;max-width:440px;max-height:85dvh;overflow:auto">
-    <h2 style="font-size:16px;margin:0 0 10px">Пригласить</h2>
+    <div class="ux-head"><h2>Пригласить</h2><button data-ux="invite-close">Закрыть</button></div>
+    <div id="invChoices" class="invite-choices"><button data-ux="invite-mode" data-mode="human">Пригласить человека</button><button data-ux="invite-mode" data-mode="agent">Подключить агента</button><button data-ux="invite-mode" data-mode="existing">Добавить существующего участника</button></div>
     <div id="invPick" class="hidden">
       <p class="muted" style="font-size:12.5px;margin:0 0 6px">Из твоих проектов — добавятся сразу, без ссылки:</p>
       <div id="invCands" style="max-height:220px;overflow-y:auto;margin-bottom:10px"></div>
       <p class="muted" style="font-size:12.5px;margin:0 0 6px;border-top:1px solid var(--line);padding-top:10px">
         Или пригласи по ссылке нового человека или агента:</p>
     </div>
-    <input id="invName" list="invNames" placeholder="имя: начни вводить — подскажу знакомых" autocapitalize="off" autocomplete="off" style="width:100%;margin-bottom:8px">
+    <div id="invFields" class="hidden"><button type="button" data-ux="invite-back">← Назад</button><p id="invModeLabel"></p><label for="invName">Имя</label><input id="invName" list="invNames" placeholder="имя: начни вводить — подскажу знакомых" autocapitalize="off" autocomplete="off" style="width:100%;margin-bottom:8px">
     <datalist id="invNames"></datalist>
     <div id="invNew" class="row" style="display:flex;gap:6px;margin-bottom:8px">
       <select id="invKind" style="flex:1"><option value="human">человек</option><option value="agent">агент</option></select>
@@ -523,11 +580,13 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     </div>
     <p id="invNote" class="muted" style="font-size:12.5px;margin:0 0 8px"></p>
     <div class="actions"><button class="primary" id="invCreate">Создать ссылку</button><button id="invClose">Закрыть</button></div>
+    </div>
     <div id="invResult" class="hidden" style="margin-top:10px">
       <textarea id="invLink" readonly rows="1" style="width:100%;min-width:0;font-size:12.5px;resize:vertical"></textarea>
       <button id="invCopy" style="width:100%;margin-top:6px">Копировать</button>
       <button id="invShare" class="primary hidden" style="width:100%;margin-top:8px">Поделиться…</button>
       <p id="invHint" class="muted" style="font-size:12.5px;margin:6px 0 0"></p>
+      <div id="invProgress" class="inv-stage" role="status"></div><button data-ux="invite-check">Проверить подключение</button>
     </div>
     <div class="err" id="invErr"></div>
   </div>
@@ -598,7 +657,9 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     <button id="themeBtn" title="тема">◐</button>
     <button id="pwBtn" class="hidden" title="задать или сменить пароль для входа">Пароль</button>
     <button id="logoutBtn">Выйти</button>
+    <button id="settingsBtn" title="Настройки" aria-label="Настройки" data-ux="settings">⚙</button>
   </header>
+  <div id="connectionBanner" class="connection-banner hidden" role="status">Переподключаемся. Черновик сохранён. <button data-ux="reconnect">Повторить</button></div>
   <div class="wrap">
     <div id="projectShade" class="hidden" aria-hidden="true"></div>
     <nav id="projects">
@@ -629,6 +690,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         </div>
         <div id="dmBar" class="hidden"><button id="dmBack" type="button" aria-label="К списку личных чатов">←</button><strong id="dmTitle"></strong><span class="muted" style="font-size:12px">Личный чат</span></div>
         <div id="threadBar" class="panel hidden" style="margin-bottom:10px"></div>
+        <div id="returnBar" class="hidden"><button data-ux="return">← Вернуться</button></div>
+        <div id="filterSummary"></div>
       </div>
       <div id="scroller">
         <div id="noProject" class="column hidden">
@@ -654,7 +717,13 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           <button class="dm-item" type="button" data-act="mobiletab" data-tab="results">Журнал результатов</button>
           <button class="dm-item" type="button" data-act="mobiletab" data-tab="claims">Занято</button>
           <button class="dm-item" type="button" data-act="mobilenotifications">Уведомления</button>
+          <button class="dm-item" type="button" data-ux="work">Ждут меня <span id="workBadge"></span></button>
+          <button class="dm-item" type="button" data-ux="board">Доска статуса</button>
+          <button class="dm-item" type="button" data-ux="settings">Настройки</button>
         </div>
+        <div id="workView" class="column hidden"><div class="section-heading"><h2>Ждут меня</h2><button data-ux="home">← К чату</button></div>
+          <div class="work-tabs"><button data-ux="workmode" data-mode="waiting" class="active">Ответить</button><button data-ux="workmode" data-mode="approval">Решить</button><button data-ux="workmode" data-mode="taken">В работе у меня</button></div><div id="workBox"></div></div>
+        <div id="boardView" class="column hidden"><div class="section-heading"><h2>Доска статуса</h2><button data-ux="home">← К чату</button></div><p class="muted">Участники сами сообщают о своей работе. Связь с агентом показывается отдельно.</p><div id="boardBox"></div></div>
         <div id="resultsView" class="column hidden">
           <div id="resultsBox"></div>
         </div>
@@ -692,6 +761,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           </div>
           <datalist id="topicList"></datalist>
           <div class="err" id="sendErr"></div>
+          <button id="retrySend" class="hidden" type="button" data-ux="retry-send">Повторить отправку</button>
         </div>
       </div>
     </main>
@@ -736,16 +806,589 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     <div class="actions" style="justify-content:flex-end;margin-top:12px"><button id="editCancel" type="button">Отмена</button><button id="editSave" class="primary">Сохранить</button></div>
   </form>
 </dialog>
+<dialog id="infoDialog" class="ux-dialog" aria-labelledby="infoHeading"><div class="ux-head"><h2 id="infoHeading"></h2><button data-ux="close-info" aria-label="Закрыть">✕</button></div><div id="infoBody"></div></dialog>
+<dialog id="actionDialog" class="ux-dialog" aria-labelledby="actionHeading"><form id="actionForm"><div class="ux-head"><h2 id="actionHeading"></h2><button type="button" data-ux="close-action">Отмена</button></div><p id="actionContext"></p><label for="actionNote" id="actionLabel"></label><textarea id="actionNote" rows="3" style="width:100%"></textarea><div class="err" id="actionErr" role="alert"></div><div class="actions"><button id="actionSave" type="submit" class="primary">Сохранить</button></div></form></dialog>
 <script>
 "use strict";
-const TYPES = {info: "инфо", request: "просьба", question: "вопрос", result: "результат", alert: "тревога",
-               decision: "нужно решение людей", status: "статус", approval: "одобрение"};
-const STATES = {open: "открыто", taken: "взято", done: "сделано", rejected: "отклонено"};
+// ---- localization: translate source-owned strings before inserting user values
+const UI_EN={
+  "Пароля ещё нет? Войди один раз ": "No password yet? Sign in once ",
+  "по токену": "with a token",
+  " или по\n      ссылке из ": " or with the link from ",
+  " и задай его кнопкой «Пароль».": " and set one using the “Password” button.",
+  "Войти": "Sign in",
+  "Войти по токену": "Sign in with token",
+  "придумай пароль (от 8 символов)": "Create a password (at least 8 characters)",
+  "ещё раз": "again",
+  "Уже есть аккаунт в telegent?": "Already have a telegent account?",
+  "Войди и вступи им": "Sign in and join with it",
+  " — второй аккаунт не нужен.": " — no second account needed.",
+  "твоё имя": "your name",
+  "твой пароль": "your password",
+  "Войти и вступить в проект": "Sign in and join the project",
+  "Передай этот текст своему агенту: он сам подключится и настроит клиент.": "Give this text to your agent: it will connect and set up the client on its own.",
+  "Пригласить": "Invite",
+  "Из твоих проектов — добавятся сразу, без ссылки:": "From your projects — they’ll be added right away, without a link:",
+  "Или пригласи по ссылке нового человека или агента:": "Or invite a new person or agent with a link:",
+  "имя: начни вводить — подскажу знакомых": "name: start typing to see people you know",
+  "человек": "Person",
+  "агент": "Agent",
+  "чей агент": "whose agent",
+  "Создать ссылку": "Create link",
+  "Закрыть": "Close",
+  "Копировать": "Copy",
+  "Поделиться…": "Share…",
+  "Новый проект": "New project",
+  "название, например «Хакатон 2»": "project name, e.g. “Hackathon 2”",
+  "короткое имя латиницей (необязательно)": "short name using Latin letters (optional)",
+  "Ты станешь владельцем и сможешь приглашать людей и агентов.\n      Участники проекта видят только его, другие проекты для них не существуют.": "You’ll become the owner and can invite people and agents.\n      Project members can only see this project; other projects are invisible to them.",
+  "Создать": "Create",
+  "Отмена": "Cancel",
+  "Название проекта": "Project name",
+  "Новое название": "New name",
+  "Сохранить": "Save",
+  "Удалить проект": "Delete project",
+  "Удалится всё, что есть в проекте «": "Everything in project “",
+  "»: сообщения, вложения, доска,\n      заявки и приглашения. Участники потеряют к нему доступ, агенты проекта останутся без проекта. ": "” will be deleted: messages, attachments, status board,\n      claims, and invitations. Members will lose access, and the project’s agents will be left without a project. ",
+  "Отменить нельзя.": "This can’t be undone.",
+  "Чтобы подтвердить, введи название проекта:": "To confirm, enter the project name:",
+  "Удалить навсегда": "Delete permanently",
+  "Пароль для входа": "Sign-in password",
+  "текущий пароль": "current password",
+  "новый пароль (от 8 символов)": "new password (at least 8 characters)",
+  "связь": "connection",
+  "вопросы и просьбы лично тебе, на которые нет ответа: показать": "questions and requests addressed to you without a reply: show",
+  "проекты": "projects",
+  "Проекты": "Projects",
+  "участники проекта": "project members",
+  "Участники": "Members",
+  "тема": "theme",
+  "задать или сменить пароль для входа": "set or change your sign-in password",
+  "Пароль": "Password",
+  "Задать пароль": "Set password",
+  "Выйти": "Sign out",
+  "Настройки": "Settings",
+  "Переподключаемся. Черновик сохранён. ": "Reconnecting. Your draft is saved. ",
+  "Повторить": "Retry",
+  "новый проект": "new project",
+  "+ Новый": "+ New",
+  "Общий чат": "Team chat",
+  "Личные": "Direct",
+  "Журнал результатов": "Results log",
+  "Журнал": "Log",
+  "Занято": "Claimed",
+  "поиск и фильтры (Ctrl+K)": "search and filters (Ctrl+K)",
+  "Поиск и фильтры": "Search and filters",
+  "Закрыть поиск и фильтры": "Close search and filters",
+  "Закрыть ✕": "Close ✕",
+  "поиск по истории": "search history",
+  "все топики": "all topics",
+  "все типы": "all types",
+  "открытые": "open",
+  "ждут одобрения": "awaiting approval",
+  "ждут моего ответа": "awaiting my reply",
+  "статусы": "status updates",
+  "К списку личных чатов": "Back to direct chats",
+  "Личный чат": "Direct chat",
+  "← Вернуться": "← Back",
+  "Ты пока ни в одном проекте": "You’re not in a project yet",
+  "Создай свой проект или попроси владельца проекта прислать приглашение.": "Create a project or ask a project owner to invite you.",
+  "Создать проект": "Create project",
+  "Загрузить раньше": "Load earlier messages",
+  "Личные чаты этого проекта. Каждый виден только тебе и выбранному агенту.": "Direct chats in this project. Each chat is visible only to you and the selected agent.",
+  "Найти агента или личный чат": "Find an agent or direct chat",
+  "Найти агента или чат…": "Find an agent or chat…",
+  "Ещё": "More",
+  "Уведомления": "Notifications",
+  "Ждут меня": "Needs my attention",
+  "Доска статуса": "Status board",
+  "← К чату": "← Back to chat",
+  "Ответить": "Reply",
+  "Решить": "Decide",
+  "В работе у меня": "I’m working on",
+  "Участники сами сообщают о своей работе. Связь с агентом показывается отдельно.": "Members post their own work updates. Agent connectivity is shown separately.",
+  "Снятые (последние 20)": "Released (latest 20)",
+  "↓ новые": "↓ new",
+  "отменить ответ": "cancel reply",
+  "Сообщение": "Message",
+  "Прикрепить файл до 200 МБ": "Attach a file up to 200 MB",
+  "Прикрепить файл": "Attach file",
+  "Передать секрет агенту": "Send a secret to an agent",
+  "кому": "to",
+  "Параметры сообщения": "Message options",
+  "тип, топик, срочно, одобрение": "type, topic, urgent, approval",
+  "Остановить отправку": "Stop sending",
+  "Отправить сообщение": "Send message",
+  "Отправить (Enter)": "Send (Enter)",
+  "тип": "type",
+  "#топик": "#topic",
+  "топик": "topic",
+  "меняет чужую работу прямо сейчас": "affects someone else’s work right now",
+  "срочно": "urgent",
+  "деньги или необратимое: исполнитель ждёт «да» своего человека": "costly or irreversible: the person doing it must wait for their person’s approval",
+  "нужно одобрение": "approval required",
+  "кто решает": "who decides",
+  "Повторить отправку": "Retry sending",
+  "Ширина панели статуса": "Status panel width",
+  "Потяни, чтобы изменить ширину. Двойной щелчок — сбросить.": "Drag to change the width. Double-click to reset.",
+  "закрыть проекты": "close projects",
+  "Закрыть проекты": "Close projects",
+  "После перезагрузки выбери файлы заново: ": "After reloading, select the files again: ",
+  "(агент)": "(agent)",
+  "(человек)": "(person)",
+  "Ты: ": "You: ",
+  "+ Пригласить": "+ Invite",
+  "+ Добавить агента": "+ Add agent",
+  "Начать разговор": "Start a conversation",
+  "Начать личный чат": "Start a direct chat",
+  "Никого не найдено": "No one found",
+  "В проекте пока нет доступных собеседников": "No one is available to chat with in this project yet",
+  "Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда.": "Direct chat with the telegent development session. Messages arrive in the current turn or start a new one; replies return here.",
+  "Сбросить всё": "Reset all",
+  "По этим условиям сообщений нет. Измени фильтры или сбрось их.": "No messages match these filters. Change or reset the filters.",
+  "Здесь пока тихо. Напиши первым.": "It’s quiet here. Start the conversation.",
+  "Ветка #": "Thread #",
+  " ответов · ": " replies · ",
+  "Убрать свою реакцию": "Remove your reaction",
+  "Добавить реакцию": "Add reaction",
+  "ответ на #": "reply to #",
+  "свернуть": "Collapse",
+  "показать полностью": "Show in full",
+  "✔ одобрил": "✔ approved",
+  "✘ отказал": "✘ rejected",
+  "Нужно одобрение: ": "Approval needed from ",
+  "Нужно одобрение человека.": "A person’s approval is required.",
+  "Решения пока нет.": "No decision yet.",
+  "Решает ": "Decision pending from ",
+  "Одобрить": "Approve",
+  "Получение начато": "Retrieval started",
+  "Ожидает получения": "Waiting to be retrieved",
+  "Получен агентом": "Retrieved by agent",
+  "Срок истёк": "Expired",
+  "Отозван": "Revoked",
+  "🔐 Секрет": "🔐 Secret",
+  "До ": "Until ",
+  "отметить обработанным": "mark as handled",
+  "развернуть": "Expand",
+  "Удалить это сообщение для всех? Ответы в ветке останутся.": "Delete this message for everyone? Replies in the thread will remain.",
+  "Снять заявку на эксперимент?": "Release the experiment claim?",
+  "Ответ ": "Reply to ",
+  "Личное сообщение ": "Direct message to ",
+  "Сообщение в «": "Message in “",
+  " МБ": " MB",
+  " КБ": " KB",
+  " Б": " B",
+  " · Скачать": " · Download",
+  " · Внешняя ссылка: ": " · External link: ",
+  "Скачать ": "Download ",
+  "Загрузка ": "Uploading ",
+  "Файлов: ": "Files: ",
+  "Убрать ": "Remove ",
+  "Отправка остановлена. Файлы и текст сохранены — можно повторить.": "Sending stopped. Your files and message are saved; you can retry.",
+  "слушает": "listening",
+  "в сети": "online",
+  "проверял входящие ": "last checked inbox ",
+  "был ": "last active ",
+  "ещё не подключался": "not connected yet",
+  "действия": "actions",
+  "(ты)": "(you)",
+  "Покинуть проект «": "Leave project “",
+  "»? Вернуться можно только по новому приглашению.": "”? You can return only with a new invitation.",
+  "Снять владельца": "Remove owner role",
+  " из проекта «": " from project “",
+  "»? Его агенты в этом проекте тоже уйдут.": "”? Their agents in this project will also leave.",
+  "Проект удалён": "Project deleted",
+  "; без проекта: ": "; without a project: ",
+  "твой агент": "your agent",
+  "из ": "from ",
+  "твой агент, без проекта": "your agent, not in a project",
+  "агент для ": "agent for ",
+  "Добавить в проект": "Add to project",
+  "уже в проекте.": "is already in this project.",
+  " — твой агент без проекта: добавится сразу.": " — your agent isn’t in a project and will be added right away.",
+  "Новый человек или агент": "New person or agent",
+  "Твой агент": "Your agent",
+  " в «": " in “",
+  "»: получит одноразовую ссылку на 7 дней. ": "”: they’ll receive a one-time link valid for 7 days. ",
+  "Передай агенту ": "Give this to agent ",
+  ": получит новый токен, старый перестанет работать.": ": it will receive a new token and the old one will stop working.",
+  "Скопируй текст и передай агенту ": "Copy this text and give it to agent ",
+  ": он сам получит аккаунт, настроит клиент и проверит связь.": ": it will get its account, set up the client, and check the connection.",
+  "Отправь ссылку ": "Send the link to ",
+  ": придумает пароль и окажется в проекте ": ": they’ll create a password and join project ",
+  ": войдёт своим паролем и окажется в проекте ": ": they’ll sign in with their password and join project ",
+  ": задаст новый пароль, старый перестанет работать.": ": they’ll set a new password and the old one will stop working.",
+  " Одноразовая, до ": " One-time link, valid until ",
+  ", задай новый пароль в telegent": ", set a new password in telegent",
+  "Приглашение в telegent, проект ": "telegent invitation to project ",
+  " в проект «": " to project “",
+  "Приглашение": "Invitation",
+  " для ": " for ",
+  ". Придумай пароль: дальше входи по имени ": ". Create a password, then sign in with the username ",
+  " и этому паролю с любого устройства.": " and this password from any device.",
+  ", тебя приглашают": ", you’re invited",
+  ". Войди своим паролем.": ". Sign in with your password.",
+  ", задай новый пароль: дальше входи по имени и этому паролю.": ", set a new password, then sign in with your username and this password.",
+  "Это ты, ": "Is this you, ",
+  "Вступить в проект своим аккаунтом": "Join the project with your account",
+  "Вступить в проект": "Join the project",
+  "ждут твоего решения": "awaiting your decision",
+  "ждут твоего решения: ": "awaiting your decision: ",
+  "ждут одобрения человека: ": "awaiting a person’s approval: ",
+  " (фильтр «ждут одобрения» в поиске)": " (use the “awaiting approval” search filter)",
+  "ждут твоего ответа: ": "awaiting your reply: ",
+  "значение ↑": "value ↑",
+  "значение ↓": "value ↓",
+  "время ↓": "time ↓",
+  "когда": "when",
+  "кто": "who",
+  "что": "what",
+  "метрика · набор": "metric · dataset",
+  "значение": "value",
+  "лучшее": "best",
+  "с чем сравнивали": "baseline",
+  "коммит": "commit",
+  "веса": "weights",
+  "заметка": "note",
+  "Ничего не подошло под фильтры.": "No results match these filters.",
+  "Пока пусто: агенты пишут результаты с --metric/--dataset/--value.": "No results yet. Agents can submit results with --metric/--dataset/--value.",
+  "эксперимент": "experiment",
+  "кто держал": "claimed by",
+  "с": "from",
+  "до": "until",
+  "просрочена ": "expired ",
+  " назад": " ago",
+  "ещё ": "another ",
+  "Снять": "Release",
+  "Ничего не занято (агенты: ": "No experiments are currently claimed (agents: ",
+  " перед запуском на GPU).": " before starting a GPU run).",
+  "снято": "released",
+  "кем / по какому сообщению": "by / from which message",
+  "результат ": "result ",
+  "Пока нет.": "Nothing yet.",
+  "Прочитано всеми адресатами": "Read by all recipients",
+  "Есть получившие сообщение": "Received by one or more recipients",
+  "Отправлено на сервер": "Sent to server",
+  ". Информация о сообщении": ". Message information",
+  "Получил: ": "Received: ",
+  "Ещё не получил": "Not received yet",
+  "Прочитал: ": "Read: ",
+  "Ещё не прочитал": "Not read yet",
+  "Обработал: ": "Handled: ",
+  "Не отмечено обработанным": "Not marked as handled",
+  "Для этого сообщения нет квитанций адресатов.": "There are no recipient receipts for this message.",
+  "Информация о сообщении": "Message information",
+  "Прочтение и отметка «Обработано» учитываются отдельно. Они не являются одобрением.": "Reading and marking a message as “Handled” are tracked separately. Neither counts as approval.",
+  "Одобрить действие": "Approve action",
+  "Отказать в одобрении": "Reject approval",
+  "Взять в работу": "Take on",
+  "Завершить просьбу": "Complete request",
+  "Отклонить просьбу": "Reject request",
+  "Открыть просьбу снова": "Reopen request",
+  "Ссылка на результат (коммит, путь или сообщение)": "Result reference (commit, path, or message)",
+  "Комментарий": "Comment",
+  "Включены": "Enabled",
+  "Выключены": "Disabled",
+  "Заблокированы браузером": "Blocked by browser",
+  "Браузер не поддерживает уведомления": "Browser notifications aren’t supported",
+  "Сменить пароль": "Change password",
+  "Сменить тему": "Change theme",
+  "Нет проекта": "No project",
+  "Сейчас уведомления работают, пока открыта вкладка. Разрешение относится к этому адресу сайта.": "Notifications work while this tab is open. Permission applies to this website address.",
+  "Разреши уведомления в настройках сайта в браузере, затем вернись сюда.": "Allow notifications in your browser’s site settings, then return here.",
+  "Выключить": "Turn off",
+  "Включить": "Turn on",
+  "Загружаем…": "Loading…",
+  "Открыть сообщение": "Open message",
+  "Отказать": "Reject",
+  "Здесь всё разобрано.": "You’re all caught up.",
+  "Обновлено ": "Updated ",
+  "Время обновления неизвестно": "Update time unknown",
+  "давно не обновлялось": "not updated recently",
+  "Сейчас": "Now",
+  "Дальше": "Next",
+  "Примечание": "Note",
+  "Вернётся": "Back at",
+  "Пока никто не обновил статус.": "No one has posted a status update yet.",
+  "Агент · человек-владелец: ": "Agent · owner: ",
+  "Связь: ": "Connection: ",
+  "слушает сообщения": "listening for messages",
+  "нет активного слушателя": "no active listener",
+  "Участник не сообщил текущую задачу.": "This member hasn’t shared a current task.",
+  "Взятые просьбы, доступные тебе": "Requests you can access that this member has taken on",
+  "Нет открытых взятых просьб.": "No open requests taken on.",
+  "Заявки": "Claims",
+  "Нет заявок.": "No claims.",
+  "Это явные записи участника. Наличие связи не подтверждает выполнение работы.": "These are status entries posted by the member. Being connected does not confirm that work is complete.",
+  "Не удалось открыть файл: HTTP ": "Could not open file: HTTP ",
+  "Для просмотра доступны изображения до 12 МБ. Файл можно скачать.": "Images up to 12 MB can be previewed. You can download the file.",
+  "Формат не поддерживает просмотр. Скачай файл, чтобы открыть его на устройстве.": "This format can’t be previewed. Download the file to open it on your device.",
+  "Скачать оригинал": "Download original",
+  "Кто поставил реакцию": "Who reacted",
+  "Реакция уже убрана.": "The reaction has been removed.",
+  "уведомления включены: пока вкладка открыта, браузер сообщит о просьбах одобрить, срочных и адресованных тебе (нажми, чтобы выключить)": "Notifications are on. While this tab is open, your browser will alert you about approval requests, urgent messages, and messages addressed to you (click to turn off)",
+  "уведомления заблокированы в браузере: разреши их в настройках сайта (значок замка рядом с адресом), потом нажми снова": "Notifications are blocked by your browser. Allow them in this site’s settings (lock icon by the address bar), then click again",
+  "уведомления выключены: нажми, чтобы включить; они приходят, пока вкладка открыта": "Notifications are off. Click to turn them on; they arrive while this tab is open",
+  "Уведомления заблокированы в браузере: разреши их в настройках сайта": "Notifications are blocked by your browser. Allow them in this site’s settings",
+  "Решение": "Decision",
+  "Нужно твоё решение": "Your decision is needed",
+  "Срочно": "Urgent",
+  "Личное сообщение": "Direct message",
+  "Тебе": "To you",
+  "на связи": "connected",
+  "нет связи: ": "disconnected: ",
+  "токен": "token",
+  "имя": "name",
+  "пароль": "password",
+  "Навигация по проекту": "Project navigation",
+  "Общий": "Team",
+  "Текст сообщения": "Message text",
+  "инфо": "info",
+  "просьба": "request",
+  "вопрос": "question",
+  "результат": "result",
+  "тревога": "alert",
+  "нужно решение людей": "people’s decision needed",
+  "статус": "status",
+  "одобрение": "approval",
+  "открыто": "open",
+  "взято": "taken",
+  "сделано": "done",
+  "отклонено": "rejected",
+  "Сердечко": "Heart",
+  "Огонёк": "Fire",
+  "Лайк": "Like",
+  "Дизлайк": "Dislike",
+  "Клоун": "Clown",
+  "Действия с проектом": "Project actions",
+  "Действия с проектом «${esc(p.title)}»": "Actions for project “${esc(p.title)}”",
+  "Реакция на сообщение": "React to message",
+  "Реакции": "Reactions",
+  "Кто поставил ${esc(label)}: ${r.count}": "Who reacted with ${esc(label)}: ${r.count}",
+  "ответить": "reply",
+  "вся ветка": "entire thread",
+  "ещё": "more",
+  "убрать": "remove",
+  "Готов к отправке": "Ready to send",
+  "Отозвать": "Revoke",
+  "Сегодня": "Today",
+  "Вчера": "Yesterday",
+  "Действия с проектом «": "Actions for project “",
+  "Ссылка для сброса пароля": "Password reset link",
+  "Новый токен агенту": "New token for agent",
+  "Переименовать": "Rename",
+  "Убрать из проекта": "Remove from project",
+  "Написать лично": "Send a direct message",
+  "Ссылка для обновления доступа создана. Передай её получателю; новый доступ выдаётся при принятии ссылки.": "An access renewal link has been created. Share it with the recipient; access is renewed when they accept the link.",
+  "Инструкция готова. Ожидаем принятия приглашения.": "Instructions are ready. Waiting for the invitation to be accepted.",
+  "Участник появился в проекте.": "The member has joined the project.",
+  "Клиент подключился и проверяет входящие. Фактическое прочтение сообщений видно в информации о сообщении.": "The client is connected and checking its inbox. Actual message reads are shown in message information.",
+  "Агент появился в проекте. Ожидаем подключения клиента и проверки входящих.": "The agent has joined the project. Waiting for its client to connect and check its inbox.",
+  "Копировать для агента": "Copy for agent",
+  "Копировать ссылку": "Copy link",
+  "Скопировано": "Copied",
+  "добавлен(а) в проект": " added to the project",
+  "добавь в проект": "Add to project",
+  "Копируй текст": "Copy text",
+  "пароли не совпадают": "Passwords don’t match",
+  " все топики": "all topics",
+  "все метрики": "all metrics",
+  "все наборы": "all datasets",
+  "все авторы": "all authors",
+  "Ничего не занято (агенты: \u003ccode>tg.py claim \"ключ\"\u003c/code> перед запуском на GPU).": "Nothing is claimed yet (agents: run \u003ccode>tg.py claim \"key\"\u003c/code> before starting a GPU run).",
+  "Отметка «Обработано»": "Mark as “Handled”",
+  "уведомления работают": "notifications are working",
+  "Уведомления: ": "Notifications: ",
+  "Загружаем изображение…": "Loading image…",
+  "Отозвать\u003c/button>": "Revoke\u003c/button>",
+  "Открыть изображение": "View image",
+  "Все личные": "All direct chats",
+  "для ": "for ",
+  "в проект ": "to project ",
+  "в проект «": "to project “",
+  "для агента ": "for agent ",
+  " (владелец ": " (owner ",
+  "Пароли не совпадают": "Passwords don’t match",
+  "Выполни из рабочего проекта (путь к tg.py поправь сам):\n": "Run this from your working project (adjust the path to tg.py yourself):\n",
+  "Клиент определится автоматически; если нет, сам выбери --client codex или --client claude.\n": "The client is detected automatically. If detection fails, choose --client codex or --client claude.\n",
+  "Прочитай AGENTS.md рядом с клиентом, проверь whoami и inbox и закончи настройку по выводу команды. ": "Read AGENTS.md next to the client, check whoami and inbox, and finish setup as directed by the command output. ",
+  "Если установка прервётся, повтори ту же команду. Существующие инструкции и хуки сохраняй, токен не показывай. ": "If setup is interrupted, rerun the same command. Keep existing instructions and hooks, and do not reveal the token. ",
+  "Если сам Codex потребует доверия новым хукам, покажи человеку его стандартный запрос; не обходи защиту.": "If Codex asks you to trust new hooks, show its standard prompt to the person; do not bypass the trust check.",
+  "Покинуть проект ": "Leave project ",
+  "уже работает с тобой в ": " already works with you in ",
+  ": добавится сразу, без ссылки.": ": will be added right away, without a link.",
+  "Если у него уже есть аккаунт, по ссылке он войдёт им, второй аккаунт не появится.": "If they already have an account, they’ll use the link to sign in to it; no second account will be created.",
+  "Подключи себя к telegent из папки своего рабочего проекта.\n": "Connect to telegent from your working project folder.\n",
+  "Найди актуальный клиент tg.py. Если его нет, клонируй: git clone https://github.com/Takymu/telegent\n": "Find the current tg.py client. If it isn’t there, clone it: git clone https://github.com/Takymu/telegent\n",
+  "Дополнительный срок ": "Additional time ",
+  " мин": " min",
+  " ч": " hr",
+  " дн": " days",
+  "Язык": "Language",
+  "Как на устройстве": "Use device language",
+  "Русский": "Russian",
+  "Настройка сохраняется в этом браузере. Тексты сообщений и имена остаются в исходном виде.": "This setting is saved in this browser. Message text and names stay as written.",
+  "Имя": "Name",
+  "← Назад": "← Back",
+  "Назад": "Back",
+  "Проверить подключение": "Check connection",
+  "1. Инструкция готова. Ожидаем принятия приглашения.": "1. Instructions are ready. Waiting for the invitation to be accepted.",
+  "3. Клиент подключился и проверяет входящие. Фактическое прочтение сообщений видно в информации о сообщении.": "3. The client is connected and checking its inbox. Actual message reads are shown in message information.",
+  "2. Агент появился в проекте. Ожидаем подключения клиента и проверки входящих.": "2. The agent has joined the project. Waiting for its client to connect and check its inbox.",
+  "Все топики": "All topics",
+  "Посмотреть изображение": "View image",
+  "Передать секрет": "Send secret",
+  "Значение не попадёт в ленту, поиск и уведомления. Получить пакет сможет только выбранный агент. Хранение шифруется сервером; оператор сервера технически имеет доступ.": "The value won’t appear in the feed, search, or notifications. Only the selected agent can retrieve it. The server encrypts stored secrets, but its operator has technical access.",
+  "Пароль или другой секрет": "Password or other secret",
+  "Удалить неполученный пакет через": "Delete an unclaimed package after",
+  "5 минут": "5 minutes",
+  "1 час": "1 hour",
+  "24 часа": "24 hours",
+  "После подтверждённого получения пакет удаляется из рабочей базы. Карточка остаётся в истории.": "After retrieval is confirmed, the package is deleted from the working database. Its card remains in the history.",
+  "Передать": "Send",
+  "Изменить сообщение": "Edit message",
+  "Изменение текста сбросит прежние одобрения. Для новой версии потребуется новое решение.": "Editing the message clears previous approvals. The new version will need a new decision.",
+  "Дождись завершения передачи секрета": "Wait for the secret transfer to finish",
+  "Для передачи секрета нужен HTTPS": "HTTPS is required to send a secret",
+  "Получатель: ": "Recipient: ",
+  "Непустой текст до 32 КиБ": "Enter text of up to 32 KiB",
+  "Секрет передан агенту": "Secret sent to agent",
+  "Можно повторить передачу того же пакета.": "You can retry sending the same package.",
+  "Дождись отправки сообщения или нажми «Отмена»": "Wait for the message to send or click “Cancel”",
+  "Поиск: ": "Search: ",
+  "Открытые": "Open",
+  "Ждут ответа": "Awaiting reply",
+  "Без служебных": "Hide status updates",
+  "Новые": "New",
+  "ответов": "replies",
+  "Сделать владельцем": "Make owner",
+  "\u003cth>с\u003c/th>": "\u003cth>from\u003c/th>",
+  "\u003cth>до\u003c/th>": "\u003cth>until\u003c/th>",
+  "января": "January",
+  "февраля": "February",
+  "марта": "March",
+  "апреля": "April",
+  "мая": "May",
+  "июня": "June",
+  "июля": "July",
+  "августа": "August",
+  "сентября": "September",
+  "октября": "October",
+  "ноября": "November",
+  "декабря": "December",
+  "Назад к чату": "Back to chat",
+  "Дождись отправки сообщения": "Wait for the message to send",
+  "Пока нет проектов.": "No projects yet.",
+  "Переименовать проект": "Rename project",
+  "Покинуть проект": "Leave project",
+  "Личный чат администратора. Сессия разработки ещё не подключена.": "Private chat with the administrator. The development session is not connected yet.",
+  "Название проекта изменено": "Project name changed",
+  "Готово. Теперь на любом устройстве: имя ": "Done. You can now sign in on any device: username ",
+  " и этот пароль.": " and this password.",
+  "всем": "Everyone",
+  "кто решает: любой человек": "Anyone can decide",
+  "Ждут одобрения": "Awaiting approval",
+  "решение людей": "Decision by people",
+  "Кто поставил ": "Reacted by ",
+  "Сообщение удалено": "Message deleted",
+  "Вся ветка": "Entire thread",
+  "агент на ": "agent on ",
+  ", владелец ": ", owner ",
+  "изменено": "edited",
+  "Ответы: ": "Replies: ",
+  "Удалить сообщение": "Delete message",
+  "Отметить сделанным": "Mark as done",
+  "Отклонить": "Reject",
+  "Открыть снова": "Reopen",
+  "Обработано (ack)": "Processed (ack)",
+  "Скопировать текст": "Copy text",
+  "Выбери реакцию · повторный клик уберёт её": "Choose a reaction · click again to remove it",
+  "Текст скопирован": "Text copied",
+  "Не удалось скопировать": "Could not copy",
+  "кто решает: человек этого чата": "This chat's human decides",
+  "Ответ на #": "Reply to #",
+  "Написать команде…": "Message the team…",
+  "максимальный размер — 200 МБ": "maximum size — 200 MB",
+  "Не больше 30 файлов за раз": "No more than 30 files at a time",
+  "На сервере свободно меньше 300 МБ. Убери файлы, чтобы отправить только текст.": "Less than 300 MB is available on the server. Remove attachments to send text only.",
+  "Проверка файла…": "Checking file…",
+  "Загружен": "Uploaded",
+  "владелец": "owner",
+  "участник": "member",
+  "Ты покинул(а) проект": "You left the project",
+  "Новое имя для ": "New name for ",
+  "латиница, цифры, . _ -": "Latin letters, digits, . _ -",
+  "Добавить": "Add",
+  "пусто": "empty",
+  "Человек": "Person",
+  "Агент": "Agent",
+  "просрочена": "expired",
+  "Пригласить человека": "Invite a person",
+  "Подключить агента": "Connect an agent",
+  "Добавить существующего участника": "Add an existing member",
+  "Тема": "Topic",
+  "Получение": "Delivery",
+  "Прочитали:": "Read by:",
+  "Пока никто": "No one yet",
+  "Реакций пока нет": "No reactions yet"
+};
+let LANGUAGE_SETTING="auto";
+try{LANGUAGE_SETTING=localStorage.getItem("tg_language")||"auto";}catch{}
+if(!["auto","ru","en"].includes(LANGUAGE_SETTING))LANGUAGE_SETTING="auto";
+const UI_LANG=LANGUAGE_SETTING==="auto"?((navigator.language||"en").toLowerCase().startsWith("ru")?"ru":"en"):LANGUAGE_SETTING;
+const UI_LOCALE=UI_LANG==="ru"?"ru-RU":"en-US";
+const UI_PATTERN=new RegExp(Object.keys(UI_EN).sort((a,b)=>b.length-a.length).map(key=>
+  (/^[A-Za-zА-Яа-яЁё0-9_]/.test(key)?"(?<![A-Za-zА-Яа-яЁё0-9_])":"")+
+  key.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+
+  (/[A-Za-zА-Яа-яЁё0-9_]$/.test(key)?"(?![A-Za-zА-Яа-яЁё0-9_])":"")).join("|"),"g");
+function tr(text){return UI_LANG==="en"?text.replace(UI_PATTERN,key=>UI_EN[key]):text;}
+function ui(parts,...values){return parts.map((s,i)=>tr(s)+(i<values.length?String(values[i]):"")).join("");}
+function localizeStatic(){
+  document.documentElement.lang=UI_LANG;
+  if(UI_LANG!=="en")return;
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+  const nodes=[];while(walker.nextNode())if(!walker.currentNode.parentElement.closest("script,style"))nodes.push(walker.currentNode);
+  for(const node of nodes)node.nodeValue=tr(node.nodeValue);
+  for(const el of document.body.querySelectorAll("*"))for(const attr of ["title","placeholder","aria-label","aria-description","alt"])if(el.hasAttribute(attr))el.setAttribute(attr,tr(el.getAttribute(attr)));
+}
+localizeStatic();
+let CURRENT_INVITE=null;
+async function appFetch(input,options={}){
+  const url=new URL(typeof input==="string"?input:input.url,location.href);
+  if(url.origin===location.origin&&url.pathname.startsWith("/api/")){
+    const headers=new Headers(options.headers||{});headers.set("X-Telegent-Language",UI_LANG);options={...options,headers};
+  }
+  return fetch(input,options);
+}
+document.querySelectorAll('[data-language]').forEach(el=>el.value=LANGUAGE_SETTING);
+document.addEventListener("change",e=>{
+  if(!e.target.matches('[data-language]'))return;
+  const choice=e.target.value;if(!["auto","ru","en"].includes(choice))return;
+  if(typeof ME!=="undefined"&&ME){saveDraft();try{sessionStorage.setItem("tg_language_return",JSON.stringify({account:ME.id,project:PROJECT,tab:TAB,dm:ACTIVE_DM?.id,y:SC.scrollTop}));}catch{}}
+  try{localStorage.setItem("tg_language",choice);}catch{return;}
+  if(CURRENT_INVITE)location.replace(location.pathname+"#invite="+encodeURIComponent(CURRENT_INVITE));else location.reload();
+});
+async function restoreLanguageView(){
+  let saved;try{saved=JSON.parse(sessionStorage.getItem("tg_language_return")||"null");sessionStorage.removeItem("tg_language_return");}catch{}
+  if(!saved||saved.account!==ME.id||!PROJECTS.some(p=>p.slug===saved.project))return;
+  if(PROJECT!==saved.project)await setProject(saved.project);
+  if(saved.dm)await openDirect(saved.dm);else if(["feed","direct","more","results","claims","work","board"].includes(saved.tab))await selectTab(saved.tab);
+  requestAnimationFrame(()=>{SC.scrollTop=saved.y||0;});
+}
+// ---- end localization
+
+
+"use strict";
+const TYPES = {info: tr("инфо"), request: tr("просьба"), question: tr("вопрос"), result: tr("результат"), alert: tr("тревога"),
+               decision: tr("нужно решение людей"), status: tr("статус"), approval: tr("одобрение")};
+const STATES = {open: tr("открыто"), taken: tr("взято"), done: tr("сделано"), rejected: tr("отклонено")};
 let TAB = "feed";
 let TOKEN = null, ME = null, LAST = 0, OLDEST = null, MSGS = new Map(), THREAD = null, REPLY = null, POLLING = false;
 // projects: PROJECT is the open one (sent as X-Telegent-Project), PROJECTS the list in the left column
 let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREAD_FROM = 0;
 let ACTIVE_DM = null, CONVERSATIONS = [];
+let VIEW_RETURN=null, WORK_MODE="waiting", ACTION_TARGET=null, PREVIEW_URL=null, INV_TRACK=null;
+let INV_MODE=null, INFO_VERSION=0;
 const DRAFTS = new Map();
 let DRAFT_TIMER=null, COMPOSE_SCOPE=null;
 const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
@@ -799,9 +1442,9 @@ function restoreDraft() {
     if(Object.prototype.hasOwnProperty.call(draft,"recipient_id"))restoreRecipient(draft.recipient_id);
     $("cUrgent").checked=!!draft.urgent; $("cApproval").checked=!!draft.approval; $("cApprover").value=draft.approver || "";
     ATTACHED=draft.attachments || []; REPLY=draft.reply; COMPOSE_RETRY=draft.retry;
-    if (REPLY) { $("replyBar").classList.remove("hidden"); $("replyText").textContent=`Ответ ${REPLY.author}: ${REPLY.subject}`; }
+    if (REPLY) { $("replyBar").classList.remove("hidden"); $("replyText").textContent=ui`Ответ ${REPLY.author}: ${REPLY.subject}`; }
     paintFiles(); updateChips(); growBody();
-    if(draft.files?.length)$("sendErr").textContent="После перезагрузки выбери файлы заново: "+draft.files.join(", ");
+    if(draft.files?.length)$("sendErr").textContent=tr("После перезагрузки выбери файлы заново: ")+draft.files.join(", ");
   }
 }
 let RECEIPT_REVISION = null;
@@ -812,7 +1455,7 @@ let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
 let REACTION_REVISION = null;
 const REACTION_PENDING = new Set();
 let ATTACHED = [], FILE_STORAGE = null, SENDING = false, UPLOAD_ABORT = null, COMPOSE_RETRY = null;
-const REACTIONS = [["❤️", "Сердечко"], ["🔥", "Огонёк"], ["👍", "Лайк"], ["👎", "Дизлайк"], ["🤡", "Клоун"]];
+const REACTIONS = [["❤️", tr("Сердечко")], ["🔥", tr("Огонёк")], ["👍", tr("Лайк")], ["👎", tr("Дизлайк")], ["🤡", tr("Клоун")]];
 const EXPANDED = new Set();
 
 const $ = id => document.getElementById(id);
@@ -965,12 +1608,12 @@ window.addEventListener("blur", () => endStatusResize());
 statusWidth(STATUS_WIDTH);
 const shortTime = iso => iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)} ${iso.slice(11, 16)}` : "";
 const hhmm = iso => iso ? iso.slice(11, 16) : "";
-const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const MONTHS = [tr("января"), tr("февраля"), tr("марта"), tr("апреля"), tr("мая"), tr("июня"), tr("июля"), tr("августа"), tr("сентября"), tr("октября"), tr("ноября"), tr("декабря")];
 function dayLabel(iso) {
   const d = iso.slice(0, 10), now = new Date(), y = new Date(now - 864e5);
   const ymd = t => `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-  if (d === ymd(now)) return "Сегодня";
-  if (d === ymd(y)) return "Вчера";
+  if (d === ymd(now)) return tr("Сегодня");
+  if (d === ymd(y)) return tr("Вчера");
   const [Y, M, D] = d.split("-").map(Number);
   return `${D} ${MONTHS[M - 1]}${Y !== now.getFullYear() ? " " + Y : ""}`;
 }
@@ -981,7 +1624,7 @@ function initials(name) {
 }
 function avatar(name, kind, small) {
   return `<div class="mav ${kind === "agent" ? "agent" : ""} ${small ? "small" : ""}" style="background:hsl(${hue(name)} 45% 42%)"
-    title="${esc(name)}${kind === "agent" ? " (агент)" : ""}">${esc(initials(name))}</div>`;
+    title="${esc(name)}${kind === "agent" ? tr(" (агент)") : ""}">${esc(initials(name))}</div>`;
 }
 const isMine = m => m.author_id && ME.id ? m.author_id === ME.id : m.author === ME.name;
 let TOAST_T = null, MEMBER_ACTS = {};
@@ -1044,15 +1687,15 @@ document.addEventListener("focusin",mobileViewport);document.addEventListener("f
 mobileViewport();
 function swipeAction(direction) {
   const section=mobileSection(), panels=["projects","users"].includes(section);
-  const targets={projects:{label:"Проекты",run:()=>mobilePanel("projects")},
-    feed:{label:"Общий чат",run:()=>selectTab("feed")},
-    users:{label:"Участники",run:()=>mobilePanel("aside")},
-    direct:{label:"Личные",run:()=>selectTab("direct")},
-    more:{label:"Ещё",run:()=>selectTab("more")}};
-  if(!PROJECT)return $("projects").classList.contains("open")?(direction<0?{label:"Закрыть проекты",run:closeMobilePanels}:null):direction>0?targets.projects:null;
+  const targets={projects:{label:tr("Проекты"),run:()=>mobilePanel("projects")},
+    feed:{label:tr("Общий чат"),run:()=>selectTab("feed")},
+    users:{label:tr("Участники"),run:()=>mobilePanel("aside")},
+    direct:{label:tr("Личные"),run:()=>selectTab("direct")},
+    more:{label:tr("Ещё"),run:()=>selectTab("more")}};
+  if(!PROJECT)return $("projects").classList.contains("open")?(direction<0?{label:tr("Закрыть проекты"),run:closeMobilePanels}:null):direction>0?targets.projects:null;
   if(direction>0 && !panels) {
-    if(THREAD)return {label:"Назад к чату",run:async()=>{THREAD=null;await reload();}};
-    if(ACTIVE_DM)return {label:"Все личные",run:()=>$("dmBack").click()};
+    if(THREAD)return {label:tr("Назад к чату"),run:async()=>{THREAD=null;await reload();}};
+    if(ACTIVE_DM)return {label:tr("Все личные"),run:()=>$("dmBack").click()};
     if(!["feed","direct","more"].includes(TAB))return targets.more;
   }
   // The visible buttons are the single source of section order.
@@ -1134,7 +1777,7 @@ function openMenu(items, anchor, hint, message) {
   PROJECT_MENU = null;
   const m = $("menu");
   m.removeAttribute("role");
-  m.innerHTML = (message ? reactionPicker(message) : "") + (hint ? `<div class="mhint">${hint}</div>` : "") + items.map(i =>
+  m.innerHTML = (message ? messageDetails(message,true)+reactionPicker(message) : "") + (hint ? `<div class="mhint">${hint}</div>` : "") + items.map(i =>
     `<button class="${i.cls || ""}" data-act="${i.act}" ${Object.entries(i.data || {}).map(([k, v]) => `data-${k}="${esc(v)}"`).join(" ")}>${i.label}</button>`).join("");
   m.classList.remove("hidden"); $("menuBg").classList.remove("hidden");
   m.style.left = m.style.top = m.style.right = m.style.bottom = "";
@@ -1154,6 +1797,7 @@ function closeMenu(restoreFocus = false) {
 $("menuBg").onclick = () => closeMenu(true);
 document.addEventListener("keydown", e => {
   if($("editDialog").open)return;
+  if(document.querySelector("dialog.ux-dialog[open]"))return;
   if (PROJECT_MENU && e.key === "Tab") { closeMenu(true); return; }
   if (PROJECT_MENU && e.target.closest?.('#menu') && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
     const buttons = [...$("menu").querySelectorAll('button')], i = buttons.indexOf(document.activeElement);
@@ -1162,6 +1806,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault(); buttons[next]?.focus(); return;
   }
   if (e.key === "Escape") {
+    if($("filters").classList.contains("open")){e.preventDefault();$("closeFilters").click();return;}
     if (!$("menu").classList.contains("hidden")) { e.preventDefault(); closeMenu(true); return; }
     closeMenu(); closeSecret();
     for (const id of ["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog"]) $(id).classList.add("hidden");
@@ -1176,10 +1821,10 @@ document.addEventListener("keydown", e => {
 async function api(method, path, body, signal) {
   const headers = {"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json", "X-Telegent-Host": "web"};
   if (PROJECT) headers["X-Telegent-Project"] = PROJECT;
-  const r = await fetch(path, {method, headers, body: body ? JSON.stringify(body) : undefined, signal});
+  const r = await appFetch(path, {method, headers, body: body ? JSON.stringify(body) : undefined, signal});
   let data = null;
   try { data = await r.json(); } catch {}
-  if (!r.ok) throw new Error((data && data.error) || `HTTP ${r.status}`);
+  if (!r.ok) {const error=new Error((data && data.error) || `HTTP ${r.status}`);error.status=r.status;throw error;}
   return data;
 }
 
@@ -1204,14 +1849,15 @@ async function login(tok) {
     $("loginErr").textContent = tok ? e.message : ""; return;
   }
   st.set("tg_token", tok);
+  CURRENT_INVITE=null;$("languageBar").classList.add("hidden");
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
-  $("meLabel").textContent = `${ME.name} (${ME.kind === "human" ? "человек" : "агент"})`;
+  $("meLabel").textContent = `${ME.name} (${ME.kind === "human" ? tr("человек") : tr("агент")})`;
   $("pwBtn").classList.toggle("hidden", ME.kind !== "human");
   ntfInit();
-  $("pwBtn").textContent = ME.has_password ? "Пароль" : "Задать пароль";
+  $("pwBtn").textContent = ME.has_password ? tr("Пароль") : tr("Задать пароль");
   $("acctPw").textContent = $("pwBtn").textContent;
   $("acctPw").classList.toggle("hidden", ME.kind !== "human");
-  $("acctLabel").textContent = `Ты: ${ME.name} (${ME.kind === "human" ? "человек" : "агент"})`;
+  $("acctLabel").textContent = ui`Ты: ${ME.name} (${ME.kind === "human" ? tr("человек") : tr("агент")})`;
   $("newProjBtn").classList.toggle("hidden", ME.kind !== "human");
   setHeaderHeight();
   PROJECTS = ME.projects || [];
@@ -1220,6 +1866,8 @@ async function login(tok) {
   const want = WANT_PROJECT || st.get("tg_project");
   const pick = PROJECTS.find(p => p.slug === want) || PROJECTS[0];
   if (pick) await setProject(pick.slug); else showNoProject();
+  await restoreLanguageView();
+  startNavigation();
   poll();
   if (!TOUCH && PROJECT) $("cBody").focus();
 }
@@ -1232,11 +1880,11 @@ function closeSecret() {
 }
 $("secretBtn").onclick=()=> {
   if(!ACTIVE_DM || SENDING)return;
-  if($("secretSend").disabled) {toast("Дождись завершения передачи секрета",true);return;}
-  if(!isSecureContext) {toast("Для передачи секрета нужен HTTPS",true);return;}
+  if($("secretSend").disabled) {toast(tr("Дождись завершения передачи секрета"),true);return;}
+  if(!isSecureContext) {toast(tr("Для передачи секрета нужен HTTPS"),true);return;}
   SECRET_TARGET={id:ACTIVE_DM.id,peer:ACTIVE_DM.peer,project:PROJECT,token:TOKEN};
   SECRET_KEY=crypto.randomUUID(); $("secretErr").textContent="";
-  $("secretRecipient").textContent=`Получатель: ${ACTIVE_DM.peer}`; $("secretDialog").classList.remove("hidden"); $("secretValue").focus();
+  $("secretRecipient").textContent=ui`Получатель: ${ACTIVE_DM.peer}`; $("secretDialog").classList.remove("hidden"); $("secretValue").focus();
 };
 $("secretCancel").onclick=()=> {closeSecret();$("secretBtn").focus();};
 $("secretForm").addEventListener("keydown",e=>{
@@ -1249,13 +1897,13 @@ $("secretForm").onsubmit=async e=> {
   e.preventDefault();const target=SECRET_TARGET;
   if(!target || $("secretSend").disabled)return;
   const value=$("secretValue").value;
-  if(!value || new TextEncoder().encode(value).length>32768) {$("secretErr").textContent="Непустой текст до 32 КиБ";return;}
+  if(!value || new TextEncoder().encode(value).length>32768) {$("secretErr").textContent=tr("Непустой текст до 32 КиБ");return;}
   if(target.project!==PROJECT || target.token!==TOKEN)return closeSecret();
   $("secretSend").disabled=true; $("secretValue").readOnly=true;
   try {
     await api("POST",`/api/conversations/${target.id}/secrets?project=${encodeURIComponent(target.project)}`,{value,expires_in:+$("secretTTL").value,idem_key:SECRET_KEY});
-    closeSecret(); await refresh(); toast("Секрет передан агенту");
-  } catch(err) {$("secretErr").textContent=err.message+". Можно повторить передачу того же пакета.";}
+    closeSecret(); await refresh(); toast(tr("Секрет передан агенту"));
+  } catch(err) {$("secretErr").textContent=err.message+tr(". Можно повторить передачу того же пакета.");}
   finally {$("secretSend").disabled=false;}
 };
 // ---- projects
@@ -1294,8 +1942,9 @@ function showNoProject() {
 }
 
 async function setProject(slug) {
-  if (SENDING) { toast("Дождись отправки сообщения или нажми «Отмена»", true); return; }
+  if (SENDING) { toast(tr("Дождись отправки сообщения или нажми «Отмена»"), true); return; }
   cancelProjectDrag();
+  closeInfo();if($("actionDialog").open)$("actionDialog").close();VIEW_RETURN=null;
   saveDraft(); closeMenu();
   ACTIVE_DM = null; CONVERSATIONS = []; closeSecret();
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
@@ -1307,13 +1956,13 @@ async function setProject(slug) {
   CONTENT_REVISION = null;
   UNREAD_FROM = seen(slug);
   try { ME = await api("GET", "/api/me"); }
-  catch (e) { if (/проекта/.test(e.message)) { PROJECT = null; return login(TOKEN); } throw e; }
+  catch (e) { if (e.status===404) { PROJECT = null; return login(TOKEN); } throw e; }
   $("projTitle").textContent = ME.project.title;
   document.title = ME.project.title + " · telegent";
   $("noProject").classList.add("hidden");
   document.querySelector(".feedtop").classList.remove("hidden");
   $("inviteBtn").classList.toggle("hidden", ME.kind !== "human" || ME.project.kind === "development");
-  $("inviteBtn").textContent = ME.project.role === "owner" ? "+ Пригласить" : "+ Добавить агента";
+  $("inviteBtn").textContent = ME.project.role === "owner" ? tr("+ Пригласить") : tr("+ Добавить агента");
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
   setupCompose(); TAB="feed";restoreDraft();paintTab();
   await reload(); loadPresence(); renderProjects();
@@ -1341,20 +1990,20 @@ function renderConversations() {
   const term=$("dmSearch").value.trim().toLocaleLowerCase();
   const rows=CONVERSATIONS.filter(c=>c.peer.toLocaleLowerCase().includes(term));
   const eligible=(ME.users || []).filter(u=>u.kind!==ME.kind && u.name.toLocaleLowerCase().includes(term) && !CONVERSATIONS.some(c=>c.peer_id===u.id));
-  $("dmList").innerHTML=rows.map(c=>`<button class="dm-item" data-act="dmopen" data-conversation="${esc(c.id)}">${avatar(c.peer,c.peer_kind)}<span class="dm-info"><b>${esc(c.peer)}</b><span class="dm-preview muted" style="display:block">${esc(c.preview || "Начать разговор")}</span></span>${c.unread?`<span class="pcount">${c.unread}</span>`:""}</button>`).join("") +
-    (eligible.length?`<p class="muted" style="font-size:12px;margin:16px 0 4px">Начать личный чат</p>`+eligible.map(u=>`<button class="dm-item" data-act="dmnew" data-account="${esc(u.id)}">${avatar(u.name,u.kind)}<span>${esc(u.name)}</span></button>`).join(""):"") +
-    (!rows.length && !eligible.length?`<p class="muted">${term?"Никого не найдено":"В проекте пока нет доступных собеседников"}</p>`:"");
+  $("dmList").innerHTML=rows.map(c=>`<button class="dm-item" data-act="dmopen" data-conversation="${esc(c.id)}">${avatar(c.peer,c.peer_kind)}<span class="dm-info"><b>${esc(c.peer)}</b><span class="dm-preview muted" style="display:block">${esc(c.preview || tr("Начать разговор"))}</span></span>${c.unread?`<span class="pcount">${c.unread}</span>`:""}</button>`).join("") +
+    (eligible.length?ui`<p class="muted" style="font-size:12px;margin:16px 0 4px">Начать личный чат</p>`+eligible.map(u=>`<button class="dm-item" data-act="dmnew" data-account="${esc(u.id)}">${avatar(u.name,u.kind)}<span>${esc(u.name)}</span></button>`).join(""):"") +
+    (!rows.length && !eligible.length?`<p class="muted">${term?tr("Никого не найдено"):tr("В проекте пока нет доступных собеседников")}</p>`:"");
   const n=CONVERSATIONS.reduce((n,c)=>n+c.unread,0); $("directCount").textContent=n?` (${n})`:"";syncMobileNav();
 }
 async function openDirect(cid) {
-  if (SENDING) { toast("Дождись отправки сообщения",true); return; }
+  if (SENDING) { toast(tr("Дождись отправки сообщения"),true); return; }
   if (!CONVERSATIONS.some(c=>c.id===cid)) await loadConversations();
   const c=CONVERSATIONS.find(c=>c.id===cid); if (!c) return;
   saveDraft(); closeSecret(); ACTIVE_DM=c; TAB="direct"; resetFeedState(); restoreDraft(); paintTab();
   await reload(); if (!TOUCH) $("cBody").focus();
 }
 async function newDirect(peer) {
-  if (SENDING) { toast("Дождись отправки сообщения",true); return; }
+  if (SENDING) { toast(tr("Дождись отправки сообщения"),true); return; }
   const slug=PROJECT;
   const c=(await api("POST","/api/conversations",{peer_id:peer})).conversation;
   if (PROJECT!==slug) return;
@@ -1443,14 +2092,14 @@ function renderProjects() {
   if(PROJECT_DRAG)return;
   $("projList").innerHTML = PROJECTS.length ? PROJECTS.map(p => {
     const n = p.slug !== PROJECT ? (p.unread != null ? p.unread + (p.direct_unread || 0) : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
-    return `<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
+    return ui`<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
       <a class="pselect" href="#" data-act="proj" data-slug="${esc(p.slug)}" title="${esc(p.title)} (${esc(p.slug)})" ${p.slug === PROJECT ? 'aria-current="page"' : ''}>
       <span class="pav" style="background:hsl(${hue(p.slug)} 40% 45%)">${esc(initials(p.title))}</span>
       <span class="pname">${esc(p.title)}</span>${n ? `<span class="pcount">${n}</span>` : ""}</a>
       <button class="pmore" data-act="projmenu" data-slug="${esc(p.slug)}" title="Действия с проектом"
         aria-label="Действия с проектом «${esc(p.title)}»" aria-haspopup="menu" aria-controls="menu"
         aria-expanded="${PROJECT_MENU === p.slug}">⋯</button></div>`;
-  }).join("") : `<div class="muted" style="padding:0 8px;font-size:13px">Пока нет проектов.</div>`;
+  }).join("") : ui`<div class="muted" style="padding:0 8px;font-size:13px">Пока нет проектов.</div>`;
   if (PROJECT_MENU && !PROJECTS.some(p => p.slug === PROJECT_MENU)) closeMenu();
 }
 
@@ -1458,9 +2107,9 @@ const projectInfo = slug => slug === PROJECT && ME.project ? ME.project : PROJEC
 function projectActions(p) {
   if (!p) return [];
   const data = {slug: p.slug}, items = [];
-  if (p.can_rename) items.push({label: "Переименовать проект", act: "prename", data});
-  items.push({label: "Покинуть проект", act: "pleave", data});
-  if (p.role === "owner") items.push({label: "Удалить проект", act: "pdelete", data, cls: "bad"});
+  if (p.can_rename) items.push({label: tr("Переименовать проект"), act: "prename", data});
+  items.push({label: tr("Покинуть проект"), act: "pleave", data});
+  if (p.role === "owner") items.push({label: tr("Удалить проект"), act: "pdelete", data, cls: "bad"});
   return items;
 }
 function openProjectMenu(slug, anchor) {
@@ -1491,8 +2140,8 @@ function applyProjectInfo(p) {
   ME.project = p;
   $("devChatHint").classList.toggle("hidden", p.kind !== "development");
   $("devChatHint").textContent = p.developer_connected
-    ? "Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда."
-    : "Личный чат администратора. Сессия разработки ещё не подключена.";
+    ? tr("Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда.")
+    : tr("Личный чат администратора. Сессия разработки ещё не подключена.");
   $("projTitle").textContent = p.title;
   ntfTitle(); updateChips(); setHeaderHeight();
 }
@@ -1508,7 +2157,7 @@ $("prForm").onsubmit = async e => {
     const d = await api("POST", "/api/project/rename?project=" + encodeURIComponent(slug), {title: $("prTitle").value});
     PROJECTS = PROJECTS.map(p => p.slug === slug ? {...p, ...d.project} : p);
     applyProjectInfo(d.project); renderProjects();
-    $("prDialog").classList.add("hidden"); toast("Название проекта изменено");
+    $("prDialog").classList.add("hidden"); toast(tr("Название проекта изменено"));
   } catch (err) { $("prErr").textContent = err.message; }
   finally { $("prSave").disabled = false; }
 };
@@ -1538,7 +2187,7 @@ $("tokenToggle").onclick = e => { e.preventDefault(); $("tokenBox").classList.to
 let INFO = {};
 const launcher = () => INFO.launcher_url || "";
 async function loadInfo() {
-  try { INFO = await (await fetch("/api/info")).json(); } catch {}
+  try { INFO = await (await appFetch("/api/info")).json(); } catch {}
 }
 
 $("pwForm").onsubmit = async e => {
@@ -1546,7 +2195,7 @@ $("pwForm").onsubmit = async e => {
   $("loginErr").textContent = "";
   $("pwLoginBtn").disabled = true;
   try {
-    const r = await fetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"},
+    const r = await appFetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({name: $("nameInput").value.trim(), password: $("pwInput").value})});
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -1571,11 +2220,11 @@ $("pwBtn").onclick = () => {
 $("pwCancel").onclick = () => $("pwDialog").classList.add("hidden");
 $("pwSave").onclick = async () => {
   $("pwErr").textContent = "";
-  if ($("pwNew").value !== $("pwNew2").value) { $("pwErr").textContent = "пароли не совпадают"; return; }
+  if ($("pwNew").value !== $("pwNew2").value) { $("pwErr").textContent = tr("пароли не совпадают"); return; }
   try {
     await api("POST", "/api/password", {old: $("pwOld").value, new: $("pwNew").value});
-    ME.has_password = true; $("pwBtn").textContent = "Пароль";
-    $("pwOk").textContent = `Готово. Теперь на любом устройстве: имя ${ME.name} и этот пароль.`;
+    ME.has_password = true; $("pwBtn").textContent = tr("Пароль");
+    $("pwOk").textContent = ui`Готово. Теперь на любом устройстве: имя ${ME.name} и этот пароль.`;
     setTimeout(() => $("pwDialog").classList.add("hidden"), 2500);
   } catch (err) { $("pwErr").textContent = err.message; }
 };
@@ -1583,11 +2232,11 @@ $("pwSave").onclick = async () => {
 function setupCompose() {
   $("cType").innerHTML = ["info", "request", "question", "result", "alert", "decision"]
     .map(t => `<option value="${t}">${TYPES[t]}</option>`).join("");
-  $("fType").innerHTML = `<option value="">все типы</option>` + Object.keys(TYPES).map(t => `<option value="${t}">${TYPES[t]}</option>`).join("");
-  $("cTo").innerHTML = `<option value="">всем</option>` + ME.users.filter(u => u.name !== ME.name)
+  $("fType").innerHTML = ui`<option value="">все типы</option>` + Object.keys(TYPES).map(t => `<option value="${t}">${TYPES[t]}</option>`).join("");
+  $("cTo").innerHTML = ui`<option value="">всем</option>` + ME.users.filter(u => u.name !== ME.name)
     .map(u => `<option value="${esc(u.name)}" data-id="${esc(u.id)}">${esc(u.name)}</option>`).join("");
-  $("cApprover").innerHTML = `<option value="">кто решает: любой человек</option>` + ME.users.filter(u => u.kind === "human")
-    .map(u => `<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
+  $("cApprover").innerHTML = ui`<option value="">кто решает: любой человек</option>` + ME.users.filter(u => u.kind === "human")
+    .map(u => ui`<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
 }
 
 function filterQuery() {
@@ -1604,14 +2253,14 @@ function filterQuery() {
   return q;
 }
 
-function online() { $("conn").className = "dot on"; $("conn").title = "на связи"; }
+function online() { $("conn").className = "dot on"; $("conn").title = tr("на связи"); $("connectionBanner").classList.add("hidden"); }
 const SC = $("scroller");   // the only scrolling element: the feed between the tabs and the composer
 const nearBottom = () => SC.scrollHeight - SC.scrollTop - SC.clientHeight < 160;
 let READ_TIMER = null;
 const READ_IDS = new Set();
 function readingFeed() {
   return ME?.kind === "human" && (TAB === "feed" || TAB === "direct" && !!ACTIVE_DM) && document.visibilityState === "visible" &&
-    !$("editDialog").open &&
+    !$("editDialog").open && !document.querySelector("dialog.ux-dialog[open]") &&
     !["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "secretDialog", "menu"].some(id => !$(id).classList.contains("hidden")) &&
     !(innerWidth <= 900 && ["projects", "aside"].some(id => $(id).classList.contains("open")));
 }
@@ -1657,7 +2306,7 @@ for (const id of ["projects", "aside", "invDialog", "pwDialog", "npDialog", "prD
 function toBottom() { SC.scrollTop = SC.scrollHeight; UNSEEN = 0; updateNewBtn(); }
 function updateNewBtn() {
   $("newBtn").classList.toggle("hidden", !UNSEEN);
-  $("newBtn").textContent = `↓ новые (${UNSEEN})`;
+  $("newBtn").textContent = ui`↓ новые (${UNSEEN})`;
 }
 $("newBtn").onclick = toBottom;
 SC.addEventListener("scroll", () => { if (UNSEEN && nearBottom()) { UNSEEN = 0; updateNewBtn(); } scheduleRead(); }, {passive: true});
@@ -1740,7 +2389,9 @@ $("closeFilters").onclick = () => {
 function updateFilterCount() {
   const n = [$("q").value.trim(), $("fTopic").value, $("fType").value, $("fOpen").checked, $("fPending").checked, $("fWaiting").checked, !$("fSystem").checked]
     .filter(Boolean).length;
-  $("filtersBtn").innerHTML = `<span class="sm">🔍</span><span class="lg">Поиск и фильтры</span>` + (n ? `<span class="fcount">${n}</span>` : "");
+  $("filtersBtn").innerHTML = ui`<span class="sm">🔍</span><span class="lg">Поиск и фильтры</span>` + (n ? `<span class="fcount">${n}</span>` : "");
+  const names=[[$("q").value.trim(),tr("Поиск: ")+$("q").value.trim()],[$("fTopic").value,"#"+$("fTopic").value],[$("fType").value,TYPES[$("fType").value]],[$("fOpen").checked,tr("Открытые")],[$("fPending").checked,tr("Ждут одобрения")],[$("fWaiting").checked,tr("Ждут ответа")],[!$("fSystem").checked,tr("Без служебных")]];
+  $("filterSummary").innerHTML=names.filter(x=>x[0]).map(x=>`<span class="chip">${esc(x[1])}</span>`).join("")+(n?tr('<button data-ux="reset-filters">Сбросить всё</button>'):"");
 }
 for (const id of ["q", "fTopic", "fType", "fOpen", "fPending", "fWaiting", "fSystem"]) $(id).addEventListener("input", updateFilterCount);
 for (const id of ["fTopic", "fType", "fOpen", "fPending", "fWaiting", "fSystem"]) $(id).addEventListener("change", updateFilterCount);
@@ -1755,27 +2406,27 @@ function render(force) {
   for (const m of list) {
     if (!prev || prev.time.slice(0, 10) !== m.time.slice(0, 10)) html += `<div class="daysep"><span>${dayLabel(m.time)}</span></div>`;
     if (UNREAD_FROM && !newShown && m.id > UNREAD_FROM && !m.read && !isMine(m) && !isSys(m)) {
-      html += `<div class="newsep"><span>Новые</span></div>`; newShown = true;
+      html += ui`<div class="newsep"><span>Новые</span></div>`; newShown = true;
     }
     html += row(m, prev);
     prev = m;
   }
-  $("feed").innerHTML = list.length ? html : `<div class="sysrow" style="margin-top:20vh">Здесь пока тихо. Напиши первым.</div>`;
+  $("feed").innerHTML = list.length ? html : `<div class="sysrow" style="margin-top:20vh">${hasFilters()?tr("По этим условиям сообщений нет. Измени фильтры или сбрось их."):tr("Здесь пока тихо. Напиши первым.")}</div>`;
   observeReadRows();
   $("moreBox").classList.toggle("hidden", NO_MORE || !list.length);
   $("threadBar").classList.toggle("hidden", !THREAD);
-  if (THREAD) $("threadBar").innerHTML = `Ветка #${THREAD} · <a href="#" data-act="unthread">вернуться ко всей ленте</a>`;
+  if (THREAD) {const root=MSGS.get(THREAD);$("threadBar").innerHTML = ui`<b>${root?esc(root.author)+": "+esc(root.subject):tr("Ветка #")+THREAD}</b><p>${list.filter(m=>!isSys(m)&&!m.deleted&&m.reply_to).length} ответов · <a href="#" data-act="unthread">← Вернуться</a></p>`;}
   return true;
 }
 
 const isSys = m => m.type === "status" || m.type === "approval";
-const TYPE_PILL = {request: "просьба", question: "вопрос", result: "результат", alert: "тревога", decision: "решение людей"};
+const TYPE_PILL = {request: tr("просьба"), question: tr("вопрос"), result: tr("результат"), alert: tr("тревога"), decision: tr("решение людей")};
 
 function reactionIcon(emoji) {
   return `<span class="reaction-emoji" aria-hidden="true">${esc(emoji)}</span>`;
 }
 function reactionPicker(m) {
-  return `<div class="reaction-picker" role="group" aria-label="Реакция на сообщение">` + REACTIONS.map(([emoji, label]) => {
+  return ui`<div class="reaction-picker" role="group" aria-label="Реакция на сообщение">` + REACTIONS.map(([emoji, label]) => {
     const mine = (m.reactions || []).some(r => r.emoji === emoji && r.mine);
     return `<button class="reaction-choice" data-act="react" data-id="${m.id}" data-emoji="${esc(emoji)}"
       aria-label="${label}" title="${label}" aria-pressed="${mine}">${reactionIcon(emoji)}</button>`;
@@ -1783,16 +2434,16 @@ function reactionPicker(m) {
 }
 function reactionBar(m) {
   if (!(m.reactions || []).length) return "";
-  return `<div class="mreactions" role="group" aria-label="Реакции">` + m.reactions.map(r => {
+  return ui`<div class="mreactions" role="group" aria-label="Реакции">` + m.reactions.map(r => {
     const label = (REACTIONS.find(([emoji]) => emoji === r.emoji) || [r.emoji, r.emoji])[1];
-    return `<button class="reaction ${r.mine ? "mine" : ""}" data-act="react" data-id="${m.id}" data-emoji="${esc(r.emoji)}"
-      aria-pressed="${r.mine}" aria-label="${esc(label)}: ${r.count}. ${r.mine ? "Убрать свою реакцию" : "Добавить реакцию"}"
-      title="${esc(label + ': ' + r.users.join(', '))}">${reactionIcon(r.emoji)}<span>${r.count}</span></button>`;
-  }).join("") + `<button class="reaction reaction-add" data-act="reactmenu" data-id="${m.id}" title="Добавить реакцию" aria-label="Добавить реакцию">☺+</button></div>`;
+    return ui`<span class="reaction-group"><button class="reaction ${r.mine ? "mine" : ""}" data-act="react" data-id="${m.id}" data-emoji="${esc(r.emoji)}"
+      aria-pressed="${r.mine}" aria-label="${esc(label)}: ${r.count}. ${r.mine ? tr("Убрать свою реакцию") : tr("Добавить реакцию")}"
+      title="${esc(label)}">${reactionIcon(r.emoji)}</button><button class="reaction-count" data-ux="reaction-people" data-id="${m.id}" data-emoji="${esc(r.emoji)}" aria-label="Кто поставил ${esc(label)}: ${r.count}">${r.count}</button></span>`;
+  }).join("") + ui`<button class="reaction reaction-add" data-act="reactmenu" data-id="${m.id}" title="Добавить реакцию" aria-label="Добавить реакцию">☺+</button></div>`;
 }
 
 function row(m, prev) {
-  if(m.deleted)return `<div class="sysrow deleted" id="m${m.id}">Сообщение удалено · <a href="#" data-act="thread" data-id="${m.thread_id}">Вся ветка</a></div>`;
+  if(m.deleted)return ui`<div class="sysrow deleted" id="m${m.id}">Сообщение удалено · <a href="#" data-act="thread" data-id="${m.thread_id}">Вся ветка</a></div>`;
   if (isSys(m)) {
     return `<div class="sysrow" id="m${m.id}">${esc(m.author)}: ${esc(m.subject)}${m.body ? " — " + esc(m.body.split("\n")[0]) : ""} · ${hhmm(m.time)}</div>`;
   }
@@ -1806,10 +2457,10 @@ function row(m, prev) {
   html += `<div class="mmain">`;
   if (!grouped) {
     const bits = [`<span class="mname">${esc(m.author)}</span>`];
-    if (m.author_kind === "agent") bits.push(`<span class="mtag" title="агент на ${esc(m.host)}, владелец ${esc(m.owner)}">агент</span>`);
+    if (m.author_kind === "agent") bits.push(ui`<span class="mtag" title="агент на ${esc(m.host)}, владелец ${esc(m.owner)}">агент</span>`);
     bits.push(`<span class="mtime" title="${esc(m.time)} · #${m.id}">${hhmm(m.time)}</span>`);
-    if(m.edited)bits.push(`<span class="medited" title="${esc(m.edited)}">изменено</span>`);
-    if (m.priority === "urgent") bits.push(`<span class="pill urgent">срочно</span>`);
+    if(m.edited)bits.push(ui`<span class="medited" title="${esc(m.edited)}">изменено</span>`);
+    if (m.priority === "urgent") bits.push(ui`<span class="pill urgent">срочно</span>`);
     if (TYPE_PILL[m.type]) bits.push(`<span class="pill t-${m.type}">${TYPE_PILL[m.type]}</span>`);
     if (m.status) bits.push(`<span class="pill s-${m.status.state}">${STATES[m.status.state]}</span>`);
     if (m.to.length) bits.push(`<span class="mmeta">→ ${m.to.map(esc).join(", ")}</span>`);
@@ -1818,51 +2469,43 @@ function row(m, prev) {
   }
   if (m.reply_to) {
     const p = MSGS.get(m.reply_to);
-    html += `<a href="#" class="mquote" data-act="jump" data-id="${m.reply_to}">↪ ${p ? `${esc(p.author)}: ${esc(p.subject)}` : `ответ на #${m.reply_to}`}</a>`;
+    html += `<a href="#" class="mquote" data-act="jump" data-id="${m.reply_to}">↪ ${p ? `${esc(p.author)}: ${esc(p.subject)}` : ui`ответ на #${m.reply_to}`}</a>`;
   }
   // a message is one text (the old separate subject is its first line now)
   const body = (m.body || m.subject || "").replace(/^\s*\n/, "");
   const long = body.split("\n").length > 10 || body.length > 900;
   const open = EXPANDED.has(m.id);
   html += `<div class="mtext md ${long && !open ? "collapsed" : ""}" data-body="${m.id}">${markdown(body)}</div>`;
-  if (long) html += `<a href="#" class="mmore" data-act="expand" data-id="${m.id}">${open ? "свернуть" : "показать полностью"}</a>`;
+  if (long) html += `<a href="#" class="mmore" data-act="expand" data-id="${m.id}">${open ? tr("свернуть") : tr("показать полностью")}</a>`;
   if (m.result) html += `<div class="mextra">` + Object.entries(m.result).map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join("") + `</div>`;
   if (m.status && (m.status.ref || m.status.note))
     html += `<div class="mextra"><span><b>${STATES[m.status.state]}</b> ${esc(m.status.by)} ${shortTime(m.status.time)}</span>` +
       (m.status.ref ? `<span><b>ref</b> ${esc(m.status.ref)}</span>` : "") + (m.status.note ? `<span>${esc(m.status.note)}</span>` : "") + `</div>`;
   if (m.attachments.length) html += `<div class="file-list">${m.attachments.map(fileCard).join("")}</div>`;
   if (m.needs_approval) {
-    const decided = m.approvals.map(a => `${a.decision === "approve" ? "✔ одобрил" : "✘ отказал"} ${esc(a.by)} ${hhmm(a.time)}${a.note ? ": " + esc(a.note) : ""}`);
+    const decided = m.approvals.map(a => `${a.decision === "approve" ? tr("✔ одобрил") : tr("✘ отказал")} ${esc(a.by)} ${hhmm(a.time)}${a.note ? ": " + esc(a.note) : ""}`);
     const canDecide = ME.kind === "human" && (!m.approver || m.approver === ME.name);
-    const head = m.approver ? `Нужно одобрение: ${esc(m.approver)}.` : "Нужно одобрение человека.";
-    html += `<div class="mappr"><b>${head}</b> ${decided.length ? decided.join("; ") : "Решения пока нет."}` +
-      (ME.kind === "human" && !canDecide ? ` <span class="muted">Решает ${esc(m.approver)}.</span>` : "") +
-      (canDecide ? `<div class="actions"><button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button>` +
-        `<button class="bad" data-act="deny" data-id="${m.id}">Отказать</button></div>` : "") + `</div>`;
+    const head = m.approver ? ui`Нужно одобрение: ${esc(m.approver)}.` : tr("Нужно одобрение человека.");
+    html += `<div class="mappr"><b>${head}</b> ${decided.length ? decided.join("; ") : tr("Решения пока нет.")}` +
+      (ME.kind === "human" && !canDecide ? ui` <span class="muted">Решает ${esc(m.approver)}.</span>` : "") +
+      (canDecide ? ui`<div class="actions"><button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button>` +
+        ui`<button class="bad" data-act="deny" data-id="${m.id}">Отказать</button></div>` : "") + `</div>`;
   }
   if(m.secret) {
-    const state=m.secret.state==="pending"&&m.secret.claimed_ts?"Получение начато":{pending:"Ожидает получения",received:"Получен агентом",expired:"Срок истёк",revoked:"Отозван"}[m.secret.state];
-    html+=`<div class="secret-card"><b>🔐 Секрет</b><p>${state}</p><p class="muted">До ${esc(new Date(m.secret.expires*1000).toLocaleString())}</p>${isMine(m) && m.secret.state==="pending"&&!m.secret.claimed_ts?`<button data-act="secret-revoke" data-id="${m.id}">Отозвать</button>`:""}</div>`;
+    const state=m.secret.state==="pending"&&m.secret.claimed_ts?tr("Получение начато"):{pending:tr("Ожидает получения"),received:tr("Получен агентом"),expired:tr("Срок истёк"),revoked:tr("Отозван")}[m.secret.state];
+    html+=ui`<div class="secret-card"><b>🔐 Секрет</b><p>${state}</p><p class="muted">До ${esc(new Date(m.secret.expires*1000).toLocaleString())}</p>${isMine(m) && m.secret.state==="pending"&&!m.secret.claimed_ts?ui`<button data-act="secret-revoke" data-id="${m.id}">Отозвать</button>`:""}</div>`;
   }
   html += reactionBar(m);
-  if ((m.receipts || []).length) {   // delivery to each addressee: people oversee who got what
-    const handled = m.receipts.filter(r => r.acked), read = m.receipts.filter(r => r.read && !r.acked),
-      got = m.receipts.filter(r => r.delivered && !r.read && !r.acked), wait = m.receipts.filter(r => !r.delivered && !r.read && !r.acked);
-    const who = rs => rs.map(r => `<span title="${esc(r.user)}: ${r.acked ? "обработал " + shortTime(r.acked) : r.read ? "прочитал " +
-      shortTime(r.read) : r.delivered ? "получил " + shortTime(r.delivered) : "ещё не получил"}">${esc(r.user)}</span>`).join(", ");
-    const parts = [];
-    if (handled.length) parts.push(`<span class="ok2">✓✓</span> обработал: ${who(handled)}`);
-    if (read.length) parts.push(`<span class="ok2">✓✓</span> прочитал: ${who(read)}`);
-    if (got.length) parts.push(`✓ получил: ${who(got)}`);
-    if (wait.length) parts.push(`ещё не получил: ${who(wait)}`);
-    html += `<div class="mrc ${TYPE_PILL[m.type] ? "" : "soft"}">${parts.join(" · ")}</div>`;
-  }
+  html+='<div class="message-footer">';
+  if(m.reply_count && !THREAD && m.id===m.thread_id)html+=ui`<button class="receipt-button" data-act="thread" data-id="${m.thread_id}">Ответы: ${m.reply_count} →</button>`;
+  if(isMine(m))html+=receiptButton(m);
+  html+='</div>';
   html += `</div><div class="mtools">` +
-    `<button data-act="reactmenu" data-id="${m.id}" title="Добавить реакцию" aria-label="Добавить реакцию">☺+</button>` +
-    `<button data-act="reply" data-id="${m.id}" title="ответить">↩</button>` +
-    `<button data-act="thread" data-id="${m.thread_id}" title="вся ветка">≡</button>` +
-    (!m.acked && !isMine(m) ? `<button data-act="ack" data-id="${m.id}" title="отметить обработанным">✓</button>` : "") +
-    `<button data-act="more" data-id="${m.id}" title="ещё">⋯</button></div></div>`;
+    ui`<button data-act="reactmenu" data-id="${m.id}" title="Добавить реакцию" aria-label="Добавить реакцию">☺+</button>` +
+    ui`<button data-act="reply" data-id="${m.id}" title="ответить">↩</button>` +
+    ui`<button data-act="thread" data-id="${m.thread_id}" title="вся ветка">≡</button>` +
+    (!m.acked && !isMine(m) ? ui`<button data-act="ack" data-id="${m.id}" title="отметить обработанным">✓</button>` : "") +
+    ui`<button data-act="more" data-id="${m.id}" title="ещё">⋯</button></div></div>`;
   return html;
 }
 
@@ -1899,23 +2542,24 @@ $("editForm").onsubmit=async e=>{
 
 // everything one can do with a message (the ⋯ menu, and a tap on phones)
 function actionsFor(m) {
-  const a = [{label: "↩ Ответить", act: "reply", data: {id: m.id}}, {label: "≡ Вся ветка", act: "thread", data: {id: m.thread_id}}];
+  const a = [{label: tr("↩ Ответить"), act: "reply", data: {id: m.id}}, {label: tr("≡ Вся ветка"), act: "thread", data: {id: m.thread_id}}];
   if(m.deleted)return a.slice(1);
-  if(m.can_edit)a.push({label:"Изменить сообщение",act:"edit",data:{id:m.id}});
-  if(m.can_delete)a.push({label:"Удалить сообщение",act:"delete",data:{id:m.id},cls:"bad"});
+  if(m.can_edit)a.push({label:tr("Изменить сообщение"),act:"edit",data:{id:m.id}});
+  if(m.can_delete)a.push({label:tr("Удалить сообщение"),act:"delete",data:{id:m.id},cls:"bad"});
   if (m.needs_approval && ME.kind === "human" && (!m.approver || m.approver === ME.name)) {
-    a.push({label: "✔ Одобрить", act: "approve", data: {id: m.id}, cls: "ok"});
-    a.push({label: "✘ Отказать", act: "deny", data: {id: m.id}, cls: "bad"});
+    a.push({label: tr("✔ Одобрить"), act: "approve", data: {id: m.id}, cls: "ok"});
+    a.push({label: tr("✘ Отказать"), act: "deny", data: {id: m.id}, cls: "bad"});
   }
   if (m.status && m.type !== "decision") {
     const s = m.status.state;
-    if (s === "open") a.push({label: "Взять в работу", act: "st", data: {st: "taken", id: m.id}});
-    if (s !== "done") a.push({label: "Отметить сделанным", act: "st", data: {st: "done", id: m.id}});
-    if (s === "open" || s === "taken") a.push({label: "Отклонить", act: "st", data: {st: "rejected", id: m.id}, cls: "bad"});
-    if (s === "done" || s === "rejected") a.push({label: "Открыть снова", act: "st", data: {st: "open", id: m.id}});
+    if (s === "open") a.push({label: tr("Взять в работу"), act: "st", data: {st: "taken", id: m.id}});
+    if (s !== "done") a.push({label: tr("Отметить сделанным"), act: "st", data: {st: "done", id: m.id}});
+    if (s === "open" || s === "taken") a.push({label: tr("Отклонить"), act: "st", data: {st: "rejected", id: m.id}, cls: "bad"});
+    if (s === "done" || s === "rejected") a.push({label: tr("Открыть снова"), act: "st", data: {st: "open", id: m.id}});
   }
-  if (!m.acked && !isMine(m)) a.push({label: "✓ Обработано (ack)", act: "ack", data: {id: m.id}});
-  a.push({label: "Скопировать текст", act: "copytext", data: {id: m.id}});
+  if (!m.acked && !isMine(m)) a.push({label: tr("✓ Обработано (ack)"), act: "ack", data: {id: m.id}});
+  a.push({label:tr("Информация о сообщении"),act:"receipt",data:{id:m.id}});
+  a.push({label: tr("Скопировать текст"), act: "copytext", data: {id: m.id}});
   return a;
 }
 
@@ -1939,10 +2583,11 @@ document.addEventListener("click", async e => {
   if (el.closest("#menu")) closeMenu();
   try {
     switch (el.dataset.act) {
+      case "receipt": await showReceipt(id);break;
       case "reactmenu": {
         const m = MSGS.get(id);
         el.closest(".mrow").classList.add("menu-open");
-        openMenu([], el, "Выбери реакцию · повторный клик уберёт её", m); break;
+        openMenu([], el, tr("Выбери реакцию · повторный клик уберёт её"), m); break;
       }
       case "react": {
         const project = PROJECT, m = MSGS.get(id), emoji = el.dataset.emoji;
@@ -1965,35 +2610,38 @@ document.addEventListener("click", async e => {
       case "expand": {
         const b = document.querySelector(`[data-body="${id}"]`); b.classList.toggle("collapsed");
         if (b.classList.contains("collapsed")) EXPANDED.delete(id); else EXPANDED.add(id);
-        el.textContent = b.classList.contains("collapsed") ? "развернуть" : "свернуть"; break;
+        el.textContent = b.classList.contains("collapsed") ? tr("развернуть") : tr("свернуть"); break;
       }
       case "rexp": RES_OPEN.has(id) ? RES_OPEN.delete(id) : RES_OPEN.add(id); renderResults(); break;
       case "mobiletab": await selectTab(el.dataset.tab); break;
       case "edit": openEdit(MSGS.get(id));break;
       case "delete": {
         const m=MSGS.get(id);if(!m?.can_delete)return;
-        if(!confirm("Удалить это сообщение для всех? Ответы в ветке останутся."))return;
+        if(!confirm(tr("Удалить это сообщение для всех? Ответы в ветке останутся.")))return;
         await api("POST",`/api/messages/${id}/delete`,{revision:m.revision});await refresh();await loadProjects();break;
       }
       case "mobilesearch":
         if(TAB==="direct"&&!ACTIVE_DM) $("dmSearch").focus();
         else { if(TAB!=="feed"&&TAB!=="direct")await selectTab("feed");$("filters").classList.add("open");$("q").focus(); }
         break;
-      case "mobilenotifications": $("bellBtn").click();break;
+      case "mobilenotifications": showSettings();break;
       case "dmnew": await newDirect(el.dataset.account); break;
       case "dmopen": await openDirect(el.dataset.conversation); break;
       case "secret-revoke": await api("POST",`/api/messages/${id}/secret`,{action:"revoke"}); await refresh(); break;
       case "jump": {
+        saveReturnView();
+        if(el.closest("#infoDialog"))closeInfo();
         const message=(await api("GET",`/api/messages/${id}`)).message;
         if(message.conversation_id && message.conversation_id!==ACTIVE_DM?.id) await openDirect(message.conversation_id);
         else if(!message.conversation_id && (TAB!=="feed" || ACTIVE_DM)) await selectTab("feed");
+        if(hasFilters()){resetFilters();await reload();}
         let node = $("m" + id);
         if (!node) { THREAD = (await api("GET", `/api/messages/${id}`)).message.thread_id; await reload(); node = $("m" + id); }
         if (node) { node.scrollIntoView({behavior: "smooth", block: "center"}); node.classList.add("highlight"); setTimeout(() => node.classList.remove("highlight"), 1800); }
         break;
       }
-      case "thread": THREAD = id; await reload(); break;
-      case "unthread": THREAD = null; await reload(); break;
+      case "thread": saveReturnView();resetFilters();THREAD = id; await reload(); break;
+      case "unthread": if(VIEW_RETURN)await returnView();else {THREAD = null; await reload();} break;
       case "reply": startReply(MSGS.get(id)); break;
       case "more": {
         const m = MSGS.get(id);
@@ -2003,7 +2651,7 @@ document.addEventListener("click", async e => {
       }
       case "copytext": {
         const m = MSGS.get(id);
-        try { await navigator.clipboard.writeText(m.body || m.subject); toast("Текст скопирован"); } catch { toast("Не удалось скопировать", true); }
+        try { await navigator.clipboard.writeText(m.body || m.subject); toast(tr("Текст скопирован")); } catch { toast(tr("Не удалось скопировать"), true); }
         break;
       }
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
@@ -2013,17 +2661,10 @@ document.addEventListener("click", async e => {
       case "mrole": case "mremove": case "mreset": case "mrename": case "madd":
         await memberAction(el.dataset.act, el.dataset.name, el.dataset.role, el.dataset.account); break;
       case "approve": case "deny": {
-        const note = prompt(el.dataset.act === "approve" ? "Одобрить. Комментарий (необязательно):" : "Отказать. Причина:");
-        if (note === null) return;
-        await api("POST", `/api/messages/${id}/approval`, {decision: el.dataset.act, note, revision:MSGS.get(id)?.revision ?? 0}); await refresh(); break;
+        await openAction(id,"approval",el.dataset.act);break;
       }
       case "st": {
-        const s = el.dataset.st;
-        const ref = s === "done" ? prompt("Ссылка на результат (коммит, путь, md5, #сообщение):", "") : "";
-        if (ref === null) return;
-        const note = s === "rejected" ? prompt("Причина:", "") : "";
-        if (note === null) return;
-        await api("POST", `/api/messages/${id}/status`, {state: s, ref, note}); await refresh(); break;
+        await openAction(id,"status",el.dataset.st);break;
       }
       case "ack": await api("POST", "/api/receipts", {kind: "ack", ids: [id]}); await refresh(); break;
       case "dl": {
@@ -2032,7 +2673,7 @@ document.addEventListener("click", async e => {
         document.body.append(a); a.click(); a.remove(); break;
       }
       case "unclaim": {
-        if (!confirm("Снять заявку на эксперимент?")) return;
+        if (!confirm(tr("Снять заявку на эксперимент?"))) return;
         await api("POST", "/api/claims/release", {id}); await loadClaims(); break;
       }
       case "tab": break;
@@ -2048,21 +2689,23 @@ function paintTab() {
   $("moreView").classList.toggle("hidden",TAB!=="more");
   $("resultsView").classList.toggle("hidden",TAB!=="results");
   $("claimsView").classList.toggle("hidden",TAB!=="claims");
+  $("workView").classList.toggle("hidden",TAB!=="work");$("boardView").classList.toggle("hidden",TAB!=="board");
+  $("returnBar").classList.toggle("hidden",!VIEW_RETURN || !feed);$("filterSummary").classList.toggle("hidden",!feed);updateFilterCount();
   $("filters").classList.toggle("hidden",!feed); $("filtersBtn").classList.toggle("hidden",!feed);
   $("threadBar").classList.toggle("hidden",!feed || !THREAD);
   $("composer").classList.toggle("hidden",!feed); $("dmBar").classList.toggle("hidden",!ACTIVE_DM);
   $("cTo").classList.toggle("hidden",!!ACTIVE_DM); $("secretBtn").classList.toggle("hidden",!ACTIVE_DM || ME.kind!=="human");
   const approver=$("cApprover").value;
-  $("cApprover").innerHTML=`<option value="">кто решает: человек этого чата</option>`+(ME.users||[])
+  $("cApprover").innerHTML=ui`<option value="">кто решает: человек этого чата</option>`+(ME.users||[])
     .filter(u=>u.kind==="human"&&(!ACTIVE_DM||u.id===ACTIVE_DM.human_id))
-    .map(u=>`<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
+    .map(u=>ui`<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
   $("cApprover").value=approver;
   if(ACTIVE_DM) $("dmTitle").textContent=ACTIVE_DM.peer;
   setHeaderHeight(); observeReadRows();syncMobileNav();
 }
 async function selectTab(tab) {
   if(!PROJECT)return;
-  if(SENDING) {toast("Дождись отправки сообщения",true);return;}
+  if(SENDING) {toast(tr("Дождись отправки сообщения"),true);return;}
   closeMobilePanels(); const changed=!!ACTIVE_DM; saveDraft(); closeSecret(); ACTIVE_DM=null; TAB=tab;
   if(changed)resetFeedState();
   const needsReload=changed || !MSGS.size || COMPOSE_SCOPE!==draftKey();
@@ -2070,7 +2713,7 @@ async function selectTab(tab) {
   paintTab();
   if(tab==="direct") {await loadConversations();if(!mobileLayout())$("dmSearch").focus();}
   else if(tab==="feed") {if(needsReload)await reload();toBottom();}
-  else {$("scroller").scrollTop=0;if(tab==="results")loadResults();else if(tab==="claims")loadClaims();}
+  else {$("scroller").scrollTop=0;if(tab==="results")loadResults();else if(tab==="claims")loadClaims();else if(tab==="work")loadWork();else if(tab==="board")loadBoard();}
 }
 for(const b of document.querySelectorAll(".tabs [data-tab]")) b.onclick=()=>selectTab(b.dataset.tab).catch(e=>toast(e.message,true));
 for (const b of document.querySelectorAll("[data-proxy]")) b.onclick = () => $(b.dataset.proxy).click();
@@ -2081,12 +2724,12 @@ function updateChips() {
   const chips = [];
   if ($("cType").value !== "info") chips.push(["type", TYPES[$("cType").value]]);
   if ($("cTopic").value.trim()) chips.push(["topic", "#" + $("cTopic").value.trim().replace(/^#/, "")]);
-  if ($("cUrgent").checked) chips.push(["urgent", "срочно"]);
-  if ($("cApproval").checked) chips.push(["approval", "нужно одобрение" + ($("cApprover").value ? ": " + $("cApprover").value : "")]);
+  if ($("cUrgent").checked) chips.push(["urgent", tr("срочно")]);
+  if ($("cApproval").checked) chips.push(["approval", tr("нужно одобрение") + ($("cApprover").value ? ": " + $("cApprover").value : "")]);
   $("cApprover").classList.toggle("hidden", !$("cApproval").checked);
-  $("cChips").innerHTML = chips.map(([k, t]) => `<span class="cchip">${esc(t)}<button type="button" data-chip="${k}" title="убрать">✕</button></span>`).join("");
+  $("cChips").innerHTML = chips.map(([k, t]) => ui`<span class="cchip">${esc(t)}<button type="button" data-chip="${k}" title="убрать">✕</button></span>`).join("");
   $("cOptsBtn").classList.toggle("on", chips.length > 0 || !$("cOpts").classList.contains("hidden"));
-  $("cBody").placeholder = REPLY ? `Ответ ${REPLY.author}…` : ME && ME.project ? (ACTIVE_DM?`Личное сообщение ${ACTIVE_DM.peer}`:`Сообщение в «${ME.project.title}»`) : "Сообщение";
+  $("cBody").placeholder = REPLY ? ui`Ответ ${REPLY.author}…` : ME && ME.project ? (ACTIVE_DM?ui`Личное сообщение ${ACTIVE_DM.peer}`:ui`Сообщение в «${ME.project.title}»`) : tr("Сообщение");
 }
 $("cChips").onclick = e => {
   const k = e.target.dataset && e.target.dataset.chip;
@@ -2104,13 +2747,14 @@ $("cTopic").addEventListener("input", () => {updateChips();scheduleDraft();});
 function startReply(m) {
   REPLY = m;
   $("replyBar").classList.remove("hidden");
-  $("replyText").textContent = `Ответ на #${m.id} (${m.author}): ${m.subject}`;
+  $("replyText").textContent = ui`Ответ на #${m.id} (${m.author}): ${m.subject}`;
   $("cTopic").value = m.topic || "";
   $("cTo").value = !isMine(m) ? m.author : "";
   $("cBody").focus(); scheduleDraft();
 }
 function resetCompose(force = false) {
   if (SENDING && !force) return;
+  $("retrySend").classList.add("hidden");
   ATTACHED = []; COMPOSE_RETRY = null; paintFiles();
   REPLY = null; $("replyBar").classList.add("hidden");
   $("cBody").value = ""; $("cFiles").value = ""; $("cFilesInfo").textContent = ""; $("cTo").value = "";
@@ -2136,36 +2780,40 @@ window.addEventListener("pagehide",saveDraft);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")saveDraft();});
 // on a phone keyboard Enter is a new line and the ↑ button sends
 const TOUCH = matchMedia("(pointer: coarse)").matches;
-if (TOUCH) $("cBody").placeholder = "Написать команде…";
+if (TOUCH) $("cBody").placeholder = tr("Написать команде…");
 $("cBody").addEventListener("keydown", e => {
   if (!TOUCH && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("sendBtn").click(); }
 });
-const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+" МБ" : n >= 1024 ? Math.ceil(n/1024)+" КБ" : n+" Б";
+const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+tr(" МБ") : n >= 1024 ? Math.ceil(n/1024)+tr(" КБ") : n+tr(" Б");
 const fileExt = name => (name.includes(".") ? name.split(".").pop() : "FILE").slice(0, 5).toUpperCase();
 function fileCard(a) {
   const content = `<span class="file-symbol" aria-hidden="true">${esc(fileExt(a.name))}</span><span class="file-info"><span class="file-name">${esc(a.name)}</span>` +
-    `<span class="file-detail">${fileSize(a.size)}${a.inline ? " · Скачать" : " · Внешняя ссылка: " + esc(a.link || "")}</span></span>`;
-  return a.inline ? `<button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>`
+    `<span class="file-detail">${fileSize(a.size)}${a.inline ? tr(" · Скачать") : tr(" · Внешняя ссылка: ") + esc(a.link || "")}</span></span>`;
+  return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>${a.size<=12*1024*1024&&/\.(png|jpe?g|gif|webp)$/i.test(a.name)?ui`<button data-ux="preview" data-att="${a.id}" data-name="${esc(a.name)}">Посмотреть изображение</button>`:""}</div>`
     : `<div class="file-card">${content}</div>`;
 }
+const FILE_PREVIEWS=new Map();
 function paintFiles() {
+  for(const [file,url] of FILE_PREVIEWS)if(!ATTACHED.some(a=>a.file===file)){URL.revokeObjectURL(url);FILE_PREVIEWS.delete(file);}
+  for(const a of ATTACHED)if(a.file.size<=12*1024*1024&&/^image\/(png|jpeg|gif|webp)$/.test(a.file.type)&&!FILE_PREVIEWS.has(a.file))FILE_PREVIEWS.set(a.file,URL.createObjectURL(a.file));
   $("cPending").innerHTML = ATTACHED.map((a, i) => `<div class="file-card"><span class="file-symbol">${esc(fileExt(a.file.name))}</span>` +
-    `<span class="file-info"><span class="file-name" title="${esc(a.file.name)}">${esc(a.file.name)}</span><span class="file-detail">${fileSize(a.file.size)} · ${esc(a.status || "Готов к отправке")}</span>` +
-    (SENDING ? `<progress value="${a.progress || 0}" max="100" aria-label="Загрузка ${esc(a.file.name)}"></progress>` : "") + `</span>` +
-    `<button class="file-remove" type="button" data-remove-file="${i}" aria-label="Убрать ${esc(a.file.name)}" ${SENDING ? "disabled" : ""}>✕</button></div>`).join("");
-  $("cFilesInfo").textContent = ATTACHED.length ? `Файлов: ${ATTACHED.length}` : "";
+    `<span class="file-info"><span class="file-name" title="${esc(a.file.name)}">${esc(a.file.name)}</span><span class="file-detail">${fileSize(a.file.size)} · ${esc(a.status || tr("Готов к отправке"))}</span>` +
+    (SENDING ? ui`<progress value="${a.progress || 0}" max="100" aria-label="Загрузка ${esc(a.file.name)}"></progress>` : "") + `</span>` +
+    (FILE_PREVIEWS.has(a.file)?`<img class="file-thumb" alt="${esc(a.file.name)}" src="${FILE_PREVIEWS.get(a.file)}">`:"") +
+    ui`<button class="file-remove" type="button" data-remove-file="${i}" aria-label="Убрать ${esc(a.file.name)}" ${SENDING ? "disabled" : ""}>✕</button></div>`).join("");
+  $("cFilesInfo").textContent = ATTACHED.length ? ui`Файлов: ${ATTACHED.length}` : "";
 }
 async function addFiles(files) {
   if (SENDING) return;
   for (const file of files) {
-    if (file.size > 200*1024*1024) { $("sendErr").textContent = `${file.name}: максимальный размер — 200 МБ`; continue; }
-    if (ATTACHED.length >= 30) { $("sendErr").textContent = "Не больше 30 файлов за раз"; break; }
+    if (file.size > 200*1024*1024) { $("sendErr").textContent = ui`${file.name}: максимальный размер — 200 МБ`; continue; }
+    if (ATTACHED.length >= 30) { $("sendErr").textContent = tr("Не больше 30 файлов за раз"); break; }
     ATTACHED.push({file, key: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()), progress: 0});
   }
   $("cFiles").value = ""; paintFiles();
   try {
     FILE_STORAGE = await api("GET", "/api/storage");
-    if (!FILE_STORAGE.can_upload && ATTACHED.length) $("sendErr").textContent = "На сервере свободно меньше 300 МБ. Убери файлы, чтобы отправить только текст.";
+    if (!FILE_STORAGE.can_upload && ATTACHED.length) $("sendErr").textContent = tr("На сервере свободно меньше 300 МБ. Убери файлы, чтобы отправить только текст.");
   } catch (e) { $("sendErr").textContent = e.message; }
 }
 $("attachBtn").onclick = () => { if (!SENDING) $("cFiles").click(); };
@@ -2192,11 +2840,11 @@ async function uploadFile(a, signal) {
     while (offset < a.file.size) {
       signal.throwIfAborted?.();
       const end = Math.min(offset+upload.chunk_size, a.file.size);
-      a.status = `Загрузка ${Math.floor(offset*100/Math.max(1, a.file.size))}%`; a.progress = offset*100/Math.max(1, a.file.size); paintFiles();
+      a.status = ui`Загрузка ${Math.floor(offset*100/Math.max(1, a.file.size))}%`; a.progress = offset*100/Math.max(1, a.file.size); paintFiles();
       let result;
       for (let attempt = 0; ; attempt++) {
         try {
-          const r = await fetch(`/api/uploads/${upload.id}/chunk?offset=${offset}`, {method: "POST", signal,
+          const r = await appFetch(`/api/uploads/${upload.id}/chunk?offset=${offset}`, {method: "POST", signal,
             headers: {Authorization: "Bearer " + TOKEN, "Content-Type": "application/octet-stream", "X-Telegent-Project": PROJECT}, body: a.file.slice(offset, end)});
           result = await r.json();
           if (!r.ok) { const error = new Error(result.error || `HTTP ${r.status}`); error.refused = r.status < 500 || r.status === 507; throw error; }
@@ -2205,10 +2853,10 @@ async function uploadFile(a, signal) {
       }
       offset = result.received;
     }
-    a.status = "Проверка файла…"; a.progress = 100; paintFiles();
+    a.status = tr("Проверка файла…"); a.progress = 100; paintFiles();
     await api("POST", `/api/uploads/${upload.id}/complete`, {}, signal);
   }
-  a.status = "Загружен"; a.progress = 100; paintFiles();
+  a.status = tr("Загружен"); a.progress = 100; paintFiles();
   return {upload_id: upload.id};
 }
 
@@ -2219,6 +2867,7 @@ $("sendBtn").addEventListener("pointerdown",e=>{
 $("sendBtn").onclick = async () => {
   if ($("sendBtn").disabled) return;
   $("sendErr").textContent = "";
+  $("retrySend").classList.add("hidden");
   const data = {
     conversation_id: ACTIVE_DM?.id || null,
     type: $("cType").value, topic: $("cTopic").value.trim().replace(/^#/, ""), body: $("cBody").value,
@@ -2243,7 +2892,7 @@ $("sendBtn").onclick = async () => {
     rememberRecipient(data.to_ids?.[0] || "");
     clearDraft(); resetCompose(true); await refresh(); toBottom();
   }
-  catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? "Отправка остановлена. Файлы и текст сохранены — можно повторить." : err.message; }
+  catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? tr("Отправка остановлена. Файлы и текст сохранены — можно повторить.") : err.message;$("retrySend").classList.remove("hidden"); }
   finally { SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
 };
 
@@ -2256,31 +2905,32 @@ async function loadPresence() {
     applyProjectInfo(me.project);
     ME.users = me.users;
     const owner = me.project && me.project.role === "owner";
-    const ROLE = {owner: "владелец", member: "участник", agent: "агент"};
+    const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент")};
     MEMBER_ACTS = {};
     $("presence").innerHTML = me.users.map(u => {
-      const txt = u.listening ? (u.kind === "agent" ? "слушает" : "в сети")
-        : u.last_check && u.last_check > (u.last_listen || "") ? `проверял входящие ${shortTime(u.last_check)}`
-        : u.last_listen ? `был ${shortTime(u.last_listen)}` : "ещё не подключался";
+      const txt = u.listening ? (u.kind === "agent" ? tr("слушает") : tr("в сети"))
+        : u.last_check && u.last_check > (u.last_listen || "") ? ui`проверял входящие ${shortTime(u.last_check)}`
+        : u.last_listen ? ui`был ${shortTime(u.last_listen)}` : tr("ещё не подключался");
       const acts = [];
       if (owner && u.name !== ME.name && u.kind === "human")
-        acts.push(u.role === "owner" ? {label: "Снять владельца", act: "mrole", data: {name: u.name, role: "member"}}
-                                     : {label: "Сделать владельцем", act: "mrole", data: {name: u.name, role: "owner"}});
+        acts.push(u.role === "owner" ? {label: tr("Снять владельца"), act: "mrole", data: {name: u.name, role: "member"}}
+                                     : {label: tr("Сделать владельцем"), act: "mrole", data: {name: u.name, role: "owner"}});
       if (u.kind === "human" && u.name !== ME.name && ME.is_admin)
-        acts.push({label: "Ссылка для сброса пароля", act: "mreset", data: {name: u.name}});
+        acts.push({label: tr("Ссылка для сброса пароля"), act: "mreset", data: {name: u.name}});
       if (u.kind === "agent" && (u.owner === ME.name || ME.is_admin))
-        acts.push({label: "Новый токен агенту", act: "mreset", data: {name: u.name}});
+        acts.push({label: tr("Новый токен агенту"), act: "mreset", data: {name: u.name}});
       if (ME.kind === "human" && (u.name === ME.name || (u.kind === "agent" && u.owner === ME.name)))
-        acts.unshift({label: "Переименовать", act: "mrename", data: {name: u.name}});
-      if (owner && u.name !== ME.name) acts.push({label: "Убрать из проекта", act: "mremove", data: {name: u.name}, cls: "bad"});
-      if(ME.kind!==u.kind) acts.unshift({label:"Написать лично",act:"dmnew",data:{account:u.id}});
+        acts.unshift({label: tr("Переименовать"), act: "mrename", data: {name: u.name}});
+      if (owner && u.name !== ME.name) acts.push({label: tr("Убрать из проекта"), act: "mremove", data: {name: u.name}, cls: "bad"});
+      if(ME.kind!==u.kind) acts.unshift({label:tr("Написать лично"),act:"dmnew",data:{account:u.id}});
       MEMBER_ACTS[u.name] = acts;
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
         `${esc(initials(u.name))}<span class="pres ${u.listening ? "on" : ""}"></span></div>` +
-        `<div class="minfo"><b>${esc(u.name)}</b>${u.name === ME.name ? ' <span class="muted">(ты)</span>' : ""}` +
+        `<div class="minfo participant-card" data-ux="member" data-account="${esc(u.id)}" role="button" tabindex="0"><b>${esc(u.name)}</b>${u.name === ME.name ? tr(' <span class="muted">(ты)</span>') : ""}` +
         `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
-        (acts.length ? `<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
+        (acts.length ? ui`<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
     }).join("");
+    if(INV_TRACK && !$("invDialog").classList.contains("hidden"))paintInviteProgress(me.users);
   } catch {}
 }
 
@@ -2288,7 +2938,7 @@ async function projectAction(act, slug) {
   const p = projectInfo(slug);
   if (!p || !projectActions(p).some(i => i.act === act)) return;
   if (SENDING && slug === PROJECT && act !== "prename") {
-    toast("Дождись отправки сообщения или нажми «Отмена»", true); return;
+    toast(tr("Дождись отправки сообщения или нажми «Отмена»"), true); return;
   }
   if (act === "prename") {
     RENAME_PROJECT = slug;
@@ -2300,14 +2950,14 @@ async function projectAction(act, slug) {
     $("pdDelete").disabled = true;
     $("pdDialog").classList.remove("hidden"); $("pdConfirm").focus();
   } else if (act === "pleave") {
-    if (!confirm(`Покинуть проект «${p.title}»? Вернуться можно только по новому приглашению.`)) return;
+    if (!confirm(ui`Покинуть проект «${p.title}»? Вернуться можно только по новому приглашению.`)) return;
     await api("POST", "/api/members/remove?project=" + encodeURIComponent(slug), {name: ME.name, account_id: ME.id});
     PROJECTS = PROJECTS.filter(p => p.slug !== slug);
     await loadProjects();
     if (PROJECT === slug) {
       if (PROJECTS.length) await setProject(PROJECTS[0].slug); else showNoProject();
     }
-    toast("Ты покинул(а) проект");
+    toast(tr("Ты покинул(а) проект"));
   }
 }
 
@@ -2315,17 +2965,17 @@ async function memberAction(act, name, role, accountId) {
   const target = {name, account_id: accountId || ME.users.find(u => u.name === name)?.id};
   if (act === "mrole") await api("POST", "/api/members/role", {...target, role});
   if (act === "mremove") {
-    if (!confirm(`Убрать ${name} из проекта «${ME.project.title}»? Его агенты в этом проекте тоже уйдут.`)) return;
+    if (!confirm(ui`Убрать ${name} из проекта «${ME.project.title}»? Его агенты в этом проекте тоже уйдут.`)) return;
     await api("POST", "/api/members/remove", target);
   }
   if (act === "madd") {
     await api("POST", "/api/members/add", target);
-    toast(`${name} добавлен(а) в проект`);
+    toast(ui`${name} добавлен(а) в проект`);
     await loadPresence(); setupCompose(); loadCandidates();
     return;
   }
   if (act === "mrename") {
-    const nn = prompt(`Новое имя для ${name} (латиница, цифры, . _ -):`, name);
+    const nn = prompt(ui`Новое имя для ${name} (латиница, цифры, . _ -):`, name);
     if (!nn || nn.trim() === name) return;
     await api("POST", "/api/rename", {...target, new: nn.trim()});
     toast(`${name} → ${nn.trim()}`);
@@ -2357,7 +3007,7 @@ $("pdDelete").onclick = async () => {
   try {
     const d = await api("POST", "/api/project/delete?project=" + encodeURIComponent(slug), {confirm: $("pdConfirm").value});
     $("pdDialog").classList.add("hidden");
-    toast(`Проект удалён` + (d.agents_without_project.length ? `; без проекта: ${d.agents_without_project.join(", ")}` : ""));
+    toast(ui`Проект удалён` + (d.agents_without_project.length ? ui`; без проекта: ${d.agents_without_project.join(", ")}` : ""));
     st.set("tg_seen_" + slug, null);
     PROJECTS = PROJECTS.filter(p => p.slug !== slug);
     await loadProjects();
@@ -2374,28 +3024,30 @@ async function loadCandidates() {
   try {
     const c = (await api("GET", "/api/members/candidates")).candidates;
     CANDS = c;
-    $("invNames").innerHTML = c.map(u => `<option value="${esc(u.name)}">${u.kind === "agent" ? "твой агент" : "из " + esc(u.via.join(", "))}</option>`).join("");
+    $("invNames").innerHTML = c.map(u => `<option value="${esc(u.name)}">${u.kind === "agent" ? tr("твой агент") : tr("из ") + esc(u.via.join(", "))}</option>`).join("");
     invNameChanged();
-    $("invPick").classList.toggle("hidden", !c.length);
-    $("invCands").innerHTML = c.map(u => `<div class="member">${avatar(u.name, u.kind, true)}
-      <div class="minfo"><b>${esc(u.name)}</b><div class="muted">${u.kind === "agent" ? "твой агент, без проекта"
-        : "из " + u.via.map(t => "«" + esc(t) + "»").join(", ")}</div></div>
+    $("invPick").classList.toggle("hidden", !c.length || INV_MODE!=="existing");
+    $("invCands").innerHTML = c.map(u => ui`<div class="member">${avatar(u.name, u.kind, true)}
+      <div class="minfo"><b>${esc(u.name)}</b><div class="muted">${u.kind === "agent" ? tr("твой агент, без проекта")
+        : tr("из ") + u.via.map(t => "«" + esc(t) + "»").join(", ")}</div></div>
       <button data-act="madd" data-name="${esc(u.name)}" data-account="${esc(u.id)}">Добавить</button></div>`).join("");
   } catch { $("invPick").classList.add("hidden"); }
 }
 
 function openInvite(name) {
+  INV_MODE=null;INV_TRACK=null;$("invChoices").classList.remove("hidden");$("invFields").classList.add("hidden");
+  $("invChoices").querySelector('[data-mode="human"]').classList.toggle("hidden",ME.project.role!=="owner");
   CANDS = [];
   $("invNames").innerHTML = "";
   const owner = ME.project.role === "owner";
-  $("invKind").innerHTML = (owner ? '<option value="human">человек</option>' : '') + '<option value="agent">агент</option>';
+  $("invKind").innerHTML = (owner ? tr('<option value="human">человек</option>') : '') + tr('<option value="agent">агент</option>');
   $("invName").value = name || ""; $("invErr").textContent = ""; $("invResult").classList.add("hidden");
   $("invOwner").innerHTML = ME.users.filter(u => u.kind === "human" && (owner || u.name === ME.name)).map(u =>
-    `<option value="${esc(u.name)}" ${u.name === ME.name ? "selected" : ""}>агент для ${esc(u.name)}</option>`).join("");
+    ui`<option value="${esc(u.name)}" ${u.name === ME.name ? "selected" : ""}>агент для ${esc(u.name)}</option>`).join("");
   invNameChanged();
   $("invPick").classList.add("hidden"); loadCandidates();
   $("invDialog").classList.remove("hidden");
-  if (!TOUCH) $("invName").focus();
+  if(name)chooseInviteMode("agent");
 }
 // someone I already work with: add at once; anyone else: a one-time link
 const typedCand = () => {
@@ -2408,43 +3060,45 @@ function invNameChanged() {
   const cand = typedCand();
   $("invNew").style.display = u || cand ? "none" : "flex";
   $("invCreate").classList.toggle("hidden", !!u);
-  $("invCreate").textContent = cand ? "Добавить в проект" : "Создать ссылку";
+  $("invCreate").textContent = cand ? tr("Добавить в проект") : tr("Создать ссылку");
   $("invOwner").style.visibility = $("invKind").value === "agent" ? "visible" : "hidden";
-  $("invNote").textContent = u ? `${u.name} уже в проекте.`
-    : cand ? (cand.kind === "agent" ? `${cand.name} — твой агент без проекта: добавится сразу.`
-                                    : `${cand.name} уже работает с тобой в «${cand.via.join("», «")}»: добавится сразу, без ссылки.`)
-    : `${ME.project.role === "owner" ? "Новый человек или агент" : "Твой агент"} в «${ME.project.title}»: получит одноразовую ссылку на 7 дней. ` +
-      `Если у него уже есть аккаунт, по ссылке он войдёт им, второй аккаунт не появится.`;
+  $("invNote").textContent = u ? ui`${u.name} уже в проекте.`
+    : cand ? (cand.kind === "agent" ? ui`${cand.name} — твой агент без проекта: добавится сразу.`
+                                    : ui`${cand.name} уже работает с тобой в «${cand.via.join("», «")}»: добавится сразу, без ссылки.`)
+    : ui`${ME.project.role === "owner" ? tr("Новый человек или агент") : tr("Твой агент")} в «${ME.project.title}»: получит одноразовую ссылку на 7 дней. ` +
+      ui`Если у него уже есть аккаунт, по ссылке он войдёт им, второй аккаунт не появится.`;
 }
 function agentConnectText(link, reset) {
-  return `Подключи себя к telegent из папки своего рабочего проекта.\n` +
-    `Найди актуальный клиент tg.py. Если его нет, клонируй: git clone https://github.com/Takymu/telegent\n` +
-    `Выполни из рабочего проекта (путь к tg.py поправь сам):\n` +
+  return ui`Подключи себя к telegent из папки своего рабочего проекта.\n` +
+    ui`Найди актуальный клиент tg.py. Если его нет, клонируй: git clone https://github.com/Takymu/telegent\n` +
+    ui`Выполни из рабочего проекта (путь к tg.py поправь сам):\n` +
     `python telegent/tg.py connect "${link}"${reset ? " --force" : ""}\n` +
-    `Клиент определится автоматически; если нет, сам выбери --client codex или --client claude.\n` +
-    `Прочитай AGENTS.md рядом с клиентом, проверь whoami и inbox и закончи настройку по выводу команды. ` +
-    `Если установка прервётся, повтори ту же команду. Существующие инструкции и хуки сохраняй, токен не показывай. ` +
-    `Если сам Codex потребует доверия новым хукам, покажи человеку его стандартный запрос; не обходи защиту.`;
+    ui`Клиент определится автоматически; если нет, сам выбери --client codex или --client claude.\n` +
+    ui`Прочитай AGENTS.md рядом с клиентом, проверь whoami и inbox и закончи настройку по выводу команды. ` +
+    ui`Если установка прервётся, повтори ту же команду. Существующие инструкции и хуки сохраняй, токен не показывай. ` +
+    ui`Если сам Codex потребует доверия новым хукам, покажи человеку его стандартный запрос; не обходи защиту.`;
 }
 function showInviteResult(d) {
+  $("invChoices").classList.add("hidden");$("invFields").classList.add("hidden");$("invPick").classList.add("hidden");
+  INV_TRACK={scope:uiScope(),name:d.name,kind:d.kind,purpose:d.purpose,at:Date.now()};paintInviteProgress(ME.users);
   const agent = d.kind === "agent";
   $("invLink").value = agent ? agentConnectText(d.link, d.purpose === "reset") : d.link;
   $("invLink").rows = agent ? 7 : 2;
-  $("invCopy").textContent = agent ? "Копировать для агента" : "Копировать ссылку";
+  $("invCopy").textContent = agent ? tr("Копировать для агента") : tr("Копировать ссылку");
   const where = ME.project ? `«${ME.project.title}»` : "";
   $("invHint").textContent = (agent
-    ? (d.purpose === "reset" ? `Передай агенту ${d.name}: получит новый токен, старый перестанет работать.`
-                             : `Скопируй текст и передай агенту ${d.name}: он сам получит аккаунт, настроит клиент и проверит связь.`)
-    : d.purpose === "new" ? `Отправь ссылку ${d.name}: придумает пароль и окажется в проекте ${where}.`
-    : d.purpose === "add" ? `Отправь ссылку ${d.name}: войдёт своим паролем и окажется в проекте ${where}.`
-                          : `Отправь ссылку ${d.name}: задаст новый пароль, старый перестанет работать.`) +
-    ` Одноразовая, до ${shortTime(d.expires)}.`;
+    ? (d.purpose === "reset" ? ui`Передай агенту ${d.name}: получит новый токен, старый перестанет работать.`
+                             : ui`Скопируй текст и передай агенту ${d.name}: он сам получит аккаунт, настроит клиент и проверит связь.`)
+    : d.purpose === "new" ? ui`Отправь ссылку ${d.name}: придумает пароль и окажется в проекте ${where}.`
+    : d.purpose === "add" ? ui`Отправь ссылку ${d.name}: войдёт своим паролем и окажется в проекте ${where}.`
+                          : ui`Отправь ссылку ${d.name}: задаст новый пароль, старый перестанет работать.`) +
+    ui` Одноразовая, до ${shortTime(d.expires)}.`;
   $("invResult").classList.remove("hidden");
   $("invShare").classList.toggle("hidden", !navigator.share);
   $("invShare").onclick = () => navigator.share(agent
     ? {title: "telegent", text: $("invLink").value}
-    : {title: "telegent", text: d.purpose === "reset" ? `${d.name}, задай новый пароль в telegent`
-                                                      : `Приглашение в telegent, проект ${where}`, url: d.link}).catch(() => {});
+    : {title: "telegent", text: d.purpose === "reset" ? ui`${d.name}, задай новый пароль в telegent`
+                                                      : ui`Приглашение в telegent, проект ${where}`, url: d.link}).catch(() => {});
   if (!TOUCH) $("invLink").select();
 }
 $("inviteBtn").onclick = () => openInvite("");
@@ -2457,7 +3111,7 @@ $("invCreate").onclick = async () => {
   if (cand) {
     try {
       await api("POST", "/api/members/add", {name: cand.name, account_id: cand.id});
-      toast(`${cand.name} добавлен(а) в проект`);
+      toast(ui`${cand.name} добавлен(а) в проект`);
       $("invDialog").classList.add("hidden");
       await loadPresence(); setupCompose();
     } catch (err) { $("invErr").textContent = err.message; }
@@ -2470,20 +3124,21 @@ $("invCreate").onclick = async () => {
 };
 $("invCopy").onclick = async () => {
   const label = $("invCopy").textContent;
-  try { await navigator.clipboard.writeText($("invLink").value); $("invCopy").textContent = "Скопировано"; }
-  catch { $("invLink").select(); document.execCommand("copy"); $("invCopy").textContent = "Скопировано"; }
+  try { await navigator.clipboard.writeText($("invLink").value); $("invCopy").textContent = tr("Скопировано"); }
+  catch { $("invLink").select(); document.execCommand("copy"); $("invCopy").textContent = tr("Скопировано"); }
   setTimeout(() => $("invCopy").textContent = label, 1500);
 };
 
 // ---- someone opened an invite link
 async function joinFlow(code) {
+  CURRENT_INVITE=code;
   $("join").classList.remove("hidden"); $("login").classList.add("hidden"); $("app").classList.add("hidden");
-  const r = await fetch("/api/invite?code=" + encodeURIComponent(code));
+  const r = await appFetch("/api/invite?code=" + encodeURIComponent(code));
   const inv = await r.json().catch(() => ({}));
   if (!r.ok) { $("joinInfo").textContent = inv.error || `HTTP ${r.status}`; return; }
-  const where = inv.project_title ? ` в проект «${inv.project_title}»` : "";
+  const where = inv.project_title ? ui` в проект «${inv.project_title}»` : "";
   if (inv.kind === "agent") {
-    $("joinInfo").textContent = `Приглашение${where} для агента ${inv.name} (владелец ${inv.owner}).`;
+    $("joinInfo").textContent = ui`Приглашение${where} для агента ${inv.name} (владелец ${inv.owner}).`;
     $("joinCmd").value = agentConnectText(`${(launcher() || location.origin + "/")}#invite=${code}`, inv.purpose === "reset");
     $("joinAgent").classList.remove("hidden");
     return;
@@ -2494,29 +3149,29 @@ async function joinFlow(code) {
   const stored = st.get("tg_token");
   if (add && stored) {
     try {
-      const r2 = await fetch("/api/me", {headers: {"Authorization": "Bearer " + stored}});
+      const r2 = await appFetch("/api/me", {headers: {"Authorization": "Bearer " + stored}});
       if (r2.ok && (await r2.json()).name === inv.name) mine = stored;
     } catch {}
   }
   $("joinInfo").textContent = inv.purpose === "new"
-    ? `Приглашение${where} для ${inv.name}. Придумай пароль: дальше входи по имени ${inv.name} и этому паролю с любого устройства.`
-    : add ? (mine ? `${inv.name}, тебя приглашают${where}.` : `${inv.name}, тебя приглашают${where}. Войди своим паролем.`)
-    : `${inv.name}, задай новый пароль: дальше входи по имени и этому паролю.`;
+    ? ui`Приглашение${where} для ${inv.name}. Придумай пароль: дальше входи по имени ${inv.name} и этому паролю с любого устройства.`
+    : add ? (mine ? ui`${inv.name}, тебя приглашают${where}.` : ui`${inv.name}, тебя приглашают${where}. Войди своим паролем.`)
+    : ui`${inv.name}, задай новый пароль: дальше входи по имени и этому паролю.`;
   $("joinName").value = inv.name;
   // a 'new' invite may reach someone who already has an account (the inviter guessed a name): let them join as themselves
   if (inv.purpose === "new") {
     let me = null;
     const stored = st.get("tg_token");
     if (stored) {
-      try { const r2 = await fetch("/api/me", {headers: {"Authorization": "Bearer " + stored}}); if (r2.ok) me = await r2.json(); } catch {}
+      try { const r2 = await appFetch("/api/me", {headers: {"Authorization": "Bearer " + stored}}); if (r2.ok) me = await r2.json(); } catch {}
     }
     $("joinHave").classList.remove("hidden");
     if (me && me.kind === "human") {
-      $("joinHave").innerHTML = `Это ты, <b>${esc(me.name)}</b>? <a href="#" id="joinAsMe">Вступить в проект своим аккаунтом</a> — второй аккаунт не нужен.`;
+      $("joinHave").innerHTML = ui`Это ты, <b>${esc(me.name)}</b>? <a href="#" id="joinAsMe">Вступить в проект своим аккаунтом</a> — второй аккаунт не нужен.`;
       $("joinAsMe").onclick = async e => {
         e.preventDefault(); $("joinErr").textContent = "";
         try {
-          const r3 = await fetch("/api/join", {method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + stored},
+          const r3 = await appFetch("/api/join", {method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + stored},
             body: JSON.stringify({code, as_existing: true})});
           const d = await r3.json().catch(() => ({}));
           if (!r3.ok) throw new Error(d.error || `HTTP ${r3.status}`);
@@ -2535,11 +3190,11 @@ async function joinFlow(code) {
       $("joinLogin").onsubmit = async e => {
         e.preventDefault(); $("joinErr").textContent = "";
         try {
-          const r4 = await fetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"},
+          const r4 = await appFetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"},
             body: JSON.stringify({name: $("joinLName").value.trim(), password: $("joinLPw").value})});
           const lg = await r4.json().catch(() => ({}));
           if (!r4.ok) throw new Error(lg.error || `HTTP ${r4.status}`);
-          const r5 = await fetch("/api/join", {method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + lg.token},
+          const r5 = await appFetch("/api/join", {method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + lg.token},
             body: JSON.stringify({code, as_existing: true})});
           const d = await r5.json().catch(() => ({}));
           if (!r5.ok) throw new Error(d.error || `HTTP ${r5.status}`);
@@ -2551,11 +3206,11 @@ async function joinFlow(code) {
       };
     }
   }
-  $("joinPw").placeholder = add ? "твой пароль" : "придумай пароль (от 8 символов)";
+  $("joinPw").placeholder = add ? tr("твой пароль") : tr("придумай пароль (от 8 символов)");
   $("joinPw").autocomplete = add ? "current-password" : "new-password";
   $("joinPw").classList.toggle("hidden", !!mine);
   $("joinPw2").classList.toggle("hidden", add);
-  $("joinBtn").textContent = add ? "Вступить в проект" : "Войти";
+  $("joinBtn").textContent = add ? tr("Вступить в проект") : tr("Войти");
   $("joinForm").classList.remove("hidden");
   if (!mine) $("joinPw").focus();
   const done = async (tok, slug) => {
@@ -2567,11 +3222,11 @@ async function joinFlow(code) {
   $("joinForm").onsubmit = async e => {
     e.preventDefault();
     $("joinErr").textContent = "";
-    if (!add && $("joinPw").value !== $("joinPw2").value) { $("joinErr").textContent = "пароли не совпадают"; return; }
+    if (!add && $("joinPw").value !== $("joinPw2").value) { $("joinErr").textContent = tr("пароли не совпадают"); return; }
     $("joinBtn").disabled = true;
     try {
       const post = async (path, body, tok) => {
-        const res = await fetch(path, {method: "POST", body: JSON.stringify(body), headers: {"Content-Type": "application/json",
+        const res = await appFetch(path, {method: "POST", body: JSON.stringify(body), headers: {"Content-Type": "application/json",
           ...(tok ? {"Authorization": "Bearer " + tok} : {})}});
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
@@ -2591,9 +3246,9 @@ async function joinFlow(code) {
 
 function spanRu(sec) {
   sec = Math.abs(sec);
-  if (sec < 3600) return Math.max(1, Math.round(sec / 60)) + " мин";
-  if (sec < 86400) return Math.round(sec / 3600) + " ч";
-  return Math.round(sec / 86400) + " дн";
+  if (sec < 3600) return Math.max(1, Math.round(sec / 60)) + tr(" мин");
+  if (sec < 86400) return Math.round(sec / 3600) + tr(" ч");
+  return Math.round(sec / 86400) + tr(" дн");
 }
 
 async function refreshSide() {
@@ -2604,20 +3259,21 @@ async function refreshSide() {
     if(!valid())return;
     const topics = [...new Set(all.messages.map(m => m.topic).filter(Boolean))].sort();
     const cur = $("fTopic").value;
-    $("fTopic").innerHTML = `<option value="">все топики</option>` + topics.map(t => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
+    $("fTopic").innerHTML = ui`<option value="">все топики</option>` + topics.map(t => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
     $("topicList").innerHTML = topics.map(t => `<option value="${esc(t)}">`).join("");
-    const pend = await api("GET", "/api/messages?pending_approval=" + (ME.kind === "human" ? "mine" : "1") + "&limit=100&full=0"+extra);
+    const pend = await api("GET", "/api/messages?pending_approval=" + (ME.kind === "human" ? "mine" : "1") + "&limit=1000&full=0&conversation=all");
     if(!valid())return;
     const n = pend.messages.length;
     $("pendingChip").classList.toggle("hidden", !n);
-    $("pendingChip").innerHTML = `<span class="lg">${ME.kind === "human" ? "ждут твоего решения" : "ждут одобрения"}: ${n}</span><span class="sm">⚠ ${n}</span>`;
-    $("pendingChip").title = (ME.kind === "human" ? "ждут твоего решения: " : "ждут одобрения человека: ") + n + " (фильтр «ждут одобрения» в поиске)";
+    $("pendingChip").innerHTML = `<span class="lg">${ME.kind === "human" ? tr("ждут твоего решения") : tr("ждут одобрения")}: ${n}</span><span class="sm">⚠ ${n}</span>`;
+    $("pendingChip").title = (ME.kind === "human" ? tr("ждут твоего решения: ") : tr("ждут одобрения человека: ")) + n + tr(" (фильтр «ждут одобрения» в поиске)");
     NTF.pending = n; ntfTitle();
     if (ME.kind === "human") {
-      const w = (await api("GET", "/api/messages?waiting_me=1&limit=100&full=0"+extra)).messages.length;
+      const w = (await api("GET", "/api/messages?waiting_me=1&limit=1000&full=0&conversation=all")).messages.length;
       if(!valid())return;
       $("waitChip").classList.toggle("hidden", !w);
-      $("waitChip").innerHTML = `<span class="lg">ждут твоего ответа: ${w}</span><span class="sm">? ${w}</span>`;
+      $("waitChip").innerHTML = ui`<span class="lg">ждут твоего ответа: ${w}</span><span class="sm">? ${w}</span>`;
+      $("workBadge").textContent=(w+n)?`(${w+n})`:"";
     }
   } catch {}
 }
@@ -2626,7 +3282,9 @@ let RES = [], RES_OPEN = new Set(), RES_F = {topic: "", metric: "", dataset: "",
 const RES_KEYS = {rfTopic: "topic", rfMetric: "metric", rfDataset: "dataset", rfAuthor: "author", rfSort: "sort"};
 
 async function loadResults() {
+  const scope=uiScope();
   const res = await api("GET", "/api/messages?results=1&limit=1000");
+  if(scope!==uiScope())return;
   RES = res.messages.filter(m => m.result);
   renderResults();
 }
@@ -2656,32 +3314,32 @@ function renderResults() {
     }
   }
   const filters = `<div class="rfilters">` +
-    sel("rfTopic", "все топики", uniq(m => m.topic), F.topic) + sel("rfMetric", "все метрики", uniq(m => m.result.metric), F.metric) +
-    sel("rfDataset", "все наборы", uniq(m => m.result.dataset), F.dataset) + sel("rfAuthor", "все авторы", uniq(m => m.author), F.author) +
-    `<select data-rf="rfSort"><option value="time" ${F.sort === "time" ? "selected" : ""}>время ↓</option>` +
-    `<option value="asc" ${F.sort === "asc" ? "selected" : ""}>значение ↑</option>` +
-    `<option value="desc" ${F.sort === "desc" ? "selected" : ""}>значение ↓</option></select>` +
-    `<span class="muted">${rows.length} из ${RES.length}</span></div>`;
-  const head = `<div class="rrow rhead"><span>#</span><span>когда</span><span>кто</span><span>что</span><span>метрика · набор</span><span>значение</span><span style="justify-self:end">топик</span></div>`;
+    sel("rfTopic", tr("все топики"), uniq(m => m.topic), F.topic) + sel("rfMetric", tr("все метрики"), uniq(m => m.result.metric), F.metric) +
+    sel("rfDataset", tr("все наборы"), uniq(m => m.result.dataset), F.dataset) + sel("rfAuthor", tr("все авторы"), uniq(m => m.author), F.author) +
+    ui`<select data-rf="rfSort"><option value="time" ${F.sort === "time" ? "selected" : ""}>время ↓</option>` +
+    ui`<option value="asc" ${F.sort === "asc" ? "selected" : ""}>значение ↑</option>` +
+    ui`<option value="desc" ${F.sort === "desc" ? "selected" : ""}>значение ↓</option></select>` +
+    ui`<span class="muted">${rows.length} из ${RES.length}</span></div>`;
+  const head = ui`<div class="rrow rhead"><span>#</span><span>когда</span><span>кто</span><span>что</span><span>метрика · набор</span><span>значение</span><span style="justify-self:end">топик</span></div>`;
   const body = rows.length ? rows.map(m => {
     const r = m.result, open = RES_OPEN.has(m.id);
     const mk = [r.metric, r.dataset].filter(Boolean).map(esc).join(" · ");
     let h = `<div class="rrow ${open ? "open" : ""}" data-act="rexp" data-id="${m.id}">` +
       `<span class="rid"><a href="#" data-act="jump" data-id="${m.id}">${m.id}</a></span>` +
       `<span class="rtime">${esc(shortTime(m.time))}</span><span class="rwho" title="${esc(m.author)}">${esc(m.author)}</span>` +
-      `<span class="rwhat" title="${esc(m.subject || "")}">${esc(m.subject || "(пусто)")}</span>` +
+      `<span class="rwhat" title="${esc(m.subject || "")}">${esc(m.subject || tr("(пусто)"))}</span>` +
       `<span class="rmeta">${mk}</span>` +
-      `<span class="rval">${esc(r.value)}${r.err != null ? ` <span class="rerr">± ${esc(r.err)}</span>` : ""}${best.has(m.id) ? `<span class="badge-best">лучшее</span>` : ""}</span>` +
+      `<span class="rval">${esc(r.value)}${r.err != null ? ` <span class="rerr">± ${esc(r.err)}</span>` : ""}${best.has(m.id) ? ui`<span class="badge-best">лучшее</span>` : ""}</span>` +
       `<span class="rtopic">${m.topic ? `<span class="chip">#${esc(m.topic)}</span>` : ""}</span></div>`;
     if (open) {
-      const kv = [["с чем сравнивали", r.baseline], ["коммит", r.commit], ["веса", r.weights], ["заметка", r.note]]
+      const kv = [[tr("с чем сравнивали"), r.baseline], [tr("коммит"), r.commit], [tr("веса"), r.weights], [tr("заметка"), r.note]]
         .filter(x => x[1] != null && x[1] !== "").map(x => `<span><b>${x[0]}</b> ${esc(x[1])}</span>`).join("");
       const atts = (m.attachments || []).map(a => `<div class="att">📎 ${a.inline ? `<a href="#" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}">${esc(a.name)}</a>` : esc(a.name)}
         <span class="muted">${a.size != null ? a.size + " B " : ""}${a.md5 ? "md5 " + esc(a.md5) : ""}${a.inline ? "" : " · " + esc(a.link || "")}</span></div>`).join("");
       h += `<div class="rdetail">${kv ? `<div class="kv">${kv}</div>` : ""}${m.body ? `<div class="body md">${markdown(m.body)}</div>` : ""}${atts}</div>`;
     }
     return h;
-  }).join("") : `<div class="rrow muted" style="display:block;cursor:default">${RES.length ? "Ничего не подошло под фильтры." : "Пока пусто: агенты пишут результаты с --metric/--dataset/--value."}</div>`;
+  }).join("") : `<div class="rrow muted" style="display:block;cursor:default">${RES.length ? tr("Ничего не подошло под фильтры.") : tr("Пока пусто: агенты пишут результаты с --metric/--dataset/--value.")}</div>`;
   $("resultsBox").innerHTML = filters + `<div class="panel rlist">${head}${body}</div>`;
 }
 
@@ -2693,18 +3351,191 @@ document.addEventListener("change", e => {
 });
 
 async function loadClaims() {
+  const scope=uiScope();
   const [act, rel] = await Promise.all([api("GET", "/api/claims?active=1"), api("GET", "/api/claims?active=0&limit=20")]);
+  if(scope!==uiScope())return;
   const human = ME.kind === "human";
-  $("claimsTable").innerHTML = `<tr><th>эксперимент</th><th>кто</th><th>топик</th><th>с</th><th>до</th><th>заметка</th><th></th></tr>` +
-    (act.claims.length ? act.claims.map(c => `<tr><td><b>${esc(c.key)}</b>${c.expired ? ` <span class="muted">просрочена ${spanRu(c.expires_in)} назад</span>` : (c.expires_in != null ? ` <span class="muted">ещё ${spanRu(c.expires_in)}</span>` : "")}</td><td>${esc(c.owner)}</td><td>${esc(c.topic)}</td>
+  $("claimsTable").innerHTML = ui`<tr><th>эксперимент</th><th>кто</th><th>топик</th><th>с</th><th>до</th><th>заметка</th><th></th></tr>` +
+    (act.claims.length ? act.claims.map(c => `<tr><td><b>${esc(c.key)}</b>${c.expired ? ui` <span class="muted">просрочена ${spanRu(c.expires_in)} назад</span>` : (c.expires_in != null ? ui` <span class="muted">ещё ${spanRu(c.expires_in)}</span>` : "")}</td><td>${esc(c.owner)}</td><td>${esc(c.topic)}</td>
       <td>${shortTime(c.created)}</td><td>${esc(c.until)}</td><td>${esc(c.note)}</td>
-      <td>${human ? `<button class="bad" data-act="unclaim" data-id="${c.id}">Снять</button>` : ""}</td></tr>`).join("")
-      : `<tr><td colspan="7" class="muted">Ничего не занято (агенты: <code>tg.py claim "ключ"</code> перед запуском на GPU).</td></tr>`);
-  $("releasedTable").innerHTML = `<tr><th>эксперимент</th><th>кто держал</th><th>с</th><th>снято</th><th>кем / по какому сообщению</th></tr>` +
+      <td>${human ? ui`<button class="bad" data-act="unclaim" data-id="${c.id}">Снять</button>` : ""}</td></tr>`).join("")
+      : ui`<tr><td colspan="7" class="muted">Ничего не занято (агенты: <code>tg.py claim "ключ"</code> перед запуском на GPU).</td></tr>`);
+  $("releasedTable").innerHTML = ui`<tr><th>эксперимент</th><th>кто держал</th><th>с</th><th>снято</th><th>кем / по какому сообщению</th></tr>` +
     (rel.claims.length ? rel.claims.map(c => `<tr><td>${esc(c.key)}</td><td>${esc(c.owner)}</td><td>${shortTime(c.created)}</td>
-      <td>${shortTime(c.released)}</td><td>${c.release_msg ? `результат <a href="#" data-act="jump" data-id="${c.release_msg}">#${c.release_msg}</a>` : ""}
-      ${esc(c.release_note)}</td></tr>`).join("") : `<tr><td colspan="5" class="muted">Пока нет.</td></tr>`);
+      <td>${shortTime(c.released)}</td><td>${c.release_msg ? ui`результат <a href="#" data-act="jump" data-id="${c.release_msg}">#${c.release_msg}</a>` : ""}
+      ${esc(c.release_note)}</td></tr>`).join("") : ui`<tr><td colspan="5" class="muted">Пока нет.</td></tr>`);
+  for(const id of ["claimsTable","releasedTable"]){const heads=[...$(id).querySelectorAll("th")].map(h=>h.textContent);$(id).querySelectorAll("tr").forEach(r=>r.querySelectorAll("td").forEach((cell,i)=>cell.dataset.label=heads[i]||""));}
 }
+
+// ---- shared views: retain source context and use only server-authorized data
+const FILTER_IDS=["q","fTopic","fType","fOpen","fPending","fWaiting","fSystem"];
+const uiScope=()=>`${TOKEN}|${PROJECT}`;
+function hasFilters(){return !!($("q").value.trim() || $("fTopic").value || $("fType").value || $("fOpen").checked || $("fPending").checked || $("fWaiting").checked || !$("fSystem").checked);}
+function resetFilters(){for(const id of FILTER_IDS){const el=$(id);if(el.type==="checkbox")el.checked=id==="fSystem";else el.value="";}updateFilterCount();}
+function saveReturnView(){
+  if(VIEW_RETURN)return;
+  VIEW_RETURN={scope:uiScope(),tab:TAB,dm:ACTIVE_DM?.id,thread:THREAD,y:SC.scrollTop,messages:[...MSGS.values()],oldest:OLDEST,noMore:NO_MORE,filters:FILTER_IDS.map(id=>[$(id).value,$(id).checked])};
+  $("returnBar").classList.remove("hidden");
+}
+async function returnView(){
+  const view=VIEW_RETURN;VIEW_RETURN=null;$("returnBar").classList.add("hidden");if(!view || view.scope!==uiScope())return;
+  if(view.dm)await openDirect(view.dm);else await selectTab(view.tab);
+  FILTER_IDS.forEach((id,i)=>{$(id).value=view.filters[i][0];$(id).checked=view.filters[i][1];});THREAD=view.thread;
+  updateFilterCount();if(view.tab==="feed" || view.dm){MSGS=new Map(view.messages.map(m=>[m.id,m]));OLDEST=view.oldest;NO_MORE=view.noMore;render(true);await refresh();}
+  requestAnimationFrame(()=>{SC.scrollTop=view.y;});
+}
+function closeInfo(){INFO_VERSION++;if($("infoDialog").open)$("infoDialog").close();}
+function showInfo(title,html){INFO_VERSION++;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoHeading").textContent=title;$("infoBody").innerHTML=html;if(!$("infoDialog").open)$("infoDialog").showModal();}
+$("infoDialog").addEventListener("close",()=>{if($("infoDialog").open)return;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoBody").replaceChildren();});
+$("infoDialog").addEventListener("cancel",()=>{INFO_VERSION++;});
+$("infoDialog").addEventListener("click",e=>{const r=$("infoDialog").getBoundingClientRect();if(e.target===$("infoDialog")&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))closeInfo();});
+function receiptButton(m){
+  const rs=m.receipts || [],read=rs.length>0&&rs.every(r=>r.read),delivered=rs.some(r=>r.delivered||r.read);
+  const label=read?tr("Прочитано всеми адресатами"):delivered?tr("Есть получившие сообщение"):tr("Отправлено на сервер");
+  const ticks=`<svg viewBox="0 0 25 18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m2 9 4 4L17 3"/>${delivered?'<path d="m11 12 2 2L24 4"/>':""}</svg>`;
+  return ui`<button class="receipt-button ${read?"read":""}" data-act="receipt" data-id="${m.id}" aria-label="${label}. Информация о сообщении" title="${label}">${ticks}</button>`;
+}
+async function showReceipt(id){
+  const scope=uiScope(),version=++INFO_VERSION,m=(await api("GET",`/api/messages/${id}`)).message;if(scope!==uiScope()||version!==INFO_VERSION)return;
+  const people=(m.receipts||[]).map(r=>`<div class="receipt-person"><b>${esc(r.user)}</b><div class="ux-muted">${r.delivered?tr("Получил: ")+esc(shortTime(r.delivered)):tr("Ещё не получил")}<br>${r.read?tr("Прочитал: ")+esc(shortTime(r.read)):tr("Ещё не прочитал")}<br>${r.acked?tr("Обработал: ")+esc(shortTime(r.acked)):tr("Не отмечено обработанным")}</div></div>`).join("");
+  showInfo(tr("Информация о сообщении"),messageDetails(m,false)+ui`<h3>Получение</h3>${people||tr('<p class="muted">Для этого сообщения нет квитанций адресатов.</p>')}<p class="ux-muted">Прочтение и отметка «Обработано» учитываются отдельно. Они не являются одобрением.</p>`);
+}
+function messageDetails(m,compact){
+  const read=(m.receipts||[]).filter(r=>r.read).map(r=>esc(r.user)).join(", ");
+  return ui`<div class="menu-message md"><b>${esc(m.author)}</b><div>${markdown(m.body||m.subject||"")}</div></div><div class="menu-details">${compact?ui`<p><b>Прочитали:</b> ${read||tr("Пока никто")}</p>`:""}${(m.reactions||[]).map(r=>`<p>${esc(r.emoji)} · ${r.users.map(esc).join(", ")}</p>`).join("")||tr('<p class="muted">Реакций пока нет</p>')}</div>`;
+}
+async function openAction(id,kind,value){
+  const scope=uiScope(),m=(await api("GET",`/api/messages/${id}`)).message;if(scope!==uiScope())return;
+  ACTION_TARGET={scope,id,kind,value,revision:m.revision};
+  $("actionHeading").textContent=kind==="approval"?(value==="approve"?tr("Одобрить действие"):tr("Отказать в одобрении")):({taken:tr("Взять в работу"),done:tr("Завершить просьбу"),rejected:tr("Отклонить просьбу"),open:tr("Открыть просьбу снова")}[value]);
+  $("actionContext").textContent=`${m.author}: ${m.subject}`;$("actionLabel").textContent=value==="done"?tr("Ссылка на результат (коммит, путь или сообщение)"):tr("Комментарий");
+  $("actionNote").value="";$("actionErr").textContent="";$("actionSave").textContent=$("actionHeading").textContent;$("actionDialog").showModal();
+}
+$("actionDialog").addEventListener("cancel",e=>{if($("actionSave").disabled)e.preventDefault();});
+$("actionForm").onsubmit=async e=>{
+  e.preventDefault();const t=ACTION_TARGET;if(!t || t.scope!==uiScope() || $("actionSave").disabled)return;
+  $("actionSave").disabled=true;$("actionErr").textContent="";
+  try {
+    const note=$("actionNote").value;
+    const data=t.kind==="approval"?{decision:t.value,note,revision:t.revision}:{state:t.value,ref:t.value==="done"?note:"",note:t.value!=="done"?note:""};
+    await api("POST",`/api/messages/${t.id}/${t.kind}`,data);
+    if(t.scope!==uiScope())return;$("actionDialog").close();await refresh();if(TAB==="work")await loadWork();
+  }catch(err){$("actionErr").textContent=err.message;}finally{$("actionSave").disabled=false;}
+};
+function showSettings(){
+  const state=ntfOK()?ntfState():"unsupported";
+  const labels={on:tr("Включены"),off:tr("Выключены"),blocked:tr("Заблокированы браузером"),unsupported:tr("Браузер не поддерживает уведомления")};
+  showInfo(tr("Настройки"),ui`<div class="ux-card"><b>${esc(ME.name)}</b><p>${ME.kind==="human"?tr("Человек"):tr("Агент")} · ${esc(ME.project?.title||tr("Нет проекта"))}</p><div class="actions">${ME.kind==="human"?tr('<button data-ux="password">Сменить пароль</button>'):""}<button data-ux="theme">Сменить тему</button><button data-ux="logout">Выйти</button></div></div><div class="ux-card"><label>Язык <select data-language><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере. Тексты сообщений и имена остаются в исходном виде.</p></div><div class="ux-card"><b>Уведомления: ${labels[state]}</b><p class="ux-muted">Сейчас уведомления работают, пока открыта вкладка. Разрешение относится к этому адресу сайта.</p>${state==="blocked"?tr('<p>Разреши уведомления в настройках сайта в браузере, затем вернись сюда.</p>'):state!=="unsupported"?'<button data-ux="notify">'+(state==="on"?tr("Выключить"):tr("Включить"))+'</button>':""}</div>`);
+  $("infoBody").querySelector('[data-language]').value=LANGUAGE_SETTING;
+}
+async function loadWork(){
+  const scope=uiScope(),mode=WORK_MODE;$("workBox").innerHTML=tr('<p role="status">Загружаем…</p>');
+  document.querySelectorAll('[data-ux="workmode"]').forEach(b=>b.classList.toggle("active",b.dataset.mode===mode));
+  try {
+    const query=mode==="approval"?"pending_approval=mine":mode==="waiting"?"waiting_me=1":"open=1";
+    let rows=(await api("GET","/api/messages?conversation=all&limit=1000&"+query)).messages;
+    if(scope!==uiScope() || mode!==WORK_MODE)return;
+    if(mode==="taken")rows=rows.filter(m=>m.status?.state==="taken"&&m.status.by_id===ME.id);
+    $("workBox").innerHTML=rows.map(m=>ui`<article class="ux-card"><div class="ux-muted">${esc(m.author)} · ${esc(m.conversation_id?tr("Личный чат"):tr("Общий чат"))} · ${esc(shortTime(m.time))}</div><p>${esc(m.subject)}</p><div class="actions"><button data-act="jump" data-id="${m.id}">Открыть сообщение</button>${mode==="approval"?ui`<button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button><button class="bad" data-act="deny" data-id="${m.id}">Отказать</button>`:mode==="taken"?ui`<button data-act="st" data-st="done" data-id="${m.id}">Завершить просьбу</button>`:ui`<button data-ux="work-reply" data-id="${m.id}">Ответить</button>${m.status?.state==="open"?ui`<button data-act="st" data-st="taken" data-id="${m.id}">Взять в работу</button>`:""}`}</div></article>`).join("")||tr('<p class="muted">Здесь всё разобрано.</p>');
+  }catch(err){if(scope===uiScope())$("workBox").innerHTML=ui`<p class="err">${esc(err.message)}</p><button data-ux="work-reload">Повторить</button>`;}
+}
+function boardCard(b){
+  const old=b.age==null||b.age>=86400;
+  return `<article class="ux-card"><b>${esc(b.name)}</b><p class="ux-muted">${b.time?tr("Обновлено ")+esc(shortTime(b.time)):tr("Время обновления неизвестно")}${old?tr(" · давно не обновлялось"):""}</p>${[[tr("Сейчас"),b.now],[tr("Дальше"),b.next],[tr("Примечание"),b.note],[tr("Вернётся"),b.back]].filter(x=>x[1]).map(x=>`<p><b>${x[0]}:</b> ${esc(x[1])}</p>`).join("")}</article>`;
+}
+async function loadBoard(){
+  const scope=uiScope();$("boardBox").innerHTML=tr('<p role="status">Загружаем…</p>');
+  try {const data=await api("GET","/api/board");if(scope===uiScope())$("boardBox").innerHTML=data.board.filter(b=>ME.users.some(u=>u.id===b.id)).map(boardCard).join("")||tr('<p class="muted">Пока никто не обновил статус.</p>');}
+  catch(err){if(scope===uiScope())$("boardBox").innerHTML=ui`<p class="err">${esc(err.message)}</p><button data-ux="board">Повторить</button>`;}
+}
+async function showMember(id){
+  const scope=uiScope(),u=ME.users.find(u=>u.id===id);if(!u)return;
+  const [board,claims,open]=await Promise.all([api("GET","/api/board"),api("GET","/api/claims?active=1"),api("GET","/api/messages?open=1&conversation=all&limit=1000")]);if(scope!==uiScope())return;
+  const b=board.board.find(b=>b.id===id),tasks=open.messages.filter(m=>m.status?.state==="taken"&&m.status.by_id===id),cs=claims.claims.filter(c=>c.owner_id===id||c.owner===u.name);
+  showInfo(u.name,ui`<p>${u.kind==="agent"?tr("Агент · человек-владелец: ")+esc(u.owner):tr("Человек")}</p><p>Связь: ${u.listening?(u.kind==="agent"?tr("слушает сообщения"):tr("в сети")):u.last_check?tr("проверял входящие ")+esc(shortTime(u.last_check)):tr("нет активного слушателя")}</p>${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
+}
+async function previewFile(id,name){
+  const scope=uiScope();showInfo(name,tr('<p role="status">Загружаем изображение…</p>'));
+  const version=INFO_VERSION;
+  const headers={Authorization:"Bearer "+TOKEN,"X-Telegent-Project":PROJECT};
+  const response=await appFetch(`/api/attachments/${id}`,{headers});if(scope!==uiScope()||version!==INFO_VERSION||!$("infoDialog").open)return;if(!response.ok)throw Error(tr("Не удалось открыть файл: HTTP ")+response.status);
+  if(Number(response.headers.get("Content-Length"))>12*1024*1024)throw Error(tr("Для просмотра доступны изображения до 12 МБ. Файл можно скачать."));
+  const blob=await response.blob();if(scope!==uiScope()||!$("infoDialog").open||version!==INFO_VERSION)return;
+  const bytes=new Uint8Array(await blob.slice(0,16).arrayBuffer());
+  const mime=bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71?"image/png":bytes[0]===255&&bytes[1]===216&&bytes[2]===255?"image/jpeg":String.fromCharCode(...bytes.slice(0,6)).match(/^GIF8[79]a$/)?"image/gif":String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP"?"image/webp":null;
+  if(!mime)throw Error(tr("Формат не поддерживает просмотр. Скачай файл, чтобы открыть его на устройстве."));
+  if(version!==INFO_VERSION)return;
+  PREVIEW_URL=URL.createObjectURL(new Blob([blob],{type:mime}));$("infoBody").innerHTML=ui`<img class="file-preview" alt="${esc(name)}" src="${PREVIEW_URL}"><p><button data-act="dl" data-att="${id}" data-name="${esc(name)}">Скачать оригинал</button></p>`;
+}
+document.addEventListener("click",async e=>{
+  const el=e.target.closest("[data-ux]");if(!el)return;e.preventDefault();
+  try {switch(el.dataset.ux){
+    case "close-info":closeInfo();break;
+    case "invite-close":$("invClose").click();break;
+    case "invite-mode":chooseInviteMode(el.dataset.mode);break;
+    case "invite-back":INV_MODE=null;$("invChoices").classList.remove("hidden");$("invFields").classList.add("hidden");$("invPick").classList.add("hidden");break;
+    case "invite-check":await loadPresence();break;
+    case "close-action":if(!$("actionSave").disabled)$("actionDialog").close();break;
+    case "settings":showSettings();break;
+    case "notify":await $("bellBtn").onclick();showSettings();break;
+    case "theme":$("themeBtn").click();showSettings();break;
+    case "password":closeInfo();$("pwBtn").click();break;
+    case "logout":closeInfo();$("logoutBtn").click();break;
+    case "work":await selectTab("work");break;
+    case "workmode":WORK_MODE=el.dataset.mode;document.querySelectorAll('[data-ux="workmode"]').forEach(b=>b.classList.toggle("active",b===el));await loadWork();break;
+    case "work-reply":{const scope=uiScope(),m=(await api("GET",`/api/messages/${el.dataset.id}`)).message;if(scope!==uiScope())break;saveReturnView();if(m.conversation_id)await openDirect(m.conversation_id);else await selectTab("feed");startReply(m);break;}
+    case "work-reload":await loadWork();break;
+    case "board":await selectTab("board");break;
+    case "home":await selectTab("feed");break;
+    case "member":await showMember(el.dataset.account);break;
+    case "return":await returnView();break;
+    case "reset-filters":resetFilters();await reload();break;
+    case "retry-send":$("sendBtn").click();break;
+    case "reconnect":POLL_ABORT?.abort();await refresh();online();break;
+    case "preview":await previewFile(el.dataset.att,el.dataset.name);break;
+    case "reaction-people":{const scope=uiScope(),m=(await api("GET",`/api/messages/${el.dataset.id}`)).message;if(scope!==uiScope())break;const r=m.reactions.find(r=>r.emoji===el.dataset.emoji);showInfo(tr("Кто поставил реакцию"),r?`<p>${esc(r.emoji)} · ${r.count}</p>`+r.users.map(u=>`<p>${esc(u)}</p>`).join(""):tr('<p>Реакция уже убрана.</p>'));break;}
+  }}catch(err){toast(err.message,true);if(el.dataset.ux==="preview"&&$("infoDialog").open)$("infoBody").textContent=err.message;}
+});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.matches('[data-ux="member"]'))e.target.click();});
+function chooseInviteMode(mode){
+  if(mode==="human"&&ME.project.role!=="owner")return;
+  INV_MODE=mode;$("invChoices").classList.add("hidden");$("invFields").classList.remove("hidden");$("invResult").classList.add("hidden");
+  $("invModeLabel").textContent=mode==="human"?tr("Пригласить человека"):mode==="agent"?tr("Подключить агента"):tr("Добавить существующего участника");
+  if(mode!=="existing")$("invKind").value=mode;
+  $("invPick").classList.toggle("hidden",mode!=="existing"||!CANDS.length);invNameChanged();if(!TOUCH)$("invName").focus();
+}
+function paintInviteProgress(users){
+  const t=INV_TRACK;if(!t||t.scope!==uiScope())return;
+  const u=users.find(u=>u.name===t.name&&u.kind===t.kind);
+  const connected=u&&t.purpose==="new"&&(u.last_check || u.last_listen);
+  $("invProgress").textContent=t.purpose==="reset"?tr("Ссылка для обновления доступа создана. Передай её получателю; новый доступ выдаётся при принятии ссылки."):!u?tr("1. Инструкция готова. Ожидаем принятия приглашения."):t.kind==="human"?tr("Участник появился в проекте."):connected?tr("3. Клиент подключился и проверяет входящие. Фактическое прочтение сообщений видно в информации о сообщении."):tr("2. Агент появился в проекте. Ожидаем подключения клиента и проверки входящих.");
+}
+$("waitChip").onclick=()=>{WORK_MODE="waiting";selectTab("work");};
+$("pendingChip").onclick=()=>{WORK_MODE="approval";selectTab("work");};
+
+// History stores opaque keys; conversation content stays in this page's memory only.
+const NAV_VIEWS=new Map();let NAV_INDEX=0,NAV_READY=false,NAV_RESTORING=false,NAV_DEPTH=0;
+function navView(){return {account:ME?.id,project:PROJECT,tab:TAB,dm:ACTIVE_DM?.id,y:SC.scrollTop,thread:THREAD,filters:FILTER_IDS.map(id=>[$(id).value,$(id).checked])};}
+function navKey(v){return `${v.account}|${v.project}|${v.tab}|${v.dm}`;}
+function storeNav(view){const id=++NAV_INDEX;NAV_VIEWS.set(id,view);return {telegentView:id};}
+function startNavigation(){if(!NAV_READY){NAV_READY=true;history.replaceState(storeNav(navView()),"",location.pathname);}}
+function withNavigation(fn){return async function(...args){
+  const outer=NAV_DEPTH++===0,before=NAV_READY&&!NAV_RESTORING&&outer?navView():null;
+  try {const result=await fn(...args);if(before && !NAV_RESTORING && before.account===ME?.id){const after=navView();if(navKey(before)!==navKey(after)){history.replaceState(storeNav(before),"",location.pathname);history.pushState(storeNav(after),"",location.pathname);}}return result;}
+  finally {NAV_DEPTH--;}
+};}
+selectTab=withNavigation(selectTab);openDirect=withNavigation(openDirect);setProject=withNavigation(setProject);
+window.addEventListener("popstate",async e=>{
+  const view=NAV_VIEWS.get(e.state?.telegentView);
+  if(!view || view.account!==ME?.id || !PROJECTS.some(p=>p.slug===view.project) || SENDING)return;
+  NAV_RESTORING=true;closeInfo();closeSecret();closeMenu();$("invDialog").classList.add("hidden");VIEW_RETURN=null;
+  try {
+    if(PROJECT!==view.project)await setProject(view.project);
+    if(view.dm)await openDirect(view.dm);else await selectTab(view.tab);
+    FILTER_IDS.forEach((id,i)=>{$(id).value=view.filters[i][0];$(id).checked=view.filters[i][1];});THREAD=view.thread;updateFilterCount();
+    if(view.tab==="feed"||view.dm)await reload();requestAnimationFrame(()=>{SC.scrollTop=view.y;});
+  }catch(err){toast(err.message,true);}finally{NAV_RESTORING=false;}
+});
 
 // ---- browser notifications (humans only; they work while the page is open in a tab, there is no push)
 const NTF = {reg: null, seen: 0, unread: 0, pending: 0};
@@ -2720,9 +3551,9 @@ function ntfPaint() {
   const s = ntfState();
   b.classList.toggle("off", s !== "on");
   b.textContent = s === "on" ? "🔔" : "🔕";
-  b.title = s === "on" ? "уведомления включены: пока вкладка открыта, браузер сообщит о просьбах одобрить, срочных и адресованных тебе (нажми, чтобы выключить)"
-    : s === "blocked" ? "уведомления заблокированы в браузере: разреши их в настройках сайта (значок замка рядом с адресом), потом нажми снова"
-    : "уведомления выключены: нажми, чтобы включить; они приходят, пока вкладка открыта";
+  b.title = s === "on" ? tr("уведомления включены: пока вкладка открыта, браузер сообщит о просьбах одобрить, срочных и адресованных тебе (нажми, чтобы выключить)")
+    : s === "blocked" ? tr("уведомления заблокированы в браузере: разреши их в настройках сайта (значок замка рядом с адресом), потом нажми снова")
+    : tr("уведомления выключены: нажми, чтобы включить; они приходят, пока вкладка открыта");
 }
 async function ntfRegister() {
   if (NTF.reg || !("serviceWorker" in navigator)) return;
@@ -2734,7 +3565,7 @@ function ntfInit() {
 }
 $("bellBtn").onclick = async () => {
   const s = ntfState();
-  if (s === "blocked") { toast("Уведомления заблокированы в браузере: разреши их в настройках сайта", true); return; }
+  if (s === "blocked") { toast(tr("Уведомления заблокированы в браузере: разреши их в настройках сайта"), true); return; }
   if (s === "on") st.set("tg_notify", "0");
   else {
     let p = Notification.permission;
@@ -2752,11 +3583,11 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("mess
 // why a new message deserves a notification; null = it does not
 function ntfReason(m) {
   if (isMine(m) || m.read || m.acked || m.id <= (m.conversation_id ? CONVERSATIONS.find(c=>c.id===m.conversation_id)?.read_upto || 0 : ME.project?.read_upto || 0)) return null;
-  if (m.type === "approval") { const o = MSGS.get(m.reply_to); return o && isMine(o) ? "Решение" : null; }
-  if (m.needs_approval && !m.approvals.length && (!m.approver || m.approver === ME.name)) return "Нужно твоё решение";
-  if (m.priority === "urgent") return "Срочно";
-  if (m.conversation_id) return "Личное сообщение";
-  if (m.to.includes(ME.name)) return "Тебе";
+  if (m.type === "approval") { const o = MSGS.get(m.reply_to); return o && isMine(o) ? tr("Решение") : null; }
+  if (m.needs_approval && !m.approvals.length && (!m.approver || m.approver === ME.name)) return tr("Нужно твоё решение");
+  if (m.priority === "urgent") return tr("Срочно");
+  if (m.conversation_id) return tr("Личное сообщение");
+  if (m.to.includes(ME.name)) return tr("Тебе");
   return null;
 }
 async function ntfShow(m, why) {
@@ -2802,18 +3633,19 @@ async function poll() {
       const receipts = RECEIPT_REVISION == null ? "" : `&receipt_revision=${encodeURIComponent(RECEIPT_REVISION)}`;
       const content = CONTENT_REVISION == null ? "" : `&content_revision=${encodeURIComponent(CONTENT_REVISION)}`;
       const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25&conversation=all${revision}${receipts}${content}`, null, POLL_ABORT.signal);
-      $("conn").className = "dot on"; $("conn").title = "на связи"; delay = 1000; fails = 0;
+      online(); delay = 1000; fails = 0;
       ntfNew(res.messages); NTF.seen=Math.max(NTF.seen,...res.messages.map(m=>m.id));
       if (res.messages.length) {
         LAST = Math.max(LAST, ...res.messages.map(m => m.id));
       } else {
         LAST = Math.max(LAST, res.last_id);
       }
-      await refresh(); loadPresence(); loadProjects(); if (TAB === "claims") loadClaims();if(TAB==="results")loadResults();
+      await refresh(); loadPresence(); loadProjects(); if (TAB === "claims") loadClaims();if(TAB==="results")loadResults();if(TAB==="work")loadWork();if(TAB==="board")loadBoard();
     } catch (e) {
       if (e.name === "AbortError") continue;   // the project was switched
-      $("conn").className = "dot off"; $("conn").title = "нет связи: " + e.message;
-      if (/токен/.test(e.message)) { st.set("tg_token", null); location.reload(); return; }
+      $("conn").className = "dot off"; $("conn").title = tr("нет связи: ") + e.message;
+      $("connectionBanner").classList.remove("hidden");
+      if (e.status===401) { st.set("tg_token", null); location.reload(); return; }
       // about a minute without the server while the internet works: the address probably changed;
       // the permanent entry page knows the new one (and keeps the login)
       if (++fails >= 4 && navigator.onLine && launcher()) { location.replace(launcher() + (PROJECT ? "#p=" + PROJECT : "")); return; }

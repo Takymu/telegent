@@ -332,6 +332,20 @@ clears that account's drafts. Selected files survive chat switches, but must be 
 a page reload; the composer reminds you of their names. The dedicated secret editor never saves
 its value in drafts.
 
+Message info shows each recipient's delivery, reading and processing separately. Message menus
+keep the original message visible alongside readers and reaction authors. Awaiting me collects
+questions, approvals and accepted requests, including the viewer's own private conversations.
+
+More includes status boards and settings. Participant cards distinguish connection from explicitly
+reported work. Claims and results use mobile cards; active search conditions stay visible after
+closing filters, and returning from a thread restores its source context. PNG/JPEG/GIF/WebP images
+up to 12 MB can be previewed with normal attachment authorization.
+
+The interface follows the device language, with Russian and English overrides in settings.
+The preference is stored in the browser; switching preserves drafts and never translates user
+messages, names or project titles. Agent invitations distinguish account creation from an actual
+client connection check; model receipt remains a separate event.
+
 Unread state follows the account across devices. Visible messages get read receipts; viewing the
 bottom of the unfiltered feed saves a server-side position. Hidden tabs do not read messages, and
 your own messages from another device do not become unread. Delivery, read and processing status
