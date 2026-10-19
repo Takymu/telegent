@@ -131,7 +131,8 @@ class Conf:
         self.token = token
         self.state_path = resolve(c.get("state_file") or "tg.state.json", base)
         self.watch_cmd = (c.get("watch_cmd") or "").strip() or None
-        # which project: needed only for people in several projects (an agent is in exactly one)
+        # Secretaries aggregate incoming messages; writes still select a project explicitly.
+        self.secretary = bool(c.get('is_secretary'))
         self.project = os.environ.get("TELEGENT_PROJECT") or PROJECT_ARG[0] or c.get("project") or None
         self.literals = []
         for entry in c.get("secret_files") or []:
@@ -214,6 +215,9 @@ class Conflict(Exception):
 
 
 def api(conf, method, path, data=None, timeout=30, raw=False, sink=None):
+    if (getattr(conf,'secretary',False) and not conf.project and method=='GET'
+            and path.split('?')[0] in ('/api/messages','/api/summary','/api/wait')):
+        path+=('&' if '?' in path else '?')+'projects=all'
     url = conf.server + path
     body = data if isinstance(data, bytes) else json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
     req = urllib.request.Request(url, data=body, method=method, headers={
@@ -345,12 +349,13 @@ def span(sec):
 
 
 def who(m):
-    kind = "HUMAN" if m["author_kind"] == "human" else "agent"
+    kind = "HUMAN" if m["author_kind"] == "human" else "secretary" if m.get('author_is_secretary') else "agent"
     return f"{m['author']}({kind}@{m['host'] or '?'})"
 
 
 def oneline(m, width=220):
     parts = [f"#{m['id']}", short_time(m["time"])]
+    if m.get('project'):parts.append('project='+m['project'])
     if m.get("deleted"):parts.append("УДАЛЕНО")
     elif m.get("edited"):parts.append("ИЗМЕНЕНО")
     if m.get("conversation_id"):
@@ -686,6 +691,8 @@ def cmd_send(conf, args):
 
 def cmd_reply(conf, args):
     parent = api_retry(conf, "GET", f"/api/messages/{args.id}")["message"]
+    if getattr(conf,'secretary',False) and not conf.project:
+        conf.project=parent['project']
     if not args.body and not args.file and not args.subject and not args.attach and not args.link:
         die("нечего отправлять")
     me = get_me(conf)
@@ -788,7 +795,14 @@ def cmd_react(conf, args):
 def cmd_ack(conf, args):
     if args.all:
         last = get_me(conf)["last_id"]
-        res = api_retry(conf, "POST", "/api/receipts", {"kind": "ack", "all_for_me_upto": last})
+        if getattr(conf,'secretary',False) and not conf.project:
+            ids=[]
+            for project in api_retry(conf,'GET','/api/projects')['projects']:
+                ids.extend(api_retry(conf,'POST','/api/receipts?project='+urllib.parse.quote(project['slug']),
+                                     {'kind':'ack','all_for_me_upto':last})['ids'])
+            res={'ids':ids}
+        else:
+            res = api_retry(conf, "POST", "/api/receipts", {"kind": "ack", "all_for_me_upto": last})
     else:
         if not args.ids:
             die("ack <id> [<id>...] или ack --all")
@@ -859,7 +873,7 @@ def cmd_get(conf, args):
 def cmd_watch(conf, args):
     """One line per new message on stdout (for Monitor). Diagnostics go to stderr. Reconnects forever."""
     st = conf.load_state()
-    key = "watch_cursor"
+    key = 'watch_cursor:'+conf.project if getattr(conf,'secretary',False) and conf.project else "watch_cursor"
     cursor = args.since if args.since is not None else st.get(key)
     delay = 1.0
     me = None
@@ -1034,7 +1048,8 @@ def presence_str(u):
 
 def cmd_whoami(conf, args):
     me = get_me(conf)
-    print(f"{me['name']} ({me['kind']}, владелец {me['owner']}) на {conf.server}, хост {host_tag()}, "
+    role='секретарь' if me.get('is_secretary') else me['kind']
+    print(f"{me['name']} ({role}, владелец {me['owner']}) на {conf.server}, хост {host_tag()}, "
           f"время сервера {me['server_time']}, последнее сообщение #{me['last_id']}")
     p = me.get("project")
     if p:
@@ -1045,7 +1060,7 @@ def cmd_whoami(conf, args):
     if me["users"]:
         print("участники:")
     for u in me["users"]:
-        role = {"owner": "владелец", "member": "участник", "agent": "агент"}.get(u.get("role"), "")
+        role = {"owner": "владелец", "member": "участник", "agent": "агент", "secretary":"секретарь"}.get(u.get("role"), "")
         print(f"  {u['name']:<14} {u['kind']:<6} владелец {u['owner']:<8} {role:<9} {presence_str(u)}")
 
 
@@ -1108,7 +1123,7 @@ def cmd_hook(conf, args):
     out += [f"{tag} {line}" for line in waiting_lines(res)]
     n = res["unacked_total"]
     if n:
-        ids = ", ".join(f"#{m['id']} {m['type']} от {m['author']}" + (" СРОЧНО" if m["priority"] == "urgent" else "")
+        ids = ", ".join(f"#{m['id']} {m['type']} от {m['author']}" + (f" проект={m['project']}" if getattr(conf,'secretary',False) and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,47}',str(m.get('project',''))) else '') + (" СРОЧНО" if m["priority"] == "urgent" else "")
                         for m in res["unacked"])
         more = f" и ещё {n - len(res['unacked'])}" if n > len(res["unacked"]) else ""
         out.append(f"{tag} неподтверждённых входящих: {n} ({ids}{more}). "
@@ -1300,6 +1315,7 @@ def codex_hook_check(conf, event, state_path):
                     "[telegent: служебный статус, не слова пользователя] " + "\n".join(reminders)}}
         return {}
     ids = ", ".join(f"#{m['id']} {m['type']} от {m['author']}" +
+                    (f" проект={m['project']}" if getattr(conf,'secretary',False) and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,47}',str(m.get('project',''))) else '') +
                     (" СРОЧНО" if m.get("priority") == "urgent" else "") for m in shown[:10])
     left = max(0, int(res.get("unacked_total", len(messages))) - min(10, len(shown)))
     more = f" Ещё сообщений: {left}." if left else ""
@@ -1527,7 +1543,10 @@ def cmd_join(args):
         with open(cfg_path, encoding="utf-8-sig") as f:
             c = json.load(f)
     c.update({"server": server, "token_file": tok_path, "account_id": res.get("id")})
-    if res.get("project"):
+    c['is_secretary']=bool(res.get('is_secretary'))
+    if c['is_secretary']:
+        c.pop('project',None)
+    elif res.get("project"):
         c["project"] = res["project"]
     if args.here:
         c["state_file"] = os.path.join(home, file_tag + ".state.json")
@@ -1539,7 +1558,8 @@ def cmd_join(args):
     os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(c, f, ensure_ascii=False, indent=2)
-    print(f"готово: ты {res['name']} (агент, владелец {info['owner']}). Токен: {tok_path}, конфиг: {cfg_path}")
+    role='секретарь' if res.get('is_secretary') else 'агент'
+    print(f"готово: ты {res['name']} ({role}, владелец {info['owner']}). Токен: {tok_path}, конфиг: {cfg_path}")
     if client:
         print("Аккаунт сохранён. Если установка прервётся, повтори ту же команду: приглашение повторно не расходуется.")
         install_connection(Conf(cfg_path), os.getcwd(), client)

@@ -608,7 +608,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 <div id="invDialog" class="hidden" style="position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
   <div class="panel" style="width:100%;max-width:440px;max-height:85dvh;overflow:auto">
     <div class="ux-head"><h2>Пригласить</h2><button data-ux="invite-close">Закрыть</button></div>
-    <div id="invChoices" class="invite-choices"><button data-ux="invite-mode" data-mode="human">Пригласить человека</button><button data-ux="invite-mode" data-mode="agent">Подключить агента</button><button data-ux="invite-mode" data-mode="existing">Добавить существующего участника</button></div>
+    <div id="invChoices" class="invite-choices"><button data-ux="invite-mode" data-mode="human">Пригласить человека</button><button data-ux="invite-mode" data-mode="agent">Подключить агента</button><button data-ux="invite-mode" data-mode="secretary">Подключить секретаря</button><button data-ux="invite-mode" data-mode="existing">Добавить существующего участника</button></div>
     <div id="invPick" class="hidden">
       <p class="muted" style="font-size:12.5px;margin:0 0 6px">Из твоих проектов — добавятся сразу, без ссылки:</p>
       <div id="invCands" style="max-height:220px;overflow-y:auto;margin-bottom:10px"></div>
@@ -1383,6 +1383,18 @@ const UI_EN={
   "просрочена": "expired",
   "Пригласить человека": "Invite a person",
   "Подключить агента": "Connect an agent",
+  "Подключить секретаря": "Connect a secretary",
+  "Секретари": "Secretaries",
+  "секретарь": "secretary",
+  "Секретарь": "Secretary",
+  "Управление секретарями": "Manage secretaries",
+  "Отключить секретаря": "Disconnect secretary",
+  "Секретарь · человек-владелец: ": "Secretary · human owner: ",
+  "Секретарь появится во всех твоих текущих и будущих проектах. Он действует от своего имени с правами агента. Чужие личные чаты ему недоступны. Имя должно быть свободно во всех твоих проектах.": "The secretary joins all your current and future projects and acts under its own identity with agent permissions. Other people's private chats remain inaccessible. The name must be available in all your projects.",
+  "Секретарь участвует во всех твоих проектах с правами агента. Его доступ следует за твоим членством. Чужие личные чаты закрыты.": "A secretary joins all your projects with agent permissions. Its access follows your memberships. Other private chats stay closed.",
+  "Доступ секретаря ко всем твоим проектам будет закрыт. Сообщения останутся.": "The secretary will lose access to all your projects. Messages will remain.",
+  " проектов": " projects",
+  "Ты секретарь своего человека: projects покажет проекты, inbox и watch собирают входящие из всех его проектов. Перед send, board и claims выбирай --project <slug>; reply <id> сохраняет исходный проект. Не смешивай данные разных команд и не раскрывай их друг другу.\n": "You are your human's secretary: projects lists projects; inbox and watch receive messages from all their projects. Select --project <slug> before send, board, or claims; reply <id> preserves the source project. Keep each team's data within that team.\n",
   "Добавить существующего участника": "Add an existing member",
   "Тема": "Topic",
   "Получение": "Delivery",
@@ -2001,13 +2013,13 @@ async function login(tok) {
   st.set("tg_token", tok);
   CURRENT_INVITE=null;$("languageBar").classList.add("hidden");
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
-  $("meLabel").textContent = `${ME.name} (${ME.kind === "human" ? tr("человек") : tr("агент")})`;
+  $("meLabel").textContent = `${ME.name} (${ME.kind === "human" ? tr("человек") : ME.is_secretary ? tr("секретарь") : tr("агент")})`;
   $("pwBtn").classList.toggle("hidden", ME.kind !== "human");
   ntfInit();
   $("pwBtn").textContent = ME.has_password ? tr("Пароль") : tr("Задать пароль");
   $("acctPw").textContent = $("pwBtn").textContent;
   $("acctPw").classList.toggle("hidden", ME.kind !== "human");
-  $("acctLabel").textContent = ui`Ты: ${ME.name} (${ME.kind === "human" ? tr("человек") : tr("агент")})`;
+  $("acctLabel").textContent = ui`Ты: ${ME.name} (${ME.kind === "human" ? tr("человек") : ME.is_secretary ? tr("секретарь") : tr("агент")})`;
   $("newProjBtn").classList.toggle("hidden", ME.kind !== "human");
   setHeaderHeight();
   PROJECTS = ME.projects || [];
@@ -2653,7 +2665,7 @@ function row(m, prev) {
   html += `<div class="mmain">`;
   if (!grouped) {
     const bits = mine?[]:[`<span class="mname">${esc(m.author)}</span>`];
-    if (!mine && m.author_kind === "agent") bits.push(ui`<span class="mtag" title="агент на ${esc(m.host)}, владелец ${esc(m.owner)}">агент</span>`);
+    if (!mine && m.author_kind === "agent") bits.push(`<span class="mtag" title="${esc(m.host)} · ${esc(m.owner)}">${m.author_is_secretary?tr("секретарь"):tr("агент")}</span>`);
     if (m.priority === "urgent") bits.push(ui`<span class="pill urgent">срочно</span>`);
     if (TYPE_PILL[m.type]) bits.push(`<span class="pill t-${m.type}">${TYPE_PILL[m.type]}</span>`);
     if (m.status) bits.push(`<span class="pill s-${m.status.state}">${STATES[m.status.state]}</span>`);
@@ -2871,6 +2883,7 @@ document.addEventListener("click", async e => {
         break;
       }
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
+      case "secretaries":await showSecretaries();break;
       case "projmenu": openProjectMenu(el.dataset.slug, el); break;
       case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
       case "prename": case "pleave": case "pdelete": await projectAction(el.dataset.act, el.dataset.slug); break;
@@ -3136,7 +3149,7 @@ async function loadPresence() {
     applyProjectInfo(me.project);
     ME.users = me.users;
     const owner = me.project && me.project.role === "owner";
-    const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент")};
+    const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент"),secretary:tr("секретарь")};
     MEMBER_ACTS = {};
     $("presence").innerHTML = me.users.map(u => {
       const txt = u.kind === "agent" && u.working ? tr("работает") : u.listening ? (u.kind === "agent" ? tr("слушает") : tr("в сети"))
@@ -3152,7 +3165,8 @@ async function loadPresence() {
         acts.push({label: tr("Новый токен агенту"), act: "mreset", data: {name: u.name}});
       if (ME.kind === "human" && (u.name === ME.name || (u.kind === "agent" && u.owner === ME.name)))
         acts.unshift({label: tr("Переименовать"), act: "mrename", data: {name: u.name}});
-      if (owner && u.name !== ME.name) acts.push({label: tr("Убрать из проекта"), act: "mremove", data: {name: u.name}, cls: "bad"});
+      if (owner && u.name !== ME.name && !u.is_secretary) acts.push({label: tr("Убрать из проекта"), act: "mremove", data: {name: u.name}, cls: "bad"});
+      if(u.is_secretary&&u.owner_id===ME.id)acts.push({label:tr("Управление секретарями"),act:"secretaries"});
       if(ME.kind!==u.kind) acts.unshift({label:tr("Написать лично"),act:"dmnew",data:{account:u.id}});
       MEMBER_ACTS[u.name] = acts;
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
@@ -3267,13 +3281,13 @@ async function loadCandidates() {
 
 function openInvite(name) {
   INV_MODE=null;INV_TRACK=null;$("invChoices").classList.remove("hidden");$("invFields").classList.add("hidden");
-  $("invChoices").querySelector('[data-mode="human"]').classList.toggle("hidden",ME.project.role!=="owner");
+  $("invChoices").querySelector('[data-mode="human"]').classList.toggle("hidden",ME.project?.role!=="owner");
   CANDS = [];
   $("invNames").innerHTML = "";
-  const owner = ME.project.role === "owner";
+  const owner = ME.project?.role === "owner";
   $("invKind").innerHTML = (owner ? tr('<option value="human">человек</option>') : '') + tr('<option value="agent">агент</option>');
   $("invName").value = name || ""; $("invErr").textContent = ""; $("invResult").classList.add("hidden");
-  $("invOwner").innerHTML = ME.users.filter(u => u.kind === "human" && (owner || u.name === ME.name)).map(u =>
+  $("invOwner").innerHTML = (ME.users.length?ME.users:[ME]).filter(u => u.kind === "human" && (owner || u.name === ME.name)).map(u =>
     ui`<option value="${esc(u.name)}" ${u.name === ME.name ? "selected" : ""}>агент для ${esc(u.name)}</option>`).join("");
   invNameChanged();
   $("invPick").classList.add("hidden"); loadCandidates();
@@ -3286,6 +3300,10 @@ const typedCand = () => {
   return matches.length === 1 ? matches[0] : null;
 };
 function invNameChanged() {
+  if(INV_MODE==='secretary'){
+    $("invNew").style.display='none';$("invCreate").classList.remove('hidden');$("invCreate").textContent=tr('Создать ссылку');
+    $("invNote").textContent=tr('Секретарь появится во всех твоих текущих и будущих проектах. Он действует от своего имени с правами агента. Чужие личные чаты ему недоступны. Имя должно быть свободно во всех твоих проектах.');return;
+  }
   const v = $("invName").value.trim().toLowerCase();
   const u = ME.users.find(x => x.name.toLowerCase() === v);
   const cand = typedCand();
@@ -3296,15 +3314,16 @@ function invNameChanged() {
   $("invNote").textContent = u ? ui`${u.name} уже в проекте.`
     : cand ? (cand.kind === "agent" ? ui`${cand.name} — твой агент без проекта: добавится сразу.`
                                     : ui`${cand.name} уже работает с тобой в «${cand.via.join("», «")}»: добавится сразу, без ссылки.`)
-    : ui`${ME.project.role === "owner" ? tr("Новый человек или агент") : tr("Твой агент")} в «${ME.project.title}»: получит одноразовую ссылку на 7 дней. ` +
+    : ui`${ME.project?.role === "owner" ? tr("Новый человек или агент") : tr("Твой агент")} в «${ME.project?.title||""}»: получит одноразовую ссылку на 7 дней. ` +
       ui`Если у него уже есть аккаунт, по ссылке он войдёт им, второй аккаунт не появится.`;
 }
-function agentConnectText(link, reset) {
+function agentConnectText(link, reset, secretary=false) {
   return ui`Подключи себя к telegent из папки своего рабочего проекта.\n` +
     ui`Найди актуальный клиент tg.py. Если его нет, клонируй: git clone https://github.com/Takymu/telegent\n` +
     ui`Выполни из рабочего проекта (путь к tg.py поправь сам):\n` +
     `python telegent/tg.py connect "${link}"${reset ? " --force" : ""}\n` +
     ui`Клиент определится автоматически; если нет, сам выбери --client codex или --client claude.\n` +
+    (secretary?ui`Ты секретарь своего человека: projects покажет проекты, inbox и watch собирают входящие из всех его проектов. Перед send, board и claims выбирай --project <slug>; reply <id> сохраняет исходный проект. Не смешивай данные разных команд и не раскрывай их друг другу.\n`:"") +
     ui`Прочитай AGENTS.md рядом с клиентом, проверь whoami и inbox и закончи настройку по выводу команды. ` +
     ui`Если установка прервётся, повтори ту же команду. Существующие инструкции и хуки сохраняй, токен не показывай. ` +
     ui`Если сам Codex потребует доверия новым хукам, покажи человеку его стандартный запрос; не обходи защиту.`;
@@ -3313,7 +3332,7 @@ function showInviteResult(d) {
   $("invChoices").classList.add("hidden");$("invFields").classList.add("hidden");$("invPick").classList.add("hidden");
   INV_TRACK={scope:uiScope(),name:d.name,kind:d.kind,purpose:d.purpose,at:Date.now()};paintInviteProgress(ME.users);
   const agent = d.kind === "agent";
-  $("invLink").value = agent ? agentConnectText(d.link, d.purpose === "reset") : d.link;
+  $("invLink").value = agent ? agentConnectText(d.link, d.purpose === "reset",d.is_secretary) : d.link;
   $("invLink").rows = agent ? 7 : 2;
   $("invCopy").textContent = agent ? tr("Копировать для агента") : tr("Копировать ссылку");
   const where = ME.project ? `«${ME.project.title}»` : "";
@@ -3338,7 +3357,7 @@ $("invKind").onchange = invNameChanged;
 $("invClose").onclick = () => $("invDialog").classList.add("hidden");
 $("invCreate").onclick = async () => {
   $("invErr").textContent = "";
-  const cand = typedCand();
+  const cand = INV_MODE==='secretary'?null:typedCand();
   if (cand) {
     try {
       await api("POST", "/api/members/add", {name: cand.name, account_id: cand.id});
@@ -3349,8 +3368,8 @@ $("invCreate").onclick = async () => {
     return;
   }
   try {
-    showInviteResult(await api("POST", "/api/invites", {name: $("invName").value.trim(), kind: $("invKind").value,
-                                                        owner: $("invOwner").value}));
+    showInviteResult(await api("POST", "/api/invites", {name: $("invName").value.trim(), kind: INV_MODE==='secretary'?'agent':$("invKind").value,
+                                                        owner: INV_MODE==='secretary'?ME.name:$("invOwner").value,...(INV_MODE==='secretary'?{is_secretary:true}:{})}));
   } catch (err) { $("invErr").textContent = err.message; }
 };
 $("invCopy").onclick = async () => {
@@ -3370,7 +3389,7 @@ async function joinFlow(code) {
   const where = inv.project_title ? ui` в проект «${inv.project_title}»` : "";
   if (inv.kind === "agent") {
     $("joinInfo").textContent = ui`Приглашение${where} для агента ${inv.name} (владелец ${inv.owner}).`;
-    $("joinCmd").value = agentConnectText(`${(launcher() || location.origin + "/")}#invite=${code}`, inv.purpose === "reset");
+    $("joinCmd").value = agentConnectText(`${(launcher() || location.origin + "/")}#invite=${code}`, inv.purpose === "reset",inv.is_secretary);
     $("joinAgent").classList.remove("hidden");
     return;
   }
@@ -3661,10 +3680,16 @@ $("actionForm").onsubmit=async e=>{
 function showSettings(){
   const state=ntfOK()?ntfState():"unsupported";
   const labels={on:tr("Включены"),off:tr("Выключены"),blocked:tr("Заблокированы браузером"),unsupported:tr("Браузер не поддерживает уведомления")};
-  showInfo(tr("Настройки"),ui`<div class="ux-card"><b>${esc(ME.name)}</b><p>${ME.kind==="human"?tr("Человек"):tr("Агент")} · ${esc(ME.project?.title||tr("Нет проекта"))}</p><div class="actions">${ME.kind==="human"?tr('<button data-ux="password">Сменить пароль</button>'):""}<button data-ux="theme">Сменить тему</button><button data-ux="logout">Выйти</button></div></div><div class="ux-card"><label>Язык <select data-language><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере. Тексты сообщений и имена остаются в исходном виде.</p></div><div class="ux-card"><b>Уведомления: ${labels[state]}</b><p class="ux-muted">Сейчас уведомления работают, пока открыта вкладка. Разрешение относится к этому адресу сайта.</p>${state==="blocked"?tr('<p>Разреши уведомления в настройках сайта в браузере, затем вернись сюда.</p>'):state!=="unsupported"?'<button data-ux="notify">'+(state==="on"?tr("Выключить"):tr("Включить"))+'</button>':""}</div>`);
+  showInfo(tr("Настройки"),ui`<div class="ux-card"><b>${esc(ME.name)}</b><p>${ME.kind==="human"?tr("Человек"):ME.is_secretary?tr("Секретарь"):tr("Агент")} · ${esc(ME.project?.title||tr("Нет проекта"))}</p><div class="actions">${ME.kind==="human"?tr('<button data-ux="password">Сменить пароль</button>'):""}<button data-ux="theme">Сменить тему</button><button data-ux="logout">Выйти</button></div></div><div class="ux-card"><label>Язык <select data-language><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере. Тексты сообщений и имена остаются в исходном виде.</p></div><div class="ux-card"><b>Уведомления: ${labels[state]}</b><p class="ux-muted">Сейчас уведомления работают, пока открыта вкладка. Разрешение относится к этому адресу сайта.</p>${state==="blocked"?tr('<p>Разреши уведомления в настройках сайта в браузере, затем вернись сюда.</p>'):state!=="unsupported"?'<button data-ux="notify">'+(state==="on"?tr("Выключить"):tr("Включить"))+'</button>':""}</div>`);
   $("infoBody").querySelector('[data-language]').value=LANGUAGE_SETTING;
   $("infoBody").querySelector('[data-language]').closest('.ux-card').insertAdjacentHTML('beforebegin',ui`<div class="ux-card"><label>Цветовая схема <select data-color-scheme><option value="default">Стандартная (синяя)</option><option value="telegram">Серая (белые галочки)</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере.</p></div>`);
   $("infoBody").querySelector('[data-color-scheme]').value=st.get('tg_colors')==='telegram'?'telegram':'default';
+    if(ME.kind==='human')$("infoBody").querySelector('.actions').insertAdjacentHTML('beforeend',ui`<button data-ux="secretaries">Секретари</button>`);
+}
+async function showSecretaries(){
+  const scope=uiScope(),rows=(await api('GET','/api/secretaries')).secretaries;if(scope!==uiScope())return;
+  showInfo(tr('Секретари'),ui`<p>Секретарь участвует во всех твоих проектах с правами агента. Его доступ следует за твоим членством. Чужие личные чаты закрыты.</p><button class="primary" data-ux="secretary-create">Подключить секретаря</button>`+
+    rows.map(u=>ui`<div class="ux-card"><b>${esc(u.name)}</b><p>${u.projects.length} проектов</p><button data-ux="secretary-revoke-confirm" data-account="${esc(u.id)}">Отключить секретаря</button></div>`).join(''));
 }
 let WORK_SCOPE=null,WORK_HTML=null,WORK_REQUEST=0,WORK_APPLIED=0;
 async function loadWork(){
@@ -3705,7 +3730,7 @@ async function showMember(id){
   const scope=uiScope(),u=ME.users.find(u=>u.id===id);if(!u)return;
   const [board,claims,open]=await Promise.all([api("GET","/api/board"),api("GET","/api/claims?active=1"),api("GET","/api/messages?open=1&conversation=all&limit=1000")]);if(scope!==uiScope())return;
   const b=board.board.find(b=>b.id===id),tasks=open.messages.filter(m=>m.status?.state==="taken"&&m.status.by_id===id),cs=claims.claims.filter(c=>c.owner_id===id||c.owner===u.name);
-  showInfo(u.name,ui`<p>${u.kind==="agent"?tr("Агент · человек-владелец: ")+esc(u.owner):tr("Человек")}</p><p>Связь: ${u.listening?(u.kind==="agent"?tr("слушает сообщения"):tr("в сети")):u.last_check?tr("проверял входящие ")+esc(shortTime(u.last_check)):tr("нет активного слушателя")}</p>${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
+  showInfo(u.name,ui`<p>${u.kind==="agent"?(u.is_secretary?tr("Секретарь · человек-владелец: "):tr("Агент · человек-владелец: "))+esc(u.owner):tr("Человек")}</p><p>Связь: ${u.listening?(u.kind==="agent"?tr("слушает сообщения"):tr("в сети")):u.last_check?tr("проверял входящие ")+esc(shortTime(u.last_check)):tr("нет активного слушателя")}</p>${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
 }
 const INLINE_IMAGES=new Map();let IMAGE_OBSERVER=null;
 function clearInlineImages(){
@@ -3791,15 +3816,19 @@ document.addEventListener("click",async e=>{
     case "retry-send":$("sendBtn").click();break;
     case "reconnect":POLL_ABORT?.abort();await refresh();online();break;
     case "preview":await previewFile(el.dataset.att,el.dataset.name);break;
+    case "secretaries":await showSecretaries();break;
+    case "secretary-create":closeInfo();openInvite("");chooseInviteMode("secretary");break;
+    case "secretary-revoke-confirm":showInfo(tr("Отключить секретаря"),ui`<p>Доступ секретаря ко всем твоим проектам будет закрыт. Сообщения останутся.</p><div class="actions"><button class="bad" data-ux="secretary-revoke" data-account="${esc(el.dataset.account)}">Отключить</button><button data-ux="secretaries">Отмена</button></div>`);break;
+    case "secretary-revoke":await api("POST","/api/secretaries/revoke",{account_id:el.dataset.account});await loadPresence();await showSecretaries();break;
     case "reaction-people":{const scope=uiScope(),m=(await api("GET",`/api/messages/${el.dataset.id}`)).message;if(scope!==uiScope())break;const r=m.reactions.find(r=>r.emoji===el.dataset.emoji);showInfo(tr("Кто поставил реакцию"),r?`<p>${esc(r.emoji)} · ${r.count}</p>`+r.users.map(u=>`<p>${esc(u)}</p>`).join(""):tr('<p>Реакция уже убрана.</p>'));break;}
   }}catch(err){toast(err.message,true);if(el.dataset.ux==="preview"&&$("infoDialog").open)$("infoBody").textContent=err.message;}
 });
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.matches('[data-ux="member"]'))e.target.click();});
 function chooseInviteMode(mode){
-  if(mode==="human"&&ME.project.role!=="owner")return;
+  if(mode==="human"&&ME.project?.role!=="owner")return;
   INV_MODE=mode;$("invChoices").classList.add("hidden");$("invFields").classList.remove("hidden");$("invResult").classList.add("hidden");
-  $("invModeLabel").textContent=mode==="human"?tr("Пригласить человека"):mode==="agent"?tr("Подключить агента"):tr("Добавить существующего участника");
-  if(mode!=="existing")$("invKind").value=mode;
+  $("invModeLabel").textContent=mode==="human"?tr("Пригласить человека"):mode==="agent"?tr("Подключить агента"):mode==="secretary"?tr("Подключить секретаря"):tr("Добавить существующего участника");
+  if(mode!=="existing")$("invKind").value=mode==='secretary'?'agent':mode;
   $("invPick").classList.toggle("hidden",mode!=="existing"||!CANDS.length);invNameChanged();if(!TOUCH)$("invName").focus();
 }
 function paintInviteProgress(users){
