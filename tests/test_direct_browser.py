@@ -23,6 +23,33 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await wait(()=>ME&&MSGS.has(FIXTURE.general)&&document.querySelector('#m'+FIXTURE.general));
   const projects=$('projList').querySelectorAll('.pitem').length;
   $('cBody').value='public draft fixture';
+  const edit=async id=>{
+    document.querySelector('#m'+id+' [data-act="more"]').click();
+    document.querySelector('#menu [data-act="edit"]').click();
+    await wait(()=>$('editDialog').open);
+  };
+  await edit(FIXTURE.general);$('editBody').value='updated **general** fixture '+VIEWPORT;$('editSave').click();
+  await wait(()=>!$('editDialog').open&&MSGS.get(FIXTURE.general).body==='updated **general** fixture '+VIEWPORT);
+  check(!!document.querySelector('#m'+FIXTURE.general+' .medited'),'edited message visibly marked');
+  check($('cBody').value==='public draft fixture','editing leaves the composer draft alone');
+  await edit(FIXTURE.general);
+  const latest=MSGS.get(FIXTURE.general);
+  await api('POST','/api/messages/'+FIXTURE.general+'/edit',{body:'other device fixture '+VIEWPORT,revision:latest.revision});
+  await wait(()=>MSGS.get(FIXTURE.general).body==='other device fixture '+VIEWPORT);
+  $('editBody').value='unsaved conflict fixture';$('editSave').click();
+  await wait(()=>!$('editSave').disabled&&$('editErr').textContent);
+  check($('editDialog').open&&$('editBody').value==='unsaved conflict fixture','conflict keeps unsaved text');$('editCancel').click();
+  document.querySelector('#m'+FIXTURE.agent+' [data-act="more"]').click();
+  check(!document.querySelector('#menu [data-act="edit"],#menu [data-act="delete"]'),'agent messages have no human editing action');closeMenu();
+  const disposable=(await api('POST','/api/messages',{body:'delete browser fixture'})).id;await refresh();
+  const realConfirm=window.confirm;window.confirm=()=>false;
+  document.querySelector('#m'+disposable+' [data-act="more"]').click();document.querySelector('#menu [data-act="delete"]').click();
+  await pause(50);check(!MSGS.get(disposable).deleted,'delete can be cancelled');
+  window.confirm=()=>true;
+  document.querySelector('#m'+disposable+' [data-act="more"]').click();document.querySelector('#menu [data-act="delete"]').click();
+  await wait(()=>MSGS.get(disposable)?.deleted&&document.querySelector('#m'+disposable+'.deleted'));
+  window.confirm=realConfirm;
+  check(!document.querySelector('#m'+disposable+' [data-act="edit"]'),'deleted message cannot be edited');
   await selectTab('direct');
   check(!$('directView').classList.contains('hidden'),'private list visible');
   check($('composer').classList.contains('hidden'),'no public composer in conversation list');
@@ -37,6 +64,9 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body===('private **fixture** message '+VIEWPORT)));
   const mid=[...MSGS.values()].find(m=>m.body===('private **fixture** message '+VIEWPORT)).id;
   check(document.querySelector('#m'+mid+' strong')?.textContent==='fixture','private Markdown works');
+  await edit(mid);$('editBody').value='private **fixture** edited '+VIEWPORT;$('editSave').click();
+  await wait(()=>!$('editDialog').open&&MSGS.get(mid).edited);
+  check(MSGS.get(mid).conversation_id===cid,'editing preserves private conversation');
   check(!(await api('GET','/api/messages')).messages.some(m=>m.id===mid),'private message excluded from general API');
   $('cBody').value='private draft fixture';await selectTab('feed');
   check($('cBody').value==='public draft fixture','general draft restored');
@@ -119,7 +149,9 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     const selection=getSelection(),range=document.createRange();range.selectNodeContents(document.querySelector('#m'+FIXTURE.general+' .mtext'));selection.addRange(range);
     await swipe(sc,-120);check(TAB==='feed','selected text does not trigger navigation');selection.removeAllRanges();
     nav.querySelector('[data-mobile="more"]').click();
-    document.querySelector('#menu [data-tab="results"]').click();await wait(()=>TAB==='results');
+    await wait(()=>TAB==='more'&&!$('moreView').classList.contains('hidden'));
+    check($('menu').classList.contains('hidden'),'More is a full section, not a popup');
+    document.querySelector('#moreView [data-tab="results"]').click();await wait(()=>TAB==='results');
     nav.querySelector('[data-mobile="feed"]').click();await wait(()=>TAB==='feed');
     check(nav.querySelector('[data-mobile="feed"]').getAttribute('aria-current')==='page','bottom navigation reflects selected tab');
   } else check(getComputedStyle(nav).display==='none','desktop keeps its existing navigation');
@@ -193,14 +225,15 @@ def test_slow(h,user,q,data):
                         try:
                             urllib.request.urlopen(url+'/api/info',timeout=.2).close(); break
                         except OSError:time.sleep(.1)
-                    def api(method, path, data=None):
+                    def api(method, path, data=None, caller_token=None):
                         req = urllib.request.Request(url+path, method=method,
                               data=json.dumps(data).encode() if data is not None else None,
-                              headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+                              headers={'Authorization':'Bearer '+(caller_token or token),'Content-Type':'application/json'})
                         with urllib.request.urlopen(req,timeout=5) as response:return json.load(response)
                     subprocess.run(command+['adduser','alice-agent','--kind','agent','--owner','alice','--token-out',str(work/'agent.token')],env=env,check=True,capture_output=True)
                     subprocess.run(command+['adduser','bob-agent','--kind','agent','--owner','alice','--token-out',str(work/'other-agent.token')],env=env,check=True,capture_output=True)
                     ids={'general':api('POST','/api/messages?project=main',{'body':'general fixture'})['id']}
+                    ids['agent']=api('POST','/api/messages?project=main',{'body':'agent fixture'},(work/'agent.token').read_text().strip())['id']
                     ids['second']=api('POST','/api/projects',{'title':'Second fixture','slug':'second'})['project']['slug']
                     template = (ROOT/'web.html').read_text(encoding='utf-8')
                     for viewport,width,height in [('desktop',1360,1000),('mobile',390,844)]:

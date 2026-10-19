@@ -133,8 +133,8 @@ class MobileTouchTest(unittest.TestCase):
             sizes = dev.evaluate('({width:$("scroller").clientWidth,scroll:$("scroller").scrollWidth,body:document.documentElement.scrollWidth})')
             self.assertLessEqual(sizes['scroll'], sizes['width']+1, sizes)
             self.assertLessEqual(sizes['body'], 390, sizes)
-            order=dev.evaluate('[...$("mobileNav").querySelectorAll("[data-mobile]")].map(b=>b.dataset.mobile).filter(key=>key!=="more")')
-            self.assertEqual(order, ['projects', 'feed', 'users', 'direct'])
+            order=dev.evaluate('[...$("mobileNav").querySelectorAll("[data-mobile]")].map(b=>b.dataset.mobile)')
+            self.assertEqual(order, ['projects', 'feed', 'users', 'direct', 'more'])
 
             def section(expected):
                 wait('$("mobileNav").querySelector("[aria-current=page]")?.dataset.mobile==='+json.dumps(expected))
@@ -143,11 +143,17 @@ class MobileTouchTest(unittest.TestCase):
                 else:
                     self.assertEqual(dev.evaluate('TAB'), expected)
                     self.assertFalse(dev.evaluate('$("aside").classList.contains("open")'))
+                    if expected=='more':
+                        self.assertTrue(dev.evaluate('!$("moreView").classList.contains("hidden") && $("menu").classList.contains("hidden")'))
 
             for _ in range(3):
                 swipe(280, 260, -85, 10)
                 section(order[2])
                 swipe(280, 600, -85, 10)
+                section(order[3])
+                swipe(280, 260, -85, 10)
+                section(order[4])
+                swipe(100, 260, 85, 10)
                 section(order[3])
                 swipe(100, 260, 85, 10)
                 section(order[2])
@@ -181,6 +187,19 @@ class MobileTouchTest(unittest.TestCase):
                 shot = dev.call('Page.captureScreenshot', format='png')['data']
                 (dest/'chromium-projects-sheet.png').write_bytes(base64.b64decode(shot))
             swipe(point['x'], point['y'], -85)
+            wait('!$("projects").classList.contains("open")')
+            swipe(100, 260, 85)
+            wait('$("projects").classList.contains("open")')
+            point=dev.evaluate('(()=>{const r=$("projectGrab").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
+            swipe(point['x'],point['y'],0,85)
+            wait('!$("projects").classList.contains("open")')
+            self.assertEqual(dev.evaluate('$("projects").style.transform'), '')
+            swipe(100,260,85)
+            wait('$("projects").classList.contains("open")')
+            point=dev.evaluate('(()=>{const r=$("projects").querySelector(".pselect").getBoundingClientRect();return {x:r.left+100,y:r.top+r.height/2}})()')
+            swipe(point['x'],point['y'],0,20)
+            self.assertTrue(dev.evaluate('$("projects").classList.contains("open")'), 'short pull became a project tap')
+            swipe(point['x'],point['y'],0,70)
             wait('!$("projects").classList.contains("open")')
             dev.evaluate('$("scroller").scrollTop=0')
             swipe(200, 490, 8, -230)

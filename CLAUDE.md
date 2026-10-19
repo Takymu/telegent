@@ -48,6 +48,12 @@
   равен `NULL` у общей ленты. Видимость проверяют `can_read_message` и `message_visibility`;
   фильтр по адресату в общей ленте приватности не даёт. Ответы наследуют область родителя;
   хуки и inbox видят только доступные вызывающему сообщения. См. `MANIFEST.md`.
+- **Изменения сообщений**: `POST /api/messages/<id>/edit` принимает `body` и текущую `revision`,
+  `/delete` — `revision`. Только автор-человек обычного сообщения; область проверяется сервером.
+  `edited_ts`, `deleted_ts` и `revision` сохраняют id/ветки; удалённый текст не возвращается в API.
+  `approval_history` хранит прежние решения с версией и хешем текста; текущие одобрения сбрасываются.
+  Новое решение передаёт версию текста, устаревшее получает 409. `content_revision` обновляет браузеры
+  только доступных участникам чатов. Файлы удаляются через `pending_file_deletions` после commit.
 - **Секреты**: отдельный endpoint личного чата, в `messages` только карточка. Значение
   в `secret_envelopes` шифруется серверной системной libcrypto (AES-256-GCM), ключ 32 байта
   в `<имя базы>.secret-key` с закрытыми правами. Не логировать тело запросов/ответов этого API.
@@ -130,6 +136,7 @@ python tests/test_read_migration.py # Firefox: перенос прежних л�
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
 python tests/test_direct_browser.py  # Firefox: лички, черновики, секреты, десктоп и телефон
 python tests/test_mobile_touch.py    # Chromium: настоящий touch-ввод, длинные сообщения и прокрутка кода
+python tests/test_message_edits.py   # права автора, версии, удаление файлов, ветки, лички и одобрения
 python tests/test_encoding.py        # файлы/stdin, Unicode/BOM, legacy-кодировки, настоящий PowerShell 5.1
 ```
 Перед каждой выкаткой. Тест не должен трогать настоящий `~/.telegent` (там подменяется `HOME`/

@@ -148,6 +148,11 @@ CREATE INDEX IF NOT EXISTS ix_msg_thread ON messages(thread_id);
 CREATE TABLE IF NOT EXISTS approvals(
   message_id INTEGER NOT NULL, user TEXT NOT NULL, decision TEXT NOT NULL, note TEXT, ts REAL NOT NULL,
   PRIMARY KEY(message_id, user));
+CREATE TABLE IF NOT EXISTS approval_history(
+  message_id INTEGER NOT NULL, revision INTEGER NOT NULL, user TEXT NOT NULL,
+  decision TEXT NOT NULL, note TEXT, ts REAL NOT NULL, body_hash TEXT NOT NULL,
+  PRIMARY KEY(message_id, revision, user));
+CREATE TABLE IF NOT EXISTS pending_file_deletions(upload_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS attachments(
   id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, name TEXT NOT NULL,
   size INTEGER, md5 TEXT, link TEXT, content BLOB);
@@ -199,6 +204,7 @@ LAST_ID = [0]
 REACTION_EPOCH = secrets.token_hex(8)
 REACTION_REVISIONS = {}
 RECEIPT_REVISIONS = {}
+CONTENT_REVISIONS = {}
 _db = None
 TG_QUEUE = queue.Queue()
 
@@ -212,6 +218,8 @@ def db():
         _db.execute("PRAGMA busy_timeout=5000")
         _db.executescript(SCHEMA)
         for table, col, decl in (("receipts", "delivered_ts", "REAL"), ("users", "last_seen_ts", "REAL"),
+                                 ("messages", "revision", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("messages", "edited_ts", "REAL"), ("messages", "deleted_ts", "REAL"),
                                  ("users", "last_wait_ts", "REAL"), ("users", "pw_hash", "TEXT"),
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
@@ -253,7 +261,7 @@ def db():
         ensure_default_project(_db)
         # messages used to have a separate subject; now it is the first line of the text (idempotent)
         _db.execute("UPDATE messages SET body = subject || CASE WHEN body = '' THEN '' ELSE char(10) || body END "
-                    "WHERE type NOT IN ('status', 'approval') AND subject != '' "
+                    "WHERE deleted_ts IS NULL AND type NOT IN ('status', 'approval') AND subject != '' "
                     "AND substr(ltrim(body, ' ' || char(9) || char(10) || char(13)), 1, length(subject)) != subject")
         migrate_reactions(_db)
         LAST_ID[0] = _db.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
@@ -917,14 +925,14 @@ def message_visibility(me, alias="m"):
 def conversation_dict(c, user):
     peer = c["agent"] if user["name"] == c["human"] else c["human"]
     cursor = c["human_read_upto"] if user["name"] == c["human"] else c["agent_read_upto"]
-    last = db().execute("SELECT id,body,ts FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1", (c["id"],)).fetchone()
+    last = db().execute("SELECT id,body,ts,deleted_ts FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1", (c["id"],)).fetchone()
     unread = db().execute("SELECT COUNT(*) FROM messages m WHERE m.conversation_id=? AND m.id>? AND m.author!=? "
-                          "AND m.type NOT IN ('status','approval') AND NOT EXISTS (SELECT 1 FROM receipts r "
+                          "AND m.deleted_ts IS NULL AND m.type NOT IN ('status','approval') AND NOT EXISTS (SELECT 1 FROM receipts r "
                           "WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
                           (c["id"], cursor, user["name"], user["name"])).fetchone()[0]
     return {"id": c["id"], "peer_id": peer, "peer": account_name(peer), "peer_kind": "agent" if peer == c["agent"] else "human",
             "human_id": c["human"], "agent_id": c["agent"], "read_upto": cursor, "unread": unread,
-            "last_id": last["id"] if last else 0, "preview": last["body"][:100] if last else "",
+            "last_id": last["id"] if last else 0, "preview": ("Сообщение удалено" if last["deleted_ts"] else last["body"][:100]) if last else "",
             "last_ts": last["ts"] if last else c["created"]}
 
 
@@ -982,6 +990,9 @@ def msg_dicts(rows, me=None, full=True):
             "body": r["body"] if full else r["body"][:400],
             "reply_to": r["reply_to"], "thread_id": r["thread_id"],
             "conversation_id": r["conversation_id"],
+            "revision": r["revision"], "edited": iso(r["edited_ts"]), "deleted": bool(r["deleted_ts"]),
+            "can_edit": me==r["author"] and r["author_kind"]=="human" and r["type"] in USER_TYPES and not r["deleted_ts"],
+            "can_delete": me==r["author"] and r["author_kind"]=="human" and r["type"] in USER_TYPES and not r["deleted_ts"],
             "needs_approval": bool(r["needs_approval"]), "approver": account_name(r["approver"]), "approver_id": r["approver"],
             "approvals": approvals.get(r["id"], []),
             "reactions": [{"emoji": emoji, "count": len(names), "mine": me in names, "users": [account_name(x) for x in names]}
@@ -1005,8 +1016,13 @@ def msg_dicts(rows, me=None, full=True):
                          for u in to + [u for u in by_user if u not in to]]
         secret = con.execute("SELECT recipient,expires,claimed_ts,consumed,revoked FROM secret_envelopes WHERE message_id=?", (r["id"],)).fetchone()
         if secret:
+            d["can_edit"] = False
             d["secret"] = dict(secret)
             d["secret"]["state"] = "revoked" if secret["revoked"] else "received" if secret["consumed"] else "expired" if secret["expires"] <= time.time() else "pending"
+        if r["deleted_ts"]:
+            d.update(body="Сообщение удалено",subject="Сообщение удалено",topic="",attachments=[],reactions=[],approvals=[],
+                     result=None,status=None,needs_approval=False,priority="normal")
+            d.pop("secret",None)
         out.append(d)
     return out
 
@@ -1219,9 +1235,9 @@ def get_message_row(mid, user=None):
 
 # Placeholders: me (author), "%,me,%" (explicit recipient only: broadcasts do not nag), me (reply author).
 # An ack is a receipt, not a message, so it never answers a question; a later message of mine in the thread does.
-WAITING_SQL = ("(m.author != ? AND m.recipients LIKE ? AND ((m.type = 'request' AND m.status = 'open') OR"
+WAITING_SQL = ("(m.deleted_ts IS NULL AND m.author != ? AND m.recipients LIKE ? AND ((m.type = 'request' AND m.status = 'open') OR"
                " (m.type = 'question' AND NOT EXISTS (SELECT 1 FROM messages r WHERE r.thread_id = m.thread_id"
-               " AND r.id > m.id AND r.author = ? AND r.type NOT IN ('status','approval')))))")
+               " AND r.id > m.id AND r.author = ? AND r.deleted_ts IS NULL AND r.type NOT IN ('status','approval')))))")
 
 
 def waiting_summary(me, pid):
@@ -1230,7 +1246,7 @@ def waiting_summary(me, pid):
     visible, va = message_visibility(me)
     rows = con.execute(f"SELECT m.id, m.type, m.author, m.ts FROM messages m WHERE m.project_id = ? AND {WAITING_SQL} AND {visible}"
                        " ORDER BY m.id", [pid, me, f"%,{me},%", me] + va).fetchall()
-    taken = con.execute(f"SELECT m.id, m.ts FROM messages m WHERE project_id = ? AND type = 'request' AND status = 'taken'"
+    taken = con.execute(f"SELECT m.id, m.ts FROM messages m WHERE deleted_ts IS NULL AND project_id = ? AND type = 'request' AND status = 'taken'"
                         f" AND status_by = ? AND {visible} ORDER BY id", [pid, me] + va).fetchall()
     return {"waiting_me": {"count": len(rows), "oldest_age": round(now - rows[0]["ts"]) if rows else None,
                            "items": [{"id": r["id"], "type": r["type"], "author": account_name(r["author"])} for r in rows[:10]]},
@@ -1244,6 +1260,8 @@ def list_messages(me, q, pid):
     where, args = ["m.project_id = ?"], [pid]
     visible, va = message_visibility(me["name"])
     where.append(visible); args += va
+    if q.get("for_me")=="1" or any(q.get(key) for key in ("q","results","open","waiting_me","pending_approval","unacked","unread")):
+        where.append("m.deleted_ts IS NULL")
     cid = q.get("conversation")
     if cid and cid != "all":
         conversation_row(cid, me, pid)
@@ -1343,9 +1361,11 @@ def set_status(me, host, mid, data):
     check_secret("ref", ref)
     check_secret("note", note)
     m = get_message_row(mid, me)
+    require_active_message(m)
     if m["type"] not in TRACKED_TYPES:
         raise ApiError(400, f"статус есть только у {', '.join(TRACKED_TYPES)}; #{mid} — {m['type']}")
     with DB_LOCK:
+        m=get_message_row(mid,me);require_active_message(m)
         db().execute("UPDATE messages SET status = ?, status_by = ?, status_ts = ?, status_ref = ?, status_note = ?"
                      " WHERE id = ?", (state, me["name"], time.time(), ref or None, note or None, mid))
     words = {"open": "снова открыто", "taken": "взято", "done": "сделано", "rejected": "отклонено"}
@@ -1365,12 +1385,17 @@ def set_approval(me, host, mid, data):
     note = str(data.get("note") or "")[:5000]
     check_secret("note", note)
     m = get_message_row(mid, me)
+    require_active_message(m)
     if not m["needs_approval"]:
         raise ApiError(400, f"#{mid} не просит одобрения")
     if m["approver"] and m["approver"] != me["name"]:
         raise ApiError(403, f"решение по #{mid} принимает только {account_name(m['approver'])}")
     now = time.time()
     with DB_LOCK:
+        m=get_message_row(mid,me);require_active_message(m)
+        revision=data.get("revision",0)
+        if type(revision) is not int or revision!=m["revision"]:
+            raise ApiError(409,"текст сообщения изменился; прочитай актуальную версию перед решением")
         db().execute("INSERT OR REPLACE INTO approvals(message_id, user, decision, note, ts) VALUES (?,?,?,?,?)",
                      (mid, me["name"], decision, note or None, now))
         if m["type"] == "decision":
@@ -1849,7 +1874,7 @@ def api_projects(h, user, q, data):
             n = db().execute("SELECT COUNT(*) FROM members WHERE project_id = ?", (p["id"],)).fetchone()[0]
             d = dict(project_dict(p, user), last_id=last, members=n)
             stats = db().execute("SELECT COUNT(*), MIN(m.id) FROM messages m WHERE m.conversation_id IS NULL AND m.project_id=? AND m.id>? AND m.author!=? "
-                                 "AND m.type NOT IN ('status','approval') AND NOT EXISTS "
+                                 "AND m.deleted_ts IS NULL AND m.type NOT IN ('status','approval') AND NOT EXISTS "
                                  "(SELECT 1 FROM receipts r WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
                                  (p["id"], max(seen.get(p["slug"], 0), d["read_upto"]), user["name"], user["name"])).fetchone()
             d.update(unread=stats[0], first_unread_id=stats[1])
@@ -2108,7 +2133,7 @@ def api_list(h, user, q, data):
         if msgs and (q.get("for_me") == "1" or user["kind"] == "human"):
             mark(user, [m["id"] for m in msgs], "delivered")
         return {"messages": msgs, "last_id": LAST_ID[0], "reaction_revision": reaction_revision(p["id"]),
-                "receipt_revision": receipt_revision(p["id"])}
+                "receipt_revision": receipt_revision(p["id"]), "content_revision": content_revision(p["id"],user["name"])}
 
 
 @route("GET", "/api/conversations")
@@ -2200,6 +2225,7 @@ def api_secret_fetch(h, user, q, data, mid):
             db().execute("UPDATE secret_envelopes SET envelope=NULL,consumed=? WHERE message_id=?", (time.time(), mid))
             mark(user, [mid], "read")
             return {"ok": True}
+        require_active_message(m)
         if secret["revoked"] or secret["consumed"] or secret["expires"] <= time.time():
             db().execute("UPDATE secret_envelopes SET envelope=NULL WHERE message_id=?", (mid,))
             raise ApiError(410, "секрет получен, отозван или срок его действия истёк")
@@ -2271,10 +2297,113 @@ def receipt_revision(pid):
     return REACTION_EPOCH + ":" + str(RECEIPT_REVISIONS.get(pid, 0))
 
 
+def content_revision(pid, who):
+    return REACTION_EPOCH + ":" + str(CONTENT_REVISIONS.get((pid,who),0))
+
+
+def require_active_message(message):
+    if message["deleted_ts"]:
+        raise ApiError(410,"сообщение удалено")
+
+
+def publish_message_change(message):
+    con,pid=db(),message["project_id"]
+    if message["conversation_id"]:
+        c=con.execute("SELECT human,agent FROM conversations WHERE id=?",(message["conversation_id"],)).fetchone()
+        viewers=list(c) if c else []
+    else:
+        viewers=[r[0] for r in con.execute("SELECT user FROM members WHERE project_id=?",(pid,))]
+    with NEW_MSG:
+        for who in viewers:
+            key=(pid,who);CONTENT_REVISIONS[key]=CONTENT_REVISIONS.get(key,0)+1
+        NEW_MSG.notify_all()
+
+
+def mutate_message(h,user,q,data,mid,deleting=False):
+    p=project_for(h,user,q)
+    with DB_LOCK:
+        message=get_message_row(mid,user)
+        if message["project_id"]!=p["id"]:
+            raise ApiError(404,"нет сообщения в выбранном проекте")
+        if user["kind"]!="human" or message["author"]!=user["name"] or message["author_kind"]!="human" or message["type"] not in USER_TYPES:
+            raise ApiError(403,"человек может изменить или удалить только собственное сообщение")
+        if not isinstance(data,dict) or set(data)-({"revision"} if deleting else {"revision","body"}) or type(data.get("revision")) is not int:
+            raise ApiError(400,"нужны текущая revision и текст body для изменения")
+        if message["deleted_ts"]:
+            if not deleting:require_active_message(message)
+            return {"ok":True,"message":msg_dicts([message],user["name"])[0]}
+        body=data.get("body")
+        if not deleting:
+            if db().execute("SELECT 1 FROM secret_envelopes WHERE message_id=?",(mid,)).fetchone():
+                raise ApiError(400,"карточка секрета не редактируется")
+            if not isinstance(body,str):raise ApiError(400,"body: текст сообщения")
+            try:body.encode("utf-8")
+            except UnicodeError:raise ApiError(400,"текст содержит недопустимый Unicode")
+            if len(body)>MAX_BODY_CHARS:raise ApiError(413,"текст слишком длинный")
+            if not body.strip() and not db().execute("SELECT 1 FROM attachments WHERE message_id=?",(mid,)).fetchone():
+                raise ApiError(400,"пустое сообщение")
+            check_secret("текст",body)
+        if data["revision"]!=message["revision"]:
+            if deleting or body!=message["body"]:
+                raise ApiError(409,"сообщение уже изменилось; закрой редактор и открой актуальную версию")
+        if not deleting and body==message["body"]:
+            return {"ok":True,"message":msg_dicts([message],user["name"])[0]}
+        con,now=db(),time.time()
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            # A decision authorizes one text version; preserve its record without reusing it.
+            digest=hashlib.sha256(message["body"].encode()).hexdigest()
+            con.execute("INSERT OR IGNORE INTO approval_history(message_id,revision,user,decision,note,ts,body_hash) "
+                        "SELECT message_id,?,user,decision,note,ts,? FROM approvals WHERE message_id=?",(message["revision"],digest,mid))
+            con.execute("DELETE FROM approvals WHERE message_id=?",(mid,))
+            if deleting:
+                con.execute("INSERT OR IGNORE INTO pending_file_deletions(upload_id) SELECT upload_id FROM attachments WHERE message_id=? AND upload_id IS NOT NULL",(mid,))
+                con.execute("DELETE FROM attachments WHERE message_id=?",(mid,))
+                con.execute("UPDATE messages SET body='',subject='Сообщение удалено',topic='',result=NULL,needs_approval=0,"
+                            "status=NULL,status_ref=NULL,status_note=NULL,deleted_ts=?,revision=revision+1 WHERE id=?",(now,mid))
+                con.execute("UPDATE secret_envelopes SET envelope=NULL,revoked=CASE WHEN claimed_ts IS NULL THEN COALESCE(revoked,?) ELSE revoked END WHERE message_id=?",(now,mid))
+            else:
+                subject=next((line.strip() for line in body.splitlines() if line.strip()),"")[:120]
+                con.execute("UPDATE messages SET body=?,subject=?,edited_ts=?,revision=revision+1 WHERE id=?",(body,subject,now,mid))
+                if message["type"]=="decision":
+                    con.execute("UPDATE messages SET status='open',status_by=NULL,status_ts=NULL WHERE id=?",(mid,))
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK");raise
+        publish_message_change(message)
+        return {"ok":True,"message":msg_dicts([get_message_row(mid,user)],user["name"])[0]}
+
+
+@route("POST", r"/api/messages/(\d+)/edit")
+def api_message_edit(h,user,q,data,mid):
+    return mutate_message(h,user,q,data,mid)
+
+
+@route("POST", r"/api/messages/(\d+)/delete")
+def api_message_delete(h,user,q,data,mid):
+    result=mutate_message(h,user,q,data,mid,deleting=True)
+    purge_deleted_files()
+    return result
+
+
+def purge_deleted_files():
+    # Commit visibility first; failed filesystem cleanup remains durable and is retried.
+    with UPLOAD_LOCK, DB_LOCK:
+        con=db()
+        for row in con.execute("SELECT upload_id FROM pending_file_deletions").fetchall():
+            uid=row["upload_id"]
+            try:os.remove(upload_path(uid))
+            except FileNotFoundError:pass
+            except OSError:continue
+            con.execute("DELETE FROM file_uploads WHERE id=?",(uid,))
+            con.execute("DELETE FROM pending_file_deletions WHERE upload_id=?",(uid,))
+
+
 @route("POST", r"/api/messages/(\d+)/reaction")
 def api_reaction(h, user, q, data, mid):
     with DB_LOCK:
         message = get_message_row(mid, user)
+        require_active_message(message)
         if not isinstance(data, dict):
             raise ApiError(400, "нужны emoji и active (true или false)")
         emoji, active = data.get("emoji"), data.get("active", True)
@@ -2367,21 +2496,23 @@ def api_wait(h, user, q, data):
             seen = LAST_ID[0]
             revision = reaction_revision(p["id"])
             receipts = receipt_revision(p["id"])
+            content = content_revision(p["id"],user["name"])
         with DB_LOCK:
             msgs = list_messages(user, qq, p["id"])
             if msgs and (qq["for_me"] == "1" or user["kind"] == "human"):
                 mark(user, [m["id"] for m in msgs], "delivered")
         if (msgs or ("reaction_revision" in q and q["reaction_revision"] != revision)
-                or ("receipt_revision" in q and q["receipt_revision"] != receipts)):
+                or ("receipt_revision" in q and q["receipt_revision"] != receipts)
+                or ("content_revision" in q and q["content_revision"] != content)):
             return {"messages": msgs, "last_id": seen, "reaction_revision": revision,
-                    "receipt_revision": receipt_revision(p["id"])}
+                    "receipt_revision": receipt_revision(p["id"]),"content_revision":content_revision(p["id"],user["name"])}
         remaining = deadline - time.time()
         if remaining <= 0:
             return {"messages": [], "last_id": max(seen, after), "reaction_revision": revision,
-                    "receipt_revision": receipt_revision(p["id"])}
+                    "receipt_revision": receipt_revision(p["id"]),"content_revision":content_revision(p["id"],user["name"])}
         with NEW_MSG:
             if (LAST_ID[0] == seen and reaction_revision(p["id"]) == revision
-                    and receipt_revision(p["id"]) == receipts):
+                    and receipt_revision(p["id"]) == receipts and content_revision(p["id"],user["name"]) == content):
                 NEW_MSG.wait(remaining)
 
 
@@ -2582,7 +2713,7 @@ def api_upload_cancel(h, user, q, data, uid):
 def attachment_for(user, aid):
     with DB_LOCK:
         a = db().execute("SELECT a.*, m.project_id FROM attachments a JOIN messages m ON m.id = a.message_id "
-                         "WHERE a.id = ?", (aid,)).fetchone()
+                         "WHERE a.id = ? AND m.deleted_ts IS NULL", (aid,)).fetchone()
         if a and not can_read_message(db().execute("SELECT * FROM messages WHERE id=?", (a["message_id"],)).fetchone(), user):
             a = None
     if not a:
@@ -2943,6 +3074,7 @@ def cmd_serve(a):
     def expire_secrets():
         while True:
             purge_expired_secrets()
+            purge_deleted_files()
             time.sleep(60)
     threading.Thread(target=expire_secrets, daemon=True).start()
     if Cfg.telegram:

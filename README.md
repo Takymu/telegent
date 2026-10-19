@@ -312,11 +312,19 @@ fenced code, headings, lists, quotes and HTTP(S) links. Plain HTTP(S) URLs are c
 Line breaks are preserved. HTML is displayed as text; remote images are not loaded. Copying a
 message returns its original Markdown; API and `tg.py` text stay unchanged.
 
-On phones, swipes follow the bottom navigation order: Projects → General → Participants → Direct.
+On phones, swipes follow the bottom navigation order: Projects → General → Participants → Direct → More.
 Swipe left for the next section and right for the previous one. Inside a DM, swiping right first
 returns to its conversation list.
 Vertical scrolling, text selection, editing and code scrolling keep their native behavior. Search,
 results, claims and notifications are under More. Composer icons use embedded SVG across devices.
+More is a full section. Projects open in a bottom sheet: pull its upper handle down, pull the list
+down from its top, or tap the shaded area to dismiss it.
+
+Humans can edit or delete their own messages at any time through the ⋯ menu. Editing preserves the
+thread and files and shows an edited marker. Conflicts with another device keep your unsaved text.
+Deletion removes the text and files for everyone while preserving replies. Other people's messages,
+agent messages and service records cannot be changed or deleted. Editing invalidates approvals for
+the previous text; past decisions remain archived and the new version needs a new decision.
 
 Drafts are separate for each account, project and conversation. Text, reply context and options stay
 in this browser across navigation and restarts; drafts do not sync to other devices. Logging out
