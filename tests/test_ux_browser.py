@@ -57,6 +57,19 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   const originalTitle=$('projTitle').textContent;$('projTitle').textContent='Project development team';
   check($('projTitle').scrollWidth<=$('projTitle').clientWidth,'mobile title uses available header space before ellipsis');$('projTitle').textContent=originalTitle;
   const peer=ME.users.find(u=>u.name==='alice-agent');
+  const originalApi=api;
+  for(const body of ['Brief fixture','Wrapped fixture '.repeat(12),'**Bold fixture**\n\nSecond paragraph fixture']){
+    let release;const gate=new Promise(resolve=>release=resolve);
+    api=async(...args)=>{if(args[0]==='POST'&&args[1]==='/api/messages')await gate;return originalApi(...args)};
+    $('cTo').value=peer.name;$('cBody').value=body;$('sendBtn').click();
+    await wait(()=>!!$('pendingOutgoing').querySelector('.receipt-spinner'));
+    const shape=node=>{const bubble=node.querySelector('.mmain'),b=bubble.getBoundingClientRect(),r=bubble.querySelector('.receipt-button').getBoundingClientRect();return [b.width,b.height,r.left+r.width/2-b.left,r.top+r.height/2-b.top]};
+    const pendingShape=shape($('pendingOutgoing').querySelector('.mrow'));release();
+    await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body===body));
+    const sent=[...MSGS.values()].find(m=>m.body===body),sentShape=shape($('m'+sent.id));
+    check(pendingShape.every((value,i)=>Math.abs(value-sentShape[i])<1),'pending and delivered bubbles keep the same size and receipt position');
+  }
+  api=originalApi;$('cTo').value='';
   const root=(await api('POST','/api/messages',{body:'Original root fixture'})).id;
   const answer=(await actor('POST','/api/messages',{body:'Answer first line\nAnswer second line',reply_to:root})).id;
   const nested=(await api('POST','/api/messages',{body:'Reply to answer',reply_to:answer})).id;

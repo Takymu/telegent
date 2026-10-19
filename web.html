@@ -494,6 +494,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .receipt-button { display:block;margin:4px 0 0 auto;padding:2px 8px;min-width:44px;min-height:28px;border:0;background:transparent;color:var(--muted);font-size:12px; }
 .receipt-button.read { color:var(--accent); }
 .receipt-button[data-act=receipt],.receipt-spinner { color:var(--receipt); }
+.receipt-button.pending-receipt { color:var(--receipt); }
+.outgoing-pending .mtools { display:none !important; }
 .message-footer { display:flex;flex-wrap:wrap;gap:3px 5px;align-items:center;margin:3px 0 0; }
 .message-footer:empty { display:none; }
 .message-meta { display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--muted);font-size:11px;line-height:18px; }
@@ -1453,11 +1455,15 @@ let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREA
 let ACTIVE_DM = null, CONVERSATIONS = [];
 let VIEW_RETURN=null, WORK_MODE="waiting", ACTION_TARGET=null, PREVIEW_URL=null, INV_TRACK=null;
 let INV_MODE=null, INFO_VERSION=0;
-const OUTGOING = new Map();
+const OUTGOING = new Map();let OUTGOING_SEQUENCE=0;
 function paintOutgoing() {
   const pending=[...OUTGOING.values()].filter(p=>p.scope===draftKey());
   for(const p of pending)if(p.id && MSGS.has(p.id))OUTGOING.delete(p.key);
-  $("pendingOutgoing").innerHTML=pending.filter(p=>OUTGOING.has(p.key)).map(p=>`<div class="mrow outgoing outgoing-pending"><div class="mmain"><div class="mtext md">${markdown(p.body)}</div>${p.files.map(name=>`<div class="mextra">${esc(name)}</div>`).join("")}<div class="message-footer"><span class="receipt-button" role="status" aria-label="${tr(p.id?"Принято сервером":"Отправляется…")}">${p.id?'<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 8 5 5L20 2"/></svg>':'<span class="receipt-spinner" aria-hidden="true"></span>'}</span></div></div></div>`).join("");
+  let prev=[...MSGS.values()].sort((a,b)=>a.id-b.id).at(-1);
+  $("pendingOutgoing").innerHTML=pending.filter(p=>OUTGOING.has(p.key)).map(p=>{
+    const message={...p.message,id:p.id||p.message.id,sending:!p.id};
+    const html=row(message,prev);prev=message;return html;
+  }).join("");
 }
 const DRAFTS = new Map();
 let DRAFT_TIMER=null, COMPOSE_SCOPE=null;
@@ -2641,8 +2647,8 @@ function row(m, prev) {
     prev.time.slice(0, 10) === m.time.slice(0, 10) && m.type === "info" && !m.reply_to && m.priority !== "urgent" &&
     !m.needs_approval && prev.type==="info" && m.topic===prev.topic && JSON.stringify(m.to_ids||m.to)===JSON.stringify(prev.to_ids||prev.to);
   const mine=isMine(m);
-  const cls = ["mrow", mine?"outgoing":"incoming", grouped ? "grouped" : "", m.priority === "urgent" ? "urgent" : ""].join(" ");
-  let html = `<div class="${cls}" id="m${m.id}" data-msg="${m.id}" tabindex="0">`;
+  const cls = ["mrow", mine?"outgoing":"incoming", grouped ? "grouped" : "", m.priority === "urgent" ? "urgent" : "",m.optimistic?"outgoing-pending":""].join(" ");
+  let html = `<div class="${cls}" id="m${m.id}" data-msg="${m.id}" tabindex="0" ${m.optimistic?"inert":""}>`;
   html += grouped ? '<div class="mgutter" aria-hidden="true"></div>' : avatar(m.author, m.author_kind);
   html += `<div class="mmain">`;
   if (!grouped) {
@@ -2999,7 +3005,7 @@ $("cBody").addEventListener("keydown", e => {
 const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+tr(" МБ") : n >= 1024 ? Math.ceil(n/1024)+tr(" КБ") : n+tr(" Б");
 const fileExt = name => (name.includes(".") ? name.split(".").pop() : "FILE").slice(0, 5).toUpperCase();
 function fileCard(a) {
-  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name))return ui`<div><button type="button" class="inline-image" data-ux="preview" data-image="${a.id}" data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button></div>`;
+  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name))return ui`<div><button type="button" class="inline-image" ${a.optimistic?"":`data-ux="preview" data-image="${a.id}"`} data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button></div>`;
   const content = `<span class="file-symbol" aria-hidden="true">${esc(fileExt(a.name))}</span><span class="file-info"><span class="file-name">${esc(a.name)}</span>` +
     `<span class="file-detail">${fileSize(a.size)}${a.inline ? tr(" · Скачать") : tr(" · Внешняя ссылка: ") + esc(a.link || "")}</span></span>`;
   return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button></div>`
@@ -3091,7 +3097,18 @@ $("sendBtn").onclick = async () => {
   if (COMPOSE_RETRY?.signature === signature) data.idem_key = COMPOSE_RETRY.key;
   else COMPOSE_RETRY = {signature, key: data.idem_key};
   saveDraft(); SENDING = true; UPLOAD_ABORT = new AbortController();
-  const pending={key:data.idem_key,scope:draftKey(),body:data.body,files:ATTACHED.map(a=>a.file.name),id:null};
+  const now=new Date(),toIds=ACTIVE_DM?[ACTIVE_DM.peer_id]:[...(data.to_ids||[])];
+  const approverId=ME.users.find(u=>u.name===data.approver)?.id;
+  if(toIds.length&&approverId&&approverId!==ME.id&&!toIds.includes(approverId))toIds.push(approverId);
+  const message={...data,id:--OUTGOING_SEQUENCE,optimistic:true,ts:now.getTime()/1000,
+    time:new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString(),
+    author:ME.name,author_id:ME.id,author_kind:ME.kind,to_ids:toIds,
+    to:toIds.length?toIds.map(id=>ME.users.find(u=>u.id===id)?.name||ACTIVE_DM?.peer||id):data.to,
+    topic:data.topic.slice(0,60)||REPLY?.topic||"",reply_preview:REPLY?{...REPLY,body:(REPLY.body||"").slice(0,400)}:null,
+    attachments:ATTACHED.map((a,i)=>({id:-i-1,name:a.file.name,size:a.file.size,inline:true,optimistic:true})),
+    approvals:[],reactions:[],needs_approval:data.needs_approval||data.type==="decision",
+    status:["request","alert","decision"].includes(data.type)?{state:"open"}:null};
+  const pending={key:data.idem_key,scope:draftKey(),message,id:null};
   OUTGOING.set(pending.key,pending); paintOutgoing();
   toBottom();
   $("sendBtn").disabled = true; $("attachBtn").disabled = true;
@@ -3607,9 +3624,11 @@ function messageMeta(m,inline=false){
   return `<span class="message-meta ${inline?"inline-meta":""}">${m.edited?ui`<span class="medited" title="${esc(m.edited)}">изменено</span>`:""}<time class="mtime" datetime="${esc(m.time)}" title="${esc(m.time)} · #${m.id}">${hhmm(m.time)}</time>${isMine(m)?receiptButton(m):""}</span>`;
 }
 function receiptButton(m){
+  if(m.sending)return ui`<span class="receipt-button pending-receipt" role="status" aria-label="Отправляется…"><span class="receipt-spinner" aria-hidden="true"></span></span>`;
   const rs=m.receipts || [],read=rs.length>0&&rs.every(r=>r.read);
   const label=read?tr("Прочитано всеми адресатами"):tr("Доставлено на сервер");
   const ticks=`<svg viewBox="0 0 25 18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m2 9 4 4L17 3"/>${read?'<path d="m11 12 2 2L24 4"/>':""}</svg>`;
+  if(m.optimistic)return `<span class="receipt-button pending-receipt" role="status" aria-label="${label}">${ticks}</span>`;
   return ui`<button class="receipt-button ${read?"read":""}" data-act="receipt" data-id="${m.id}" aria-label="${label}. Информация о сообщении" title="${label}">${ticks}</button>`;
 }
 async function showReceipt(id){

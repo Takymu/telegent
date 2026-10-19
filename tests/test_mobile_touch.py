@@ -317,12 +317,19 @@ class MobileTouchTest(unittest.TestCase):
             dev.call('Input.dispatchTouchEvent', type='touchEnd', touchPoints=[])
             wait('!!$("pendingOutgoing").querySelector(".receipt-spinner")')
             self.assertEqual(dev.evaluate('$("pendingOutgoing").querySelectorAll("svg path").length'),0,'sending showed a delivery tick')
+            def outgoing_geometry(selector):
+                return dev.evaluate('(()=>{const bubble=document.querySelector('+json.dumps(selector)+').querySelector(".mmain"),b=bubble.getBoundingClientRect(),r=bubble.querySelector(".receipt-button").getBoundingClientRect();return {width:b.width,height:b.height,receiptX:r.left+r.width/2-b.left,receiptY:r.top+r.height/2-b.top,inline:!!bubble.querySelector(".message-meta.inline-meta")}})()')
+            sending_geometry=outgoing_geometry('#pendingOutgoing .mrow')
+            self.assertTrue(sending_geometry['inline'],'short pending message forced its receipt onto a second line')
             wait('fixtureAccepted&&!!$("pendingOutgoing").querySelector("svg path")')
             self.assertIn('single tap fixture',dev.evaluate('$("pendingOutgoing").textContent'),'accepted message vanished while feed refresh was delayed')
+            self.assertEqual(outgoing_geometry('#pendingOutgoing .mrow'),sending_geometry,'server acceptance changed bubble or receipt geometry')
             dev.evaluate('fixtureReleaseRefresh()')
             wait('!SENDING && [...MSGS.values()].some(m=>m.body==="single tap fixture")')
             self.assertEqual(dev.evaluate('$("pendingOutgoing").childElementCount'),0,'pending copy remained after delivery')
             self.assertEqual(dev.evaluate('[...MSGS.values()].filter(m=>m.body==="single tap fixture").length'),1)
+            sent_id=dev.evaluate('[...MSGS.values()].find(m=>m.body==="single tap fixture").id')
+            self.assertEqual(outgoing_geometry('#m'+str(sent_id)),sending_geometry,'delivered message changed bubble or receipt geometry')
             self.assertFalse(dev.evaluate('fixtureBlur.includes(false)'), 'tap blurred the keyboard before sending')
             reminder=fx.api('POST','/api/messages?project=main',
                             {'body':'Swipe reminder fixture','type':'question','to_ids':['alice']})['id']
