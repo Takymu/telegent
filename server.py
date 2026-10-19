@@ -172,6 +172,9 @@ CREATE TABLE IF NOT EXISTS file_uploads(
 CREATE TABLE IF NOT EXISTS receipts(
   user TEXT NOT NULL, message_id INTEGER NOT NULL, read_ts REAL, ack_ts REAL,
   PRIMARY KEY(user, message_id));
+CREATE TABLE IF NOT EXISTS waiting_dismissals(
+  user TEXT NOT NULL, message_id INTEGER NOT NULL, revision INTEGER NOT NULL,
+  PRIMARY KEY(user, message_id));
 CREATE TABLE IF NOT EXISTS reactions(
   message_id INTEGER NOT NULL, user TEXT NOT NULL, emoji TEXT NOT NULL, ts REAL NOT NULL,
   PRIMARY KEY(message_id, user, emoji));
@@ -1551,7 +1554,8 @@ def get_message_row(mid, user=None):
 # An ack is a receipt, not a message, so it never answers a question; a later message of mine in the thread does.
 WAITING_SQL = ("(m.deleted_ts IS NULL AND m.author != ? AND m.recipients LIKE ? AND ((m.type = 'request' AND m.status = 'open') OR"
                " (m.type = 'question' AND NOT EXISTS (SELECT 1 FROM messages r WHERE r.thread_id = m.thread_id"
-               " AND r.id > m.id AND r.author = ? AND r.deleted_ts IS NULL AND r.type NOT IN ('status','approval')))))")
+               " AND r.id > m.id AND r.author = ? AND r.deleted_ts IS NULL AND r.type NOT IN ('status','approval')))))"
+               " AND NOT EXISTS (SELECT 1 FROM waiting_dismissals d WHERE d.message_id=m.id AND d.user=? AND d.revision=m.revision)")
 
 
 def waiting_summary(me, pid):
@@ -1559,7 +1563,7 @@ def waiting_summary(me, pid):
     con, now = db(), time.time()
     visible, va = message_visibility(me)
     rows = con.execute(f"SELECT m.id, m.type, m.author, m.ts FROM messages m WHERE m.project_id = ? AND {WAITING_SQL} AND {visible}"
-                       " ORDER BY m.id", [pid, me, f"%,{me},%", me] + va).fetchall()
+                       " ORDER BY m.id", [pid, me, f"%,{me},%", me, me] + va).fetchall()
     taken = con.execute(f"SELECT m.id, m.ts FROM messages m WHERE deleted_ts IS NULL AND project_id = ? AND type = 'request' AND status = 'taken'"
                         f" AND status_by = ? AND {visible} ORDER BY id", [pid, me] + va).fetchall()
     return {"waiting_me": {"count": len(rows), "oldest_age": round(now - rows[0]["ts"]) if rows else None,
@@ -1615,7 +1619,7 @@ def list_messages(me, q, pid):
         args += [me["name"], f"%,{me['name']},%"]
     if q.get("waiting_me") == "1":
         where.append(WAITING_SQL)
-        args += [me["name"], f"%,{me['name']},%", me["name"]]
+        args += [me["name"], f"%,{me['name']},%", me["name"], me["name"]]
     if q.get("unacked") == "1":
         where.append("NOT EXISTS (SELECT 1 FROM receipts r WHERE r.user = ? AND r.message_id = m.id"
                      " AND r.ack_ts IS NOT NULL)")
@@ -2283,7 +2287,7 @@ def api_project_delete(h, user, q, data):
         n = con.execute("SELECT COUNT(*) FROM messages WHERE project_id = ?", (pid,)).fetchone()[0]
         con.execute("BEGIN IMMEDIATE")
         try:
-            for table in ("attachments", "receipts", "approvals", "reactions", "secret_envelopes"):
+            for table in ("attachments", "receipts", "waiting_dismissals", "approvals", "reactions", "secret_envelopes"):
                 con.execute(f"DELETE FROM {table} WHERE message_id IN (SELECT id FROM messages WHERE project_id = ?)", (pid,))
             for table in ("messages", "board", "claims", "invites", "members", "conversations"):
                 con.execute(f"DELETE FROM {table} WHERE project_id = ?", (pid,))
@@ -2779,6 +2783,39 @@ def api_status(h, user, q, data, mid):
 def api_approval(h, user, q, data, mid):
     sid, _ = set_approval(user, h.host(), mid, data)
     return {"ok": True, "approval_message": sid}
+
+
+@route("POST", "/api/waiting/dismiss")
+def api_dismiss_waiting(h, user, q, data):
+    if user["kind"] != "human":
+        raise ApiError(403, _ui_text('только для человека'))
+    if set(data) - {"ids", "all"} or ("all" in data and data["all"] is not True):
+        raise ApiError(400, "ids | all=true")
+    ids = data.get("ids")
+    if (data.get("all") and ids is not None) or (not data.get("all") and
+            (not isinstance(ids, list) or not 1 <= len(ids) <= 1000 or
+             any(type(mid) is not int or not 0 < mid < 2**63 for mid in ids))):
+        raise ApiError(400, "ids: 1..1000 | all=true")
+    p = project_for(h, user, q)
+    with DB_LOCK:
+        visible, va = message_visibility(user["name"])
+        args = [p["id"], user["name"], f"%,{user['name']},%", user["name"], user["name"]] + va
+        where = f"m.project_id=? AND {WAITING_SQL} AND {visible}"
+        if ids is not None:
+            # Validate the whole batch before changing the caller's reminders.
+            for mid in ids:
+                if get_message_row(mid, user)["project_id"] != p["id"]:
+                    raise ApiError(404, _ui_text('нет доступа к проекту'))
+            where += f" AND m.id IN ({','.join('?' for _ in ids)})"
+            args += ids
+        rows = db().execute(f"SELECT m.id,m.revision FROM messages m WHERE {where}", args).fetchall()
+        db().executemany("INSERT OR REPLACE INTO waiting_dismissals(user,message_id,revision) VALUES (?,?,?)",
+                         [(user["name"], row["id"], row["revision"]) for row in rows])
+        if rows:
+            with NEW_MSG:
+                RECEIPT_REVISIONS[p["id"]] = RECEIPT_REVISIONS.get(p["id"], 0) + 1
+                NEW_MSG.notify_all()
+    return {"ok": True, "dismissed": len(rows)}
 
 
 @route("POST", "/api/receipts")

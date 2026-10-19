@@ -293,6 +293,21 @@ class MobileTouchTest(unittest.TestCase):
             self.assertEqual(dev.evaluate('$("pendingOutgoing").childElementCount'),0,'pending copy remained after delivery')
             self.assertEqual(dev.evaluate('[...MSGS.values()].filter(m=>m.body==="single tap fixture").length'),1)
             self.assertFalse(dev.evaluate('fixtureBlur.includes(false)'), 'tap blurred the keyboard before sending')
+            reminder=fx.api('POST','/api/messages?project=main',
+                            {'body':'Swipe reminder fixture','type':'question','to_ids':['alice']})['id']
+            remaining=fx.api('POST','/api/messages?project=main',
+                             {'body':'Clear reminder fixture','type':'request','to_ids':['alice']})['id']
+            dev.evaluate('api=fixtureApi;WORK_MODE="waiting";(async()=>{await selectTab("work");await loadWork();SC.scrollTop=0})()')
+            reminder_selector=json.dumps(f'[data-reminder="{reminder}"]')
+            wait('!!document.querySelector('+reminder_selector+')')
+            point=dev.evaluate('(()=>{const r=document.querySelector('+json.dumps(f'[data-reminder="{reminder}"] p')+').getBoundingClientRect();return {x:r.left+200,y:r.top+r.height/2}})()')
+            swipe(point['x'],point['y'],-100)
+            wait('!WAITING_SAVING && !document.querySelector('+reminder_selector+')')
+            self.assertEqual(dev.evaluate('TAB'),'work','reminder swipe navigated away')
+            self.assertTrue(dev.evaluate('!!document.querySelector('+json.dumps(f'[data-reminder="{remaining}"]')+')'))
+            tap('[data-ux="waiting-clear"]')
+            wait('!WAITING_SAVING && !document.querySelector("[data-reminder]")')
+            self.assertEqual(fx.api('GET',f'/api/messages/{remaining}',who='alice')['message']['status']['state'],'open')
             artifacts = os.environ.get('TELEGENT_TEST_ARTIFACTS')
             if artifacts:
                 dest = Path(artifacts); dest.mkdir(parents=True, exist_ok=True)

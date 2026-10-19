@@ -484,6 +484,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .ux-card { padding:14px;border:1px solid var(--line);border-radius:12px;margin:10px 0;background:var(--panel); }
 .ux-card p { margin:8px 0;overflow-wrap:anywhere; }
 .ux-card button { min-height:44px; }
+.work-reminder { touch-action:pan-y; }
+.work-reminder.dismiss-swipe { opacity:.65; }
 .ux-muted { font-size:13px;color:var(--muted); }
 .receipt-button { display:block;margin:4px 0 0 auto;padding:2px 8px;min-width:44px;min-height:28px;border:0;background:transparent;color:var(--muted);font-size:12px; }
 .receipt-button.read { color:var(--accent); }
@@ -840,6 +842,10 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 "use strict";
 // ---- localization: translate source-owned strings before inserting user values
 const UI_EN={
+  "Очистить список": "Clear list",
+  "Убрать из списка": "Dismiss reminder",
+  "Напоминания убраны из списка": "Reminders dismissed",
+  "Убирается только ваше напоминание. Сообщение и статус поручения сохраняются.": "Only your reminder is dismissed. The message and task status are preserved.",
   "Пароля ещё нет? Войди один раз ": "No password yet? Sign in once ",
   "по токену": "with a token",
   " или по\n      ссылке из ": " or with the link from ",
@@ -1420,6 +1426,8 @@ const TYPES = {info: tr("инфо"), request: tr("просьба"), question: tr
 const STATES = {open: tr("открыто"), taken: tr("взято"), done: tr("сделано"), rejected: tr("отклонено")};
 let TAB = "feed";
 let TOKEN = null, ME = null, LAST = 0, OLDEST = null, MSGS = new Map(), THREAD = null, REPLY = null, POLLING = false;
+let FEED_EPOCH=0, FEED_REQUEST=0, FEED_APPLIED=0, PROJECT_REQUEST=0, PROJECT_APPLIED=0, DM_REQUEST=0, DM_APPLIED=0;
+let PROJECT_ACCOUNT=null, DM_SCOPE=null;
 // projects: PROJECT is the open one (sent as X-Telegent-Project), PROJECTS the list in the left column
 let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREAD_FROM = 0;
 let ACTIVE_DM = null, CONVERSATIONS = [];
@@ -1753,9 +1761,11 @@ const gestureRoot=document.querySelector("#app .wrap");
 function finishNavTouch(){
   const n=NAV_TOUCH;NAV_TOUCH=null;gestureHint.classList.add("hidden");
   if(n?.message){const row=$("m"+n.message);if(row){row.style.removeProperty("transform");row.classList.remove("reply-swipe");}}
+  if(n?.reminder){const row=$("workBox").querySelector(`[data-reminder="${n.reminder}"]`);if(row){row.style.removeProperty("transform");row.classList.remove("dismiss-swipe");}}
   return n;
 }
 function messageSwipeAction(n,dx){
+  if(dx<0 && n.reminder)return {label:tr("Убрать из списка"),dismiss:true,run:()=>dismissWaiting([n.reminder])};
   if(dx<0 && n.message){
     const m=MSGS.get(n.message);
     return m&&!m.deleted?{label:tr("Ответить"),reply:true,run:()=>startReply(m)}:null;
@@ -1773,7 +1783,8 @@ gestureRoot.addEventListener("touchstart",e=>{
   }
   const t=e.touches[0];if(t.clientX<24 || t.clientX>innerWidth-24)return;
   const message=target.closest(".mmain")?.closest(".mrow[data-msg]");
-  NAV_TOUCH={x:t.clientX,y:t.clientY,at:performance.now(),scope:`${PROJECT}|${TAB}|${ACTIVE_DM?.id}`,horizontal:false,message:message?+message.dataset.msg:null};
+  const reminder=target.closest("[data-reminder]");
+  NAV_TOUCH={x:t.clientX,y:t.clientY,at:performance.now(),scope:`${PROJECT}|${TAB}|${ACTIVE_DM?.id}`,horizontal:false,message:message?+message.dataset.msg:null,reminder:reminder?+reminder.dataset.reminder:null};
 },{passive:true});
 gestureRoot.addEventListener("touchmove",e=>{
   const n=NAV_TOUCH;if(!n || e.touches.length!==1) {finishNavTouch();return;}
@@ -1783,6 +1794,7 @@ gestureRoot.addEventListener("touchmove",e=>{
     n.horizontal=true;if(e.cancelable)e.preventDefault();
     const action=messageSwipeAction(n,dx);gestureHint.textContent=action?.label||"";gestureHint.classList.toggle("hidden",!action);
     if(n.message){const row=$("m"+n.message);if(row){row.style.transform=action?.reply?`translateX(${Math.max(-48,dx*.4)}px)`:"";row.classList.toggle("reply-swipe",!!action?.reply);}}
+    if(n.reminder){const row=$("workBox").querySelector(`[data-reminder="${n.reminder}"]`);if(row){row.style.transform=action?.dismiss?`translateX(${Math.max(-64,dx*.5)}px)`:"";row.classList.toggle("dismiss-swipe",!!action?.dismiss);}}
   }
 },{passive:false});
 gestureRoot.addEventListener("touchend",async e=>{
@@ -1791,7 +1803,7 @@ gestureRoot.addEventListener("touchend",async e=>{
   const dx=e.changedTouches[0].clientX-n.x,dy=e.changedTouches[0].clientY-n.y;
   if(Math.abs(dx)<Math.min(72,innerWidth*.15) || Math.abs(dx)<Math.abs(dy)*1.4 || performance.now()-n.at>1000)return;
   const action=messageSwipeAction(n,dx);if(!action)return;if(e.cancelable)e.preventDefault();
-  try {saveDraft();await action.run();if(!action.reply){const sc=$("scroller");sc.style.setProperty("--nav-direction",dx<0?"8px":"-8px");sc.classList.remove("nav-enter");void sc.offsetWidth;sc.classList.add("nav-enter");}}catch(err){toast(err.message,true);}
+  try {saveDraft();await action.run();if(!action.reply&&!action.dismiss){const sc=$("scroller");sc.style.setProperty("--nav-direction",dx<0?"8px":"-8px");sc.classList.remove("nav-enter");void sc.offsetWidth;sc.classList.add("nav-enter");}}catch(err){toast(err.message,true);}
 },{passive:false});
 gestureRoot.addEventListener("touchcancel",finishNavTouch,{passive:true});
 
@@ -2008,7 +2020,7 @@ async function setProject(slug) {
   saveDraft(); closeMenu();
   ACTIVE_DM = null; CONVERSATIONS = []; closeSecret();
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
-  PROJECT = slug; st.set("tg_project", slug);
+  FEED_EPOCH++; PROJECT = slug; st.set("tg_project", slug);
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
   MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;
   REACTION_REVISION = null;
@@ -2030,19 +2042,22 @@ async function setProject(slug) {
 
 const feedCursor = () => ACTIVE_DM ? ACTIVE_DM.read_upto || 0 : ME.project?.read_upto || 0;
 function resetFeedState() {
+  FEED_EPOCH++;
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER=null;
   POLL_ABORT?.abort(); MSGS=new Map(); LAST=0; OLDEST=null; SIG=""; THREAD=null; REPLY=null; UNSEEN=0;
   REACTION_REVISION=null; RECEIPT_REVISION=null; CONTENT_REVISION=null; UNREAD_FROM=feedCursor();
 }
 async function loadConversations() {
-  const slug=PROJECT,token=TOKEN;
+  const slug=PROJECT,token=TOKEN,request=++DM_REQUEST,scope=`${TOKEN}|${PROJECT}`;
   const rows=(await api("GET","/api/conversations")).conversations;
-  if (PROJECT!==slug || TOKEN!==token) return;
-  CONVERSATIONS=rows;
+  if (PROJECT!==slug || TOKEN!==token || request<DM_APPLIED) return;
+  DM_APPLIED=request;
+  const previous=DM_SCOPE===scope?CONVERSATIONS:[]; DM_SCOPE=scope;
+  CONVERSATIONS=rows.map(c=>preserveReadCursor(c,previous.find(old=>old.id===c.id)));
   if (ACTIVE_DM) {
-    const c=rows.find(c=>c.id===ACTIVE_DM.id);
+    const c=CONVERSATIONS.find(c=>c.id===ACTIVE_DM.id);
     if (!c) { ACTIVE_DM=null; resetFeedState(); restoreDraft(); paintTab(); }
-    else { ACTIVE_DM=c; $("dmTitle").textContent=c.peer; }
+    else { ACTIVE_DM=preserveReadCursor(c,ACTIVE_DM); $("dmTitle").textContent=c.peer; }
   }
   renderConversations();
 }
@@ -2183,11 +2198,15 @@ function openProjectMenu(slug, anchor) {
 }
 
 async function loadProjects() {
-  const token=TOKEN;
+  const token=TOKEN,account=ME?.id,request=++PROJECT_REQUEST;
   try {
     const projects = (await api("GET", "/api/projects")).projects;
-    if(TOKEN!==token)return;
-    PROJECTS=projects;
+    if(TOKEN!==token || ME?.id!==account || request<PROJECT_APPLIED)return;
+    PROJECT_APPLIED=request;
+    const previous=PROJECT_ACCOUNT===account?PROJECTS:[]; PROJECT_ACCOUNT=account;
+    PROJECTS=projects.map(p=>preserveReadCursor(p,previous.find(old=>old.id===p.id)));
+    const active=PROJECTS.find(p=>p.slug===PROJECT);
+    if(active && ME?.project?.id===active.id) Object.assign(active,preserveReadCursor(active,ME.project));
     const current = PROJECTS.find(p => p.slug === PROJECT);
     $("generalCount").textContent=current?.unread?` (${current.unread})`:"";
     if (current) NTF.unread = document.visibilityState === "visible" ? 0 : (current.unread || 0);
@@ -2195,9 +2214,13 @@ async function loadProjects() {
   } catch {}
 }
 
+function preserveReadCursor(next,previous) {
+  if (!previous || (next.read_upto || 0)>=(previous.read_upto || 0)) return next;
+  return {...next,read_upto:previous.read_upto,unread:previous.unread,first_unread_id:previous.first_unread_id};
+}
 function applyProjectInfo(p) {
   if (!p || p.slug !== PROJECT) return;
-  ME.project = p;
+  ME.project = ME.project?.id===p.id?preserveReadCursor(p,ME.project):p;
   $("devChatHint").classList.toggle("hidden", p.kind !== "development");
   $("devChatHint").textContent = p.developer_connected
     ? tr("Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда.")
@@ -2316,6 +2339,23 @@ function filterQuery() {
 function online() { $("conn").className = "dot on"; $("conn").title = tr("на связи"); $("connectionBanner").classList.add("hidden"); }
 const SC = $("scroller");   // the only scrolling element: the feed between the tabs and the composer
 const nearBottom = () => SC.scrollHeight - SC.scrollTop - SC.clientHeight < 160;
+const feedVisible = () => TAB==="feed" || TAB==="direct" && !!ACTIVE_DM;
+const feedScope = () => `${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}|${FEED_EPOCH}|${filterQuery()}`;
+function confirmedMessages(rows) {
+  const cursor=feedCursor();
+  return rows.map(m=>MSGS.get(m.id)?.read || m.id<=cursor&&!isMine(m)&&!isSys(m)?{...m,read:true}:m);
+}
+function captureFeedAnchor() {
+  if (!feedVisible()) return null;
+  const top=SC.getBoundingClientRect().top;
+  const row=[...$("feed").querySelectorAll("[data-msg]")].find(row=>row.getBoundingClientRect().bottom>top+2);
+  return {id:row?.id,offset:row?row.getBoundingClientRect().top-top:0,y:SC.scrollTop};
+}
+function restoreFeedAnchor(anchor) {
+  if (!anchor || !feedVisible()) return;
+  const row=anchor.id && document.getElementById(anchor.id);
+  SC.scrollTop=row?SC.scrollTop+row.getBoundingClientRect().top-SC.getBoundingClientRect().top-anchor.offset:anchor.y;
+}
 let READ_TIMER = null;
 const READ_IDS = new Set();
 function readingFeed() {
@@ -2349,7 +2389,7 @@ async function flushReads() {
     const res = await api("POST", "/api/receipts?project=" + encodeURIComponent(slug) + (cid?"&conversation="+encodeURIComponent(cid):""), data);
     if (TOKEN !== token || PROJECT !== slug || ACTIVE_DM?.id !== cid) return;
     for (const id of res.ids) { const m = MSGS.get(id); if (m) m.read = true; }
-    if (res.read_upto != null) { if(ACTIVE_DM) ACTIVE_DM.read_upto=res.read_upto; else ME.project.read_upto = res.read_upto; }
+    if (res.read_upto != null) { if(ACTIVE_DM) ACTIVE_DM.read_upto=Math.max(feedCursor(),res.read_upto); else ME.project.read_upto = Math.max(feedCursor(),res.read_upto); }
     await loadProjects();
   } catch { /* A failed read stays unread and is retried on the next render/visibility change. */ }
 }
@@ -2375,11 +2415,13 @@ window.addEventListener("resize", setHeaderHeight);
 
 // full reset (first open, filters, thread): the last page, scrolled to the bottom
 async function reload() {
-  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
+  FEED_EPOCH++;
+  const scope=feedScope(),request=++FEED_REQUEST;
   const q = filterQuery(); q.set("limit", PAGE);
   const res = await api("GET", "/api/messages?" + q);
-  if (scope!==`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`) return;
-  MSGS = new Map(res.messages.map(m => [m.id, m]));
+  if (scope!==feedScope() || request<FEED_APPLIED) return;
+  FEED_APPLIED=request;
+  MSGS = new Map(confirmedMessages(res.messages).map(m => [m.id, m]));
   REACTION_REVISION = res.reaction_revision;
   RECEIPT_REVISION = res.receipt_revision;
   CONTENT_REVISION = res.content_revision;
@@ -2387,21 +2429,33 @@ async function reload() {
   NO_MORE = res.messages.length < PAGE;
   LAST = Math.max(LAST, res.last_id);
   NTF.seen = Math.max(NTF.seen, res.last_id);   // what is on the page now is not news
-  online(); render(true); toBottom(); refreshSide();
+  online(); render(true); if(feedVisible())toBottom(); refreshSide();
 }
 
 // live update: re-fetch everything shown (status, approvals and receipts change on old messages too) plus new ones
 async function refresh() {
   if(TAB==="direct" && !ACTIVE_DM) return loadConversations();
-  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
+  const scope=feedScope(),request=++FEED_REQUEST,oldest=OLDEST;
   const q = filterQuery(); q.set("limit", "1000");
   if (OLDEST) q.set("after", OLDEST - 1);
   const res = await api("GET", "/api/messages?" + q);
-  if(scope!==`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`) return;
-  if (res.messages.length >= 1000) return reload();
-  const stick = nearBottom();
+  if(scope!==feedScope() || request<FEED_APPLIED) return;
+  let page=res.messages;
+  while(page.length===1000) {
+    q.set("after",page[page.length-1].id);
+    const next=await api("GET","/api/messages?"+q);
+    if(scope!==feedScope() || request<FEED_APPLIED)return;
+    page=next.messages;res.messages.push(...page);
+    res.last_id=Math.max(res.last_id,next.last_id);
+  }
+  if(OLDEST!==oldest)return refresh(); // An older page was added while this snapshot was in flight.
+  while(NAV_TOUCH && scope===feedScope())await new Promise(resolve=>setTimeout(resolve,50));
+  if(scope!==feedScope() || request<FEED_APPLIED)return;
+  if(OLDEST!==oldest)return refresh();
+  FEED_APPLIED=request;
+  const stick = feedVisible() && nearBottom(),anchor=captureFeedAnchor();
   const fresh = res.messages.filter(m => !MSGS.has(m.id)).length;
-  MSGS = new Map(res.messages.map(m => [m.id, m]));
+  MSGS = new Map(confirmedMessages(res.messages).map(m => [m.id, m]));
   REACTION_REVISION = res.reaction_revision;
   RECEIPT_REVISION = res.receipt_revision;
   CONTENT_REVISION = res.content_revision;
@@ -2410,24 +2464,24 @@ async function refresh() {
   ntfNew(res.messages.filter(m => m.id > NTF.seen)); NTF.seen = Math.max(NTF.seen, res.last_id);
   online();
   if (!render()) return;
-  if (stick) toBottom(); else if (fresh) { UNSEEN += fresh; updateNewBtn(); }
+  if (stick) toBottom(); else { restoreFeedAnchor(anchor); if(fresh) { UNSEEN += fresh; updateNewBtn(); } }
   refreshSide();
 }
 
 async function loadOlder() {
   if (LOADING_OLDER || NO_MORE || !OLDEST) return;
-  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
+  const scope=feedScope();
   LOADING_OLDER = true;
   try {
     const q = filterQuery(); q.set("limit", PAGE); q.set("before", OLDEST);
     const res = await api("GET", "/api/messages?" + q);
-    if(scope!==`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`)return;
+    if(scope!==feedScope())return;
     NO_MORE = res.messages.length < PAGE;
-    const h0 = SC.scrollHeight, y0 = SC.scrollTop;
-    for (const m of res.messages) MSGS.set(m.id, m);
+    const anchor=captureFeedAnchor();
+    for (const m of confirmedMessages(res.messages)) MSGS.set(m.id, m);
     if (res.messages.length) OLDEST = res.messages[0].id;
     render(true);
-    SC.scrollTop = y0 + SC.scrollHeight - h0;   // keep the reading position
+    restoreFeedAnchor(anchor);
   } catch {} finally { LOADING_OLDER = false; }
 }
 $("moreBtn").onclick = loadOlder;
@@ -3496,16 +3550,31 @@ function showSettings(){
   $("infoBody").querySelector('[data-language]').closest('.ux-card').insertAdjacentHTML('beforebegin',ui`<div class="ux-card"><label>Цветовая схема <select data-color-scheme><option value="default">Стандартная (синяя)</option><option value="telegram">Серая (белые галочки)</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере.</p></div>`);
   $("infoBody").querySelector('[data-color-scheme]').value=st.get('tg_colors')==='telegram'?'telegram':'default';
 }
+let WORK_SCOPE=null,WORK_HTML=null,WORK_REQUEST=0,WORK_APPLIED=0;
 async function loadWork(){
-  const scope=uiScope(),mode=WORK_MODE;$("workBox").innerHTML=tr('<p role="status">Загружаем…</p>');
+  const scope=uiScope(),mode=WORK_MODE,request=++WORK_REQUEST,key=`${scope}|${mode}`;
+  if(WORK_SCOPE!==key){WORK_SCOPE=key;WORK_HTML=null;$("workBox").innerHTML=tr('<p role="status">Загружаем…</p>');}
   document.querySelectorAll('[data-ux="workmode"]').forEach(b=>b.classList.toggle("active",b.dataset.mode===mode));
   try {
     const query=mode==="approval"?"pending_approval=mine":mode==="waiting"?"waiting_me=1":"open=1";
     let rows=(await api("GET","/api/messages?conversation=all&limit=1000&"+query)).messages;
-    if(scope!==uiScope() || mode!==WORK_MODE)return;
+    while(NAV_TOUCH && scope===uiScope() && mode===WORK_MODE)await new Promise(resolve=>setTimeout(resolve,50));
+    if(scope!==uiScope() || mode!==WORK_MODE || request<WORK_APPLIED)return;
+    WORK_APPLIED=request;
     if(mode==="taken")rows=rows.filter(m=>m.status?.state==="taken"&&m.status.by_id===ME.id);
-    $("workBox").innerHTML=rows.map(m=>ui`<article class="ux-card"><div class="ux-muted">${esc(m.author)} · ${esc(m.conversation_id?tr("Личный чат"):tr("Общий чат"))} · ${esc(shortTime(m.time))}</div><p>${esc(m.subject)}</p><div class="actions"><button data-act="jump" data-id="${m.id}">Открыть сообщение</button>${mode==="approval"?ui`<button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button><button class="bad" data-act="deny" data-id="${m.id}">Отказать</button>`:mode==="taken"?ui`<button data-act="st" data-st="done" data-id="${m.id}">Завершить просьбу</button>`:ui`<button data-ux="work-reply" data-id="${m.id}">Ответить</button>${m.status?.state==="open"?ui`<button data-act="st" data-st="taken" data-id="${m.id}">Взять в работу</button>`:""}`}</div></article>`).join("")||tr('<p class="muted">Здесь всё разобрано.</p>');
-  }catch(err){if(scope===uiScope())$("workBox").innerHTML=ui`<p class="err">${esc(err.message)}</p><button data-ux="work-reload">Повторить</button>`;}
+    const html=(mode==="waiting"&&ME.kind==="human"&&rows.length?ui`<div class="actions"><button data-ux="waiting-clear">Очистить список</button></div><p class="ux-muted">Убирается только ваше напоминание. Сообщение и статус поручения сохраняются.</p>`:"")+ (rows.map(m=>ui`<article class="ux-card ${mode==="waiting"&&ME.kind==="human"?'work-reminder':''}" ${mode==="waiting"&&ME.kind==="human"?`data-reminder="${m.id}"`:""}><div class="ux-muted">${esc(m.author)} · ${esc(m.conversation_id?tr("Личный чат"):tr("Общий чат"))} · ${esc(shortTime(m.time))}</div><p>${esc(m.subject)}</p><div class="actions"><button data-act="jump" data-id="${m.id}">Открыть сообщение</button>${mode==="approval"?ui`<button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button><button class="bad" data-act="deny" data-id="${m.id}">Отказать</button>`:mode==="taken"?ui`<button data-act="st" data-st="done" data-id="${m.id}">Завершить просьбу</button>`:ui`<button data-ux="work-reply" data-id="${m.id}">Ответить</button>${ME.kind==="human"?ui`<button data-ux="waiting-dismiss" data-id="${m.id}">Убрать из списка</button>`:""}${m.status?.state==="open"?ui`<button data-act="st" data-st="taken" data-id="${m.id}">Взять в работу</button>`:""}`}</div></article>`).join("")||tr('<p class="muted">Здесь всё разобрано.</p>'));
+    if(WORK_HTML!==html){$("workBox").innerHTML=html;WORK_HTML=html;}
+  }catch(err){if(scope===uiScope() && mode===WORK_MODE && request>=WORK_APPLIED){WORK_HTML=null;$("workBox").innerHTML=ui`<p class="err">${esc(err.message)}</p><button data-ux="work-reload">Повторить</button>`;}}
+}
+let WAITING_SAVING=false;
+async function dismissWaiting(ids=null){
+  if(WAITING_SAVING)return;
+  const scope=uiScope();WAITING_SAVING=true;
+  try {
+    await api("POST","/api/waiting/dismiss",ids?{ids}:{all:true});
+    if(scope!==uiScope())return;
+    await loadWork();await refreshSide();toast(tr("Напоминания убраны из списка"));
+  }finally{WAITING_SAVING=false;}
 }
 function boardCard(b){
   const old=b.age==null||b.age>=86400;
@@ -3553,6 +3622,8 @@ document.addEventListener("click",async e=>{
     case "workmode":WORK_MODE=el.dataset.mode;document.querySelectorAll('[data-ux="workmode"]').forEach(b=>b.classList.toggle("active",b===el));await loadWork();break;
     case "work-reply":{const scope=uiScope(),m=(await api("GET",`/api/messages/${el.dataset.id}`)).message;if(scope!==uiScope())break;saveReturnView();if(m.conversation_id)await openDirect(m.conversation_id);else await selectTab("feed");startReply(m);break;}
     case "work-reload":await loadWork();break;
+    case "waiting-clear":await dismissWaiting();break;
+    case "waiting-dismiss":await dismissWaiting([+el.dataset.id]);break;
     case "board":await selectTab("board");break;
     case "home":await selectTab("feed");break;
     case "member":await showMember(el.dataset.account);break;

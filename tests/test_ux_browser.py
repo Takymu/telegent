@@ -102,6 +102,10 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   const question=(await actor('POST','/api/messages',{type:'question',body:'question fixture '+VIEWPORT,to_ids:[ME.id]})).id;
   WORK_MODE='waiting';await selectTab('work');await loadWork();
   check(!!document.querySelector('#workBox [data-id="'+question+'"]'),'incoming question is actionable');
+  document.querySelector('#workBox [data-ux="waiting-dismiss"][data-id="'+question+'"]').click();
+  await wait(()=>!WAITING_SAVING&&!document.querySelector('#workBox [data-reminder="'+question+'"]'));
+  await loadWork();check(!document.querySelector('#workBox [data-reminder="'+question+'"]'),'dismissal survives reload');
+  check((await api('GET','/api/messages/'+question)).message.body.includes('question fixture'),'dismissal preserves message');
   const approval=(await actor('POST','/api/messages',{body:'approval fixture '+VIEWPORT,needs_approval:true,approver:ME.name})).id;
   WORK_MODE='approval';await loadWork();await openAction(approval,'approval','approve');
   $('actionNote').value='fixture decision';$('actionSave').click();await wait(()=>!$('actionDialog').open&&!$('actionSave').disabled);

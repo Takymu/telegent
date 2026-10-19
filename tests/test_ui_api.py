@@ -1,6 +1,7 @@
 """UI metadata respects visibility; locale changes error copy, never authority or data."""
 import json
 import re
+import secrets
 import unittest
 import urllib.error
 import test_attachments as fixture
@@ -10,6 +11,10 @@ class UIAPITest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         fixture.AttachmentTest.setUpClass();cls.fx=fixture.AttachmentTest()
+        cls.fx.tokens['bob']='tgt_'+secrets.token_hex(24)
+        cls.fx.s.db().execute('INSERT INTO users(name,kind,owner,token_hash,created_ts) VALUES (?,?,?,?,?)',
+                             ('bob','human','bob',cls.fx.s.token_hash(cls.fx.tokens['bob']),cls.fx.s.time.time()))
+        cls.fx.s.add_member(cls.fx.s.db(),cls.fx.pid,'bob','member','alice')
 
     @classmethod
     def tearDownClass(cls):
@@ -46,6 +51,54 @@ class UIAPITest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as denied:
             self.fx.api('GET','/api/messages?project=other',headers={'X-Telegent-Language':'en'})
         self.assertEqual(denied.exception.code,404)
+
+    def test_waiting_dismissal_is_personal_persistent_and_preserves_requests(self):
+        def send(body, recipients):
+            return self.fx.api('POST','/api/messages?project=main',
+                               {'body':body,'type':'request','to_ids':recipients})['id']
+        def waiting(who='alice'):
+            return {m['id'] for m in self.fx.api('GET','/api/messages?project=main&waiting_me=1&conversation=all',who=who)['messages']}
+        shared=send('shared reminder fixture',['alice','bob'])
+        second=send('second reminder fixture',['alice'])
+        self.assertIn(shared,waiting())
+        self.assertIn(shared,waiting('bob'))
+        self.fx.api('POST','/api/waiting/dismiss?project=main',{'ids':[shared]},who='alice')
+        self.assertNotIn(shared,waiting())
+        self.assertIn(shared,waiting('bob'))
+        row=self.fx.api('GET',f'/api/messages/{shared}',who='alice')['message']
+        self.assertEqual(row['status']['state'],'open')
+        self.assertFalse(any(r['acked'] for r in row['receipts']))
+        self.assertEqual(self.fx.api('POST','/api/waiting/dismiss?project=main',{'ids':[shared]},who='alice')['dismissed'],0)
+        self.fx.api('POST','/api/waiting/dismiss?project=main',{'all':True},who='alice')
+        self.assertNotIn(second,waiting())
+        new=send('new reminder fixture',['alice'])
+        self.assertIn(new,waiting())
+        self.assertNotIn(shared,waiting())
+        # Dismissals live in the persistent store, independent of a browser session.
+        self.assertIsNotNone(self.fx.s.db().execute('SELECT 1 FROM waiting_dismissals WHERE user=? AND message_id=?',('alice',shared)).fetchone())
+        edited=self.fx.api('POST','/api/messages?project=main',
+                           {'body':'editable reminder fixture','type':'question','to_ids':['alice']},who='bob')['id']
+        self.fx.api('POST','/api/waiting/dismiss?project=main',{'ids':[edited]},who='alice')
+        self.fx.api('POST',f'/api/messages/{edited}/edit',{'revision':0,'body':'updated reminder fixture'},who='bob')
+        self.assertIn(edited,waiting(),'an edited question must not stay silently dismissed')
+
+    def test_waiting_dismissal_rejects_foreign_ids_and_cannot_forge_authority(self):
+        own=self.fx.api('POST','/api/messages?project=main',{'body':'own reminder fixture','type':'question','to_ids':['alice']})['id']
+        foreign=self.fx.api('POST','/api/messages?project=other',{'body':'foreign reminder fixture'},who='carol')['id']
+        cid=self.fx.api('POST','/api/conversations?project=main',{'peer_id':'alice-agent'},who='bob')['conversation']['id']
+        private=self.fx.api('POST','/api/messages?project=main',{'body':'private reminder fixture','conversation_id':cid},who='bob')['id']
+        for mid in (foreign,private):
+            with self.assertRaises(urllib.error.HTTPError) as denied:
+                self.fx.api('POST','/api/waiting/dismiss?project=main',{'ids':[own,mid]},who='alice')
+            self.assertEqual(denied.exception.code,404)
+        self.assertIsNone(self.fx.s.db().execute('SELECT 1 FROM waiting_dismissals WHERE user=? AND message_id=?',('alice',own)).fetchone())
+        for payload in ({'ids':[own],'user':'bob'},{'all':False},{'ids':[]},{'ids':[True]},{'ids':[own],'all':True}):
+            with self.assertRaises(urllib.error.HTTPError) as denied:
+                self.fx.api('POST','/api/waiting/dismiss?project=main',payload,who='alice')
+            self.assertEqual(denied.exception.code,400)
+        with self.assertRaises(urllib.error.HTTPError) as denied:
+            self.fx.api('POST','/api/waiting/dismiss?project=main',{'all':True})
+        self.assertEqual(denied.exception.code,403)
 
     def test_thread_count_is_scoped_and_excludes_service_messages(self):
         root=self.fx.api('POST','/api/messages?project=main',{'body':'fixture root'},who='alice')['id']
