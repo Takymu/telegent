@@ -126,12 +126,14 @@ class DevelopmentChatTest(unittest.TestCase):
         mid=self.incoming()
         self.event('task_started',turn_id='turn-fixture')
         self.run_step(self.accept)
+        self.assertTrue(self.api('GET','/api/me',who=self.key)['working'])
         self.assertFalse(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
         with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
             self.bridge.observe(self.conf,self.session,mid)
         self.event('task_complete',turn_id='turn-fixture',last_agent_message='Session answer')
         with mock.patch.object(self.bridge.ipc,'deliver',side_effect=AssertionError('duplicate dispatch')):
             self.run_step(lambda *a: self.fail('duplicate dispatch'))
+        self.assertFalse(self.api('GET','/api/me',who=self.key)['working'])
         result=self.api('GET',f'/api/messages/{mid}',who=self.key)
         reply=next(m for m in result['thread'] if m['body']=='Session answer')
         self.assertEqual(reply['author_id'],self.key);self.assertEqual(reply['to_ids'],['alice'])

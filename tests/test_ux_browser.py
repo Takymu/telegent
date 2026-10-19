@@ -107,7 +107,11 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   $('actionNote').value='fixture decision';$('actionSave').click();await wait(()=>!$('actionDialog').open&&!$('actionSave').disabled);
   check((await api('GET','/api/messages/'+approval)).message.approvals.some(a=>a.by_id===ME.id),'approval form persists human decision');
   await actor('POST','/api/board',{now:'Declared fixture task',next:'Fixture next step'});
-  await loadPresence();check(document.querySelector('.participant-card[data-account="'+peer.id+'"] .member-work')?.textContent.includes('Declared fixture task'),'participant list shows declared task separately from connection');
+  await actor('POST','/api/activity',{state:'working',client:'f'.repeat(32)});await loadPresence();
+  const participant=document.querySelector('.participant-card[data-account="'+peer.id+'"]');
+  check(participant.textContent.includes('работает')&&!participant.textContent.includes('Declared fixture task'),'participant list shows compact runtime activity');
+  await actor('POST','/api/activity',{state:'idle',client:'f'.repeat(32)});await loadPresence();
+  check(!document.querySelector('.participant-card[data-account="'+peer.id+'"]').textContent.includes('работает'),'idle client does not appear working');
   await selectTab('board');await loadBoard();check($('boardBox').textContent.includes('Declared fixture task'),'board shows explicit reported work');
   await showMember(peer.id);check($('infoBody').textContent.includes('Declared fixture task')&&$('infoBody').textContent.includes('Наличие связи'),'participant card separates connection and declared work');closeInfo();
   await selectTab('feed');openInvite('');

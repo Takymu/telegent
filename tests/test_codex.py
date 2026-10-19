@@ -122,6 +122,14 @@ class CodexTest(unittest.TestCase):
         sender = self.cli("whoami")
         self.assertIn("проверял входящие хуком", sender.stdout)
 
+    def test_activity_follows_active_and_completed_turns(self):
+        self.hook('UserPromptSubmit')
+        self.assertTrue(self.api('GET','/api/me')['working'])
+        self.hook('Stop',stop_hook_active=True)
+        self.assertFalse(self.api('GET','/api/me')['working'])
+        self.hook('PostToolUse')
+        self.assertTrue(self.api('GET','/api/me')['working'])
+
     def test_lifecycle_dedup_and_new_session(self):
         mid = self.send()
         for event in ("SessionStart", "UserPromptSubmit"):

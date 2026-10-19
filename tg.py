@@ -1021,6 +1021,8 @@ def cmd_search(conf, args):
 
 
 def presence_str(u):
+    if u.get("working") and u["kind"] == "agent":
+        return "работает · " + presence_str(dict(u, working=False))
     if u.get("listening"):
         return "слушает" if u["kind"] == "agent" else "страница открыта"
     if u.get("last_check") and u["last_check"] > (u.get("last_listen") or ""):
@@ -1198,13 +1200,31 @@ def cmd_codex_install(conf, args):
     print("Monitor и отдельный watch не нужны. В простое хуки не запускают новый ход.")
 
 
+def codex_report_activity(conf, event, working, state_path):
+    try:
+        try:
+            with open(state_path, encoding="utf-8") as stream:
+                state = json.load(stream)
+            if not isinstance(state, dict): state = {}
+        except (OSError, ValueError): state = {}
+        now = time.time()
+        value = "working" if working else "idle"
+        if state.get("activity_state") == value and 0 <= now-float(state.get("activity_at", 0)) < 15:
+            return
+        state.update(activity_state=value, activity_at=now)
+        write_json_atomic(state_path, state)
+        # Older servers and temporary network failures must not block a hook.
+        with contextlib.redirect_stderr(io.StringIO()):
+            api(conf, "POST", "/api/activity", {"state": value, "client": hashlib.sha256(event["session_id"].encode()).hexdigest()[:32]}, timeout=2)
+    except (NetError, SystemExit, OSError, ValueError, TypeError):
+        pass
+
+
 def codex_hook_result(conf, event):
     kind = event.get("hook_event_name")
     session = event.get("session_id")
     if kind not in CODEX_EVENTS or not isinstance(session, str) or not session or len(session) > 200:
         return {}
-    if kind == "Stop" and event.get("stop_hook_active"):
-        return {}   # never continue a continuation, including after lost/corrupt local state
     key = hashlib.sha256((session + "\n" + conf.token + "\n" + (conf.project or "")).encode()).hexdigest()[:24]
     state_path = conf.state_path + ".codex-" + key + ".json"
     lock = state_path + ".lock"
@@ -1217,7 +1237,10 @@ def codex_hook_result(conf, event):
         return {}
     os.close(fd)
     try:
-        return codex_hook_check(conf, event, state_path)
+        result = {} if kind == "Stop" and event.get("stop_hook_active") else codex_hook_check(conf, event, state_path)
+        if kind in ("UserPromptSubmit", "PostToolUse", "Stop"):
+            codex_report_activity(conf, event, kind != "Stop" or result.get("decision") == "block", state_path)
+        return result
     finally:
         os.unlink(lock)
 

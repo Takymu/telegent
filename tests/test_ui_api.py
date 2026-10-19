@@ -15,6 +15,27 @@ class UIAPITest(unittest.TestCase):
     def tearDownClass(cls):
         fixture.AttachmentTest.tearDownClass()
 
+    def test_activity_is_self_reported_scoped_and_expires(self):
+        payload={'state':'working','client':'a'*32}
+        with self.assertRaises(urllib.error.HTTPError) as denied:
+            self.fx.api('POST','/api/activity?project=main',payload,who='alice')
+        self.assertEqual(denied.exception.code,403)
+        self.fx.api('POST','/api/activity?project=main',payload,who='alice-agent')
+        def working(name):
+            return next(u for u in self.fx.api('GET','/api/me?project=main',who='alice')['users'] if u['name']==name)['working']
+        self.assertTrue(working('alice-agent'))
+        self.assertIsNone(working('bob-agent'))
+        with self.assertRaises(urllib.error.HTTPError) as forged:
+            self.fx.api('POST','/api/activity?project=main',dict(payload,account_id='bob-agent'),who='alice-agent')
+        self.assertEqual(forged.exception.code,400)
+        self.fx.api('POST','/api/activity?project=main',dict(payload,state='idle',client='b'*32),who='alice-agent')
+        self.assertTrue(working('alice-agent'),'idle session must not clear another active session')
+        self.fx.api('POST','/api/activity?project=main',dict(payload,state='idle'),who='alice-agent')
+        self.assertFalse(working('alice-agent'))
+        self.fx.api('POST','/api/activity?project=main',payload,who='alice-agent')
+        row=self.fx.s.db().execute("SELECT * FROM users WHERE name='alice-agent'").fetchone()
+        self.assertIsNone(self.fx.s.presence(row,self.fx.s.time.time()+self.fx.s.ACTIVITY_WINDOW+1)['working'])
+
     def test_language_is_request_local_and_does_not_change_access(self):
         for language,english in [('en',True),('ru',False),('invalid',False),('en',True),('ru',False)]:
             with self.assertRaises(urllib.error.HTTPError) as raised:

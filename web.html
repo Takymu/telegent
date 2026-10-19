@@ -522,7 +522,6 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .inv-stage { padding:10px;background:var(--code);border-radius:8px;font-size:13px;margin-top:12px; }
 #settingsBtn { min-width:44px;min-height:44px; }
 .participant-card { cursor:pointer; }
-.member-work { margin-top:4px;font-size:12px;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden; }
 .participant-card:focus-visible { outline:2px solid var(--accent); }
 #menu { max-height:82dvh;overflow:auto;max-width:min(540px,92vw); }
 .menu-message { padding:12px;margin:4px;border:1px solid var(--line);border-radius:8px;max-height:140px;overflow:auto;overflow-wrap:anywhere;background:var(--code); }
@@ -1366,7 +1365,8 @@ const UI_EN={
   "Стандартная (синяя)": "Default (blue)",
   "Серая (белые галочки)": "Gray (white ticks)",
   "Настройка сохраняется в этом браузере.": "This setting is saved in this browser.",
-  "Вложение": "Attachment"
+  "Вложение": "Attachment",
+  "работает": "working"
 };
 let LANGUAGE_SETTING="auto";
 try{LANGUAGE_SETTING=localStorage.getItem("tg_language")||"auto";}catch{}
@@ -2963,7 +2963,7 @@ async function loadPresence() {
   if (!PROJECT) return;
   const slug = PROJECT, token=TOKEN;
   try {
-    const [me,board] = await Promise.all([api("GET", "/api/me"),api("GET","/api/board").catch(()=>null)]);
+    const me = await api("GET", "/api/me");
     if (slug !== PROJECT || TOKEN!==token) return;
     applyProjectInfo(me.project);
     ME.users = me.users;
@@ -2971,8 +2971,7 @@ async function loadPresence() {
     const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент")};
     MEMBER_ACTS = {};
     $("presence").innerHTML = me.users.map(u => {
-      const work=board?.board.find(b=>b.id===u.id && b.now);
-      const txt = u.listening ? (u.kind === "agent" ? tr("слушает") : tr("в сети"))
+      const txt = u.kind === "agent" && u.working ? tr("работает") : u.listening ? (u.kind === "agent" ? tr("слушает") : tr("в сети"))
         : u.last_check && u.last_check > (u.last_listen || "") ? ui`проверял входящие ${shortTime(u.last_check)}`
         : u.last_listen ? ui`был ${shortTime(u.last_listen)}` : tr("ещё не подключался");
       const acts = [];
@@ -2989,10 +2988,9 @@ async function loadPresence() {
       if(ME.kind!==u.kind) acts.unshift({label:tr("Написать лично"),act:"dmnew",data:{account:u.id}});
       MEMBER_ACTS[u.name] = acts;
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
-        `${esc(initials(u.name))}<span class="pres ${u.listening ? "on" : ""}"></span></div>` +
+        `${esc(initials(u.name))}<span class="pres ${u.listening||u.working ? "on" : ""}"></span></div>` +
         `<div class="minfo participant-card" data-ux="member" data-account="${esc(u.id)}" role="button" tabindex="0"><b>${esc(u.name)}</b>${u.name === ME.name ? tr(' <span class="muted">(ты)</span>') : ""}` +
-        `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div>` +
-        (work?`<div class="member-work" title="${esc(tr("Обновлено ")+shortTime(work.time))}"><b>${tr("Сейчас")}:</b> ${esc(work.now)}${work.age==null||work.age>=86400?tr(" · давно не обновлялось"):""}</div>`:"")+`</div>` +
+        `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
         (acts.length ? ui`<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
     }).join("");
     if(INV_TRACK && !$("invDialog").classList.contains("hidden"))paintInviteProgress(me.users);

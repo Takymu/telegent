@@ -728,7 +728,9 @@ def redeem_invite(code, password=None, label="", me=None, as_existing=False):
 
 # UI language affects exception text only; protocol values and stored messages stay unchanged.
 _UI_CONTEXT = threading.local()
-_UI_EN = {'аккаунта нет в выбранном проекте или среди твоих агентов без проекта': 'Account not found in the selected '
+_UI_EN = {'активность сообщает клиент агента': 'Activity is reported by the agent client',
+ 'активность: state working/idle и непрозрачная метка клиента': 'Activity requires state working/idle and an opaque client id',
+ 'аккаунта нет в выбранном проекте или среди твоих агентов без проекта': 'Account not found in the selected '
                                                                          'project or among your agents '
                                                                          'without a project',
  'имя и account_id должны быть строками': 'name and account_id must be strings',
@@ -1035,6 +1037,20 @@ def check_secret(field, text):
 # A client "listens" while it keeps a /api/wait long-poll going (tg.py watch, the web page).
 LISTEN_WINDOW = 75
 _touched = {}
+ACTIVITY_WINDOW = 180
+_agent_activity = {}
+_activity_lock = threading.Lock()
+
+
+def agent_working(name, now=None):
+    now = time.time() if now is None else now
+    with _activity_lock:
+        clients = {k:v for k,v in _agent_activity.get(name, {}).items() if 0 <= now-v[1] < ACTIVITY_WINDOW}
+        if clients:
+            _agent_activity[name] = clients
+            return any(v[0] == "working" for v in clients.values())
+        _agent_activity.pop(name, None)
+    return None
 
 
 def touch(user, waiting=False, checking=False):
@@ -1056,6 +1072,7 @@ def presence(row, now=None):
     now = now or time.time()
     lw = row["last_wait_ts"]
     return {"listening": bool(lw and now - lw < LISTEN_WINDOW), "last_listen": iso(lw),
+            "working": agent_working(row["name"], now) if row["kind"] == "agent" else None,
             "last_check": iso(row["last_check_ts"]), "last_seen": iso(row["last_seen_ts"])}
 
 
@@ -2004,7 +2021,7 @@ def api_me(h, user, q, data):
         mine = presence(user)
     return {**account_dict(user),
             "project": project_dict(p, user) if p else None, "projects": projects, "users": users,
-            "listening": mine["listening"], "last_listen": mine["last_listen"],
+            "listening": mine["listening"], "working": mine["working"], "last_listen": mine["last_listen"],
             "has_password": bool(user["pw_hash"]), "session": bool(h.session_hash), "is_admin": bool(user["is_admin"]),
             "server_time": iso(time.time()), "last_id": LAST_ID[0]}
 
@@ -2801,6 +2818,22 @@ def api_receipts(h, user, q, data):
             ids = [i for i in ids if can_read_message(db().execute("SELECT * FROM messages WHERE id = ?", (i,)).fetchone(), user)]
         mark(user, ids, kind)
     return {"ok": True, "ids": ids, **({"read_upto": cursor} if cursor is not None else {})}
+
+
+@route("POST", "/api/activity")
+def api_activity(h, user, q, data):
+    if user["kind"] != "agent":
+        raise ApiError(403, _ui_text("активность сообщает клиент агента"))
+    project_for(h, user, q)
+    if set(data) != {"state", "client"} or data.get("state") not in ("working", "idle") or not isinstance(data.get("client"), str) or not re.fullmatch(r"[0-9a-f]{32}", data["client"]):
+        raise ApiError(400, _ui_text("активность: state working/idle и непрозрачная метка клиента"))
+    now = time.time()
+    with _activity_lock:
+        clients = _agent_activity.setdefault(user["name"], {})
+        if data["client"] not in clients and len(clients) >= 16:
+            del clients[min(clients, key=lambda k: clients[k][1])]
+        clients[data["client"]] = (data["state"], now)
+    return {"ok": True}
 
 
 @route("GET", "/api/wait")

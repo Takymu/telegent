@@ -110,6 +110,7 @@ def observe(conf, session, mid):
 def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
     me = validate_account(conf)
     transcript.poll()
+    tg.codex_report_activity(conf, {'session_id':session}, bool(transcript.turn and transcript.busy), str(folder/'activity.json'))
     messages = tg.api_retry(conf, 'GET', '/api/messages?for_me=1&unacked=1&limit=1000')['messages']
     wanted = [m for m in messages if m['author_kind'] == 'human' and m.get('author_id') == me.get('owner_id')
               and m['type'] not in ('status', 'approval')]

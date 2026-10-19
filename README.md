@@ -345,6 +345,10 @@ reported work. Claims and results use mobile cards; active search conditions sta
 closing filters, and returning from a thread restores its source context. PNG/JPEG/GIF/WebP images
 up to 12 MB can be previewed with normal attachment authorization.
 
+The participant list uses a compact “working” state when the agent client reports an active turn.
+Codex hooks report start/stop activity; the development bridge follows its session journal.
+Signals expire after three minutes without renewal. Connection and task completion stay separate.
+
 The interface follows the device language, with Russian and English overrides in settings.
 The preference is stored in the browser; switching preserves drafts and never translates user
 messages, names or project titles. Agent invitations distinguish account creation from an actual
