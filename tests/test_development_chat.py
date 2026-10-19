@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import types
 import unittest
+import uuid
 from unittest import mock
 import urllib.error
 
@@ -51,7 +52,7 @@ class DevelopmentChatTest(unittest.TestCase):
         self.journal=self.folder/'session.jsonl'
         self.journal.write_text(json.dumps({'type':'event_msg','payload':{'type':'task_complete'}})+'\n')
         self.transcript=self.bridge.Transcript(self.journal)
-        self.session='00000000-0000-4000-8000-000000000001'
+        self.session=str(uuid.uuid4())
         incoming=self.api('GET','/api/messages?for_me=1&unacked=1',who=self.key)['messages']
         if incoming:self.api('POST','/api/receipts',{'kind':'ack','ids':[m['id'] for m in incoming]},who=self.key)
 
@@ -194,6 +195,53 @@ class DevelopmentChatTest(unittest.TestCase):
         self.event('task_complete',turn_id='turn-fixture',last_agent_message='Unobserved answer')
         self.run_step(lambda *a:self.fail('duplicate'))
         self.assertFalse(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
+
+    def test_one_final_for_a_batch_of_observed_messages_and_authors(self):
+        self.api('POST','/api/members/add',{'account_id':'bob'})
+        try:
+            pid=self.api('GET','/api/me',who=self.key)['project']['id']
+            config=self.folder/'delegated.json';data=json.loads(self.config.read_text())
+            data['development_command_delegates']={'project_id':pid,'account_ids':['bob']}
+            config.write_text(json.dumps(data));conf=self.bridge.tg.Conf(str(config))
+            mids=[self.incoming() for _ in range(10)]
+            mids.append(self.api('POST','/api/messages',{'body':'colleague fixture','to_ids':[self.key]},who='bob')['id'])
+            ignored=self.incoming()
+            self.event('task_started',turn_id='turn-fixture')
+            self.bridge.step(conf,config,self.session,self.transcript,self.folder,self.accept)
+            with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+                for mid in mids:self.bridge.observe(conf,self.session,mid)
+            self.event('task_complete',turn_id='turn-fixture',last_agent_message='One batch answer')
+            self.bridge.step(conf,config,self.session,self.transcript,self.folder,lambda *a:self.fail('duplicate dispatch'))
+            answers=[m for m in self.api('GET','/api/messages?limit=1000')['messages'] if m['body']=='One batch answer']
+            self.assertEqual(len(answers),1);answer=answers[0]
+            self.assertEqual(answer['reply_to'],mids[-1]);self.assertEqual(answer['to_ids'],['alice','bob'])
+            for mid in mids:
+                self.assertEqual(json.loads((self.folder/f'message-{mid}.json').read_text())['reply_id'],answer['id'])
+                self.assertTrue(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
+            self.assertFalse(self.api('GET',f'/api/messages/{ignored}',who=self.key)['message']['acked'])
+        finally:self.api('POST','/api/members/remove',{'account_id':'bob'})
+
+    def test_batch_reply_recovers_lost_response_and_partial_ack_after_restart(self):
+        mids=[self.incoming() for _ in range(3)]
+        self.event('task_started',turn_id='turn-fixture');self.run_step(self.accept)
+        with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+            for mid in mids:self.bridge.observe(self.conf,self.session,mid)
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Durable batch answer')
+        api_retry=self.bridge.tg.api_retry
+        def lose_response(conf,method,path,*args,**kwargs):
+            result=api_retry(conf,method,path,*args,**kwargs)
+            if method=='POST' and path=='/api/messages':raise SystemExit(3)
+            return result
+        with mock.patch.object(self.bridge.tg,'api_retry',side_effect=lose_response):
+            with self.assertRaises(SystemExit):self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        self.transcript=self.bridge.Transcript(self.journal)
+        self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        self.s.db().execute('UPDATE receipts SET ack_ts=NULL WHERE message_id=? AND user=?',(mids[0],self.key))
+        self.transcript=self.bridge.Transcript(self.journal)
+        self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        answers=[m for m in self.api('GET','/api/messages?limit=1000')['messages'] if m['body']=='Durable batch answer']
+        self.assertEqual(len(answers),1)
+        self.assertTrue(self.api('GET',f'/api/messages/{mids[0]}',who=self.key)['message']['acked'])
 
     def test_observation_rejects_different_turn(self):
         mid=self.incoming();self.event('task_started',turn_id='another-turn')
