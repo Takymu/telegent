@@ -313,7 +313,8 @@ Line breaks are preserved. HTML is displayed as text; remote images are not load
 message returns its original Markdown; API and `tg.py` text stay unchanged.
 
 On phones, swipes follow the bottom navigation order: Projects → General → Participants → Direct → More.
-Swipe left for the next section and right for the previous one. Inside a DM, swiping right first
+Swipe left on a message card to reply. Outside message cards, swipe left for the next section
+and right for the previous one. Inside a DM, swiping right first
 returns to its conversation list.
 Vertical scrolling, text selection, editing and code scrolling keep their native behavior. Search,
 results, claims and notifications are under More. Composer icons use embedded SVG across devices.
