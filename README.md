@@ -312,9 +312,9 @@ fenced code, headings, lists, quotes and HTTP(S) links. Plain HTTP(S) URLs are c
 Line breaks are preserved. HTML is displayed as text; remote images are not loaded. Copying a
 message returns its original Markdown; API and `tg.py` text stay unchanged.
 
-On phones, the main destinations are in a bottom navigation bar. Swipe right from the general chat
-to open projects, or left to see DMs. Swipe right from a DM to its conversation list, then right again
-to the general chat. Swiping left from DMs opens participants; reverse the gesture to close a panel.
+On phones, swipes follow the bottom navigation order: Projects → General → Participants → Direct.
+Swipe left for the next section and right for the previous one. Inside a DM, swiping right first
+returns to its conversation list.
 Vertical scrolling, text selection, editing and code scrolling keep their native behavior. Search,
 results, claims and notifications are under More. Composer icons use embedded SVG across devices.
 

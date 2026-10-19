@@ -133,14 +133,32 @@ class MobileTouchTest(unittest.TestCase):
             sizes = dev.evaluate('({width:$("scroller").clientWidth,scroll:$("scroller").scrollWidth,body:document.documentElement.scrollWidth})')
             self.assertLessEqual(sizes['scroll'], sizes['width']+1, sizes)
             self.assertLessEqual(sizes['body'], 390, sizes)
+            order=dev.evaluate('[...$("mobileNav").querySelectorAll("[data-mobile]")].map(b=>b.dataset.mobile).filter(key=>key!=="more")')
+            self.assertEqual(order, ['projects', 'feed', 'users', 'direct'])
+
+            def section(expected):
+                wait('$("mobileNav").querySelector("[aria-current=page]")?.dataset.mobile==='+json.dumps(expected))
+                if expected=='users':
+                    self.assertTrue(dev.evaluate('$("aside").classList.contains("open")'))
+                else:
+                    self.assertEqual(dev.evaluate('TAB'), expected)
+                    self.assertFalse(dev.evaluate('$("aside").classList.contains("open")'))
+
             for _ in range(3):
                 swipe(280, 260, -85, 10)
-                wait('TAB==="direct"')
+                section(order[2])
+                swipe(280, 600, -85, 10)
+                section(order[3])
                 swipe(100, 260, 85, 10)
-                wait('TAB==="feed" && MSGS.has('+str(mid)+')')
+                section(order[2])
+                swipe(100, 600, 85, 10)
+                section(order[1])
+                wait('MSGS.has('+str(mid)+')')
             point = dev.evaluate('(()=>{const link=$("m'+str(mid)+'").querySelector(".mtext a");link.scrollIntoView({block:"center"});const r=link.getClientRects()[0];return {x:Math.min(280,r.left+180),y:r.top+8}})()')
             swipe(point['x'], point['y'], -85)
-            wait('TAB==="direct"')
+            section('users')
+            swipe(280, 600, -85)
+            section('direct')
             # A tap still opens the row, while a swipe over that same button navigates.
             point = dev.evaluate('(()=>{const b=$("dmList").querySelector("button");const r=b.getBoundingClientRect();return {x:r.left+80,y:r.top+r.height/2}})()')
             dev.call('Input.dispatchTouchEvent', type='touchStart', touchPoints=[dict(point, id=1)])
@@ -149,6 +167,8 @@ class MobileTouchTest(unittest.TestCase):
             swipe(100, 490, 85)
             wait('TAB==="direct" && !ACTIVE_DM')
             swipe(100, 260, 85)
+            section('users')
+            swipe(100, 600, 85)
             wait('TAB==="feed" && MSGS.has('+str(mid)+')')
             dev.evaluate('$("scroller").scrollTop=0')
             swipe(100, 260, 85)

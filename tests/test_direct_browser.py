@@ -101,12 +101,13 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     await swipe(sc,120);check($('projects').classList.contains('open'),'right swipe opens projects');
     check($('projects').getBoundingClientRect().bottom<=nav.getBoundingClientRect().top+1,'project panel leaves navigation accessible');
     await swipe($('projects'),-120);check(!$('projects').classList.contains('open'),'left swipe closes projects');
-    await swipe(sc,-120);await wait(()=>TAB==='direct');
-    check(!ACTIVE_DM,'left swipe opens private list without a keyboard');
+    await swipe(sc,-120);check($('aside').classList.contains('open'),'left swipe opens participants before DMs');
+    await swipe($('aside'),-120);await wait(()=>TAB==='direct');
+    check(!ACTIVE_DM&&!$('aside').classList.contains('open'),'next left swipe opens private list without a keyboard');
     await openDirect(cid);await swipe(sc,120);check(!ACTIVE_DM&&TAB==='direct','right swipe leaves private conversation');
-    await swipe(sc,-120);check($('aside').classList.contains('open'),'left swipe opens participants');
-    await swipe($('aside'),120);check(!$('aside').classList.contains('open'),'right swipe closes participants');
-    await swipe(sc,120);await wait(()=>TAB==='feed');
+    await swipe(sc,120);check($('aside').classList.contains('open'),'right swipe returns from DMs to participants');
+    await swipe($('aside'),120);await wait(()=>TAB==='feed'&&!$('aside').classList.contains('open'));
+    check(nav.querySelector('[aria-current="page"]').dataset.mobile==='feed','reverse swipe returns from participants to general chat');
     await swipe(sc,20,150);check(TAB==='feed'&&!$('projects').classList.contains('open'),'vertical scrolling does not navigate');
     await swipe(sc,120,0,5);check(!$('projects').classList.contains('open'),'system edge gesture retained');
     await swipe(sc,-120,0,270,true);check(TAB==='feed','multitouch never navigates');

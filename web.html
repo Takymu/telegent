@@ -944,9 +944,12 @@ function toast(text, bad) {
 
 // Mobile shortcuts complement the visible navigation; vertical and nested horizontal scrolling stay native.
 const mobileLayout=()=>matchMedia("(max-width:900px)").matches;
+function mobileSection() {
+  return !PROJECT || $("projects").classList.contains("open")?"projects":$("aside").classList.contains("open")?"users":["feed","direct"].includes(TAB)?TAB:"more";
+}
 function syncMobileNav() {
   $("projectShade").classList.toggle("hidden",!mobileLayout() || !$("projects").classList.contains("open"));
-  const active=!PROJECT || $("projects").classList.contains("open")?"projects":$("aside").classList.contains("open")?"users":["feed","direct"].includes(TAB)?TAB:"more";
+  const active=mobileSection();
   for(const b of $("mobileNav").querySelectorAll("button")) {
     b.disabled=!PROJECT && b.dataset.mobile!=="projects";
     if(b.dataset.mobile===active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");
@@ -996,17 +999,20 @@ window.addEventListener("resize",mobileViewport);
 document.addEventListener("focusin",mobileViewport);document.addEventListener("focusout",()=>setTimeout(mobileViewport,0));
 mobileViewport();
 function swipeAction(direction) {
-  if($("projects").classList.contains("open"))return direction<0?{label:"К чату",run:closeMobilePanels}:null;
-  if($("aside").classList.contains("open"))return direction>0?{label:"К чату",run:closeMobilePanels}:null;
-  if(!PROJECT)return direction>0?{label:"Проекты",run:()=>mobilePanel("projects")}:null;
-  if(direction>0) {
+  const section=mobileSection(), panels=["projects","users"].includes(section);
+  const targets={projects:{label:"Проекты",run:()=>mobilePanel("projects")},
+    feed:{label:"Общий чат",run:()=>selectTab("feed")},
+    users:{label:"Участники",run:()=>mobilePanel("aside")},
+    direct:{label:"Личные",run:()=>selectTab("direct")}};
+  if(!PROJECT)return $("projects").classList.contains("open")?(direction<0?{label:"Закрыть проекты",run:closeMobilePanels}:null):direction>0?targets.projects:null;
+  if(direction>0 && !panels) {
     if(THREAD)return {label:"Назад к чату",run:async()=>{THREAD=null;await reload();}};
     if(ACTIVE_DM)return {label:"Все личные",run:()=>$("dmBack").click()};
-    if(TAB!=="feed")return {label:"Общий чат",run:()=>selectTab("feed")};
-    return {label:"Проекты",run:()=>mobilePanel("projects")};
   }
-  if(TAB==="feed")return {label:"Личные",run:()=>selectTab("direct")};
-  return {label:"Участники",run:()=>mobilePanel("aside")};
+  // Section gestures follow the visible buttons; More is an action menu, not a section.
+  const order=[...$("mobileNav").querySelectorAll("[data-mobile]")].map(b=>b.dataset.mobile).filter(key=>targets[key]);
+  const at=order.indexOf(section);
+  return at<0?(direction>0?targets.feed:null):targets[order[at+(direction<0?1:-1)]] || null;
 }
 let NAV_TOUCH=null;
 const gestureHint=document.createElement("div");gestureHint.id="gestureHint";gestureHint.className="hidden";gestureHint.setAttribute("aria-hidden","true");$("app").append(gestureHint);
