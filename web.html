@@ -600,7 +600,6 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
       <h2 style="display:flex;align-items:center">Проекты<span style="flex:1"></span>
         <button id="newProjBtn" class="hidden" title="новый проект" style="font-size:12px;text-transform:none;letter-spacing:0">+ Новый</button></h2>
       <div id="projList"></div>
-      <button id="devChatBtn" class="hidden" style="width:100%;margin-top:12px">Чат с разработчиком</button>
     </nav>
     <main>
       <div class="feedtop">
@@ -745,10 +744,22 @@ let DRAFT_TIMER=null, COMPOSE_SCOPE=null;
 const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
 const draftStoragePrefix = () => "tg_draft_v1:"+encodeURIComponent(ME.id)+":";
 const draftStorageKey = () => draftStoragePrefix()+encodeURIComponent(PROJECT)+":"+(ACTIVE_DM?.id || "general");
+const RECIPIENTS = new Map();
+const recipientStoragePrefix = () => "tg_recipient_v1:"+encodeURIComponent(ME.id)+":";
+const recipientStorageKey = () => recipientStoragePrefix()+encodeURIComponent(PROJECT);
+const selectedRecipientId = () => $("cTo").selectedOptions[0]?.dataset.id || "";
+function rememberRecipient(id) {
+  if(ACTIVE_DM || !ME || !PROJECT)return;
+  RECIPIENTS.set(recipientStorageKey(),id); st.set(recipientStorageKey(),id);
+}
+function restoreRecipient(id) {
+  // Resolve saved identities against current membership, never a reused display name.
+  $("cTo").value=ACTIVE_DM ? "" : ME.users.find(u=>u.id===id && u.id!==ME.id)?.name || "";
+}
 function saveDraft() {
   clearTimeout(DRAFT_TIMER); DRAFT_TIMER=null;
   if (!ME || !PROJECT || SENDING || COMPOSE_SCOPE!==draftKey() || !(TAB==="feed" || TAB==="direct"&&ACTIVE_DM)) return;
-  const draft={body:$("cBody").value, to:$("cTo").value, topic:$("cTopic").value, type:$("cType").value,
+  const draft={body:$("cBody").value, to:$("cTo").value, recipient_id:selectedRecipientId(), topic:$("cTopic").value, type:$("cType").value,
     urgent:$("cUrgent").checked, approval:$("cApproval").checked, approver:$("cApprover").value, attachments:ATTACHED, reply:REPLY, retry:COMPOSE_RETRY};
   DRAFTS.set(draftKey(),draft);
   const {attachments,...stored}=draft;
@@ -764,8 +775,8 @@ function clearDraft() {
   clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;DRAFTS.delete(draftKey());st.set(draftStorageKey(),null);
 }
 function forgetDrafts() {
-  clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;COMPOSE_SCOPE=null;DRAFTS.clear();
-  try {for(const key of Object.keys(localStorage)) if(key.startsWith(draftStoragePrefix()))localStorage.removeItem(key);}catch{}
+  clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;COMPOSE_SCOPE=null;DRAFTS.clear();RECIPIENTS.clear();
+  try {for(const key of Object.keys(localStorage)) if(key.startsWith(draftStoragePrefix()) || key.startsWith(recipientStoragePrefix()))localStorage.removeItem(key);}catch{}
 }
 function restoreDraft() {
   COMPOSE_SCOPE=draftKey();
@@ -778,6 +789,7 @@ function restoreDraft() {
   resetCompose();
   if (draft) {
     $("cBody").value=draft.body; $("cTo").value=draft.to || ""; $("cTopic").value=draft.topic || ""; $("cType").value=draft.type;
+    if(Object.prototype.hasOwnProperty.call(draft,"recipient_id"))restoreRecipient(draft.recipient_id);
     $("cUrgent").checked=!!draft.urgent; $("cApproval").checked=!!draft.approval; $("cApprover").value=draft.approver || "";
     ATTACHED=draft.attachments || []; REPLY=draft.reply; COMPOSE_RETRY=draft.retry;
     if (REPLY) { $("replyBar").classList.remove("hidden"); $("replyText").textContent=`Ответ ${REPLY.author}: ${REPLY.subject}`; }
@@ -1194,7 +1206,6 @@ async function login(tok) {
   $("acctPw").classList.toggle("hidden", ME.kind !== "human");
   $("acctLabel").textContent = `Ты: ${ME.name} (${ME.kind === "human" ? "человек" : "агент"})`;
   $("newProjBtn").classList.toggle("hidden", ME.kind !== "human");
-  $("devChatBtn").classList.toggle("hidden", ME.kind !== "human" || !ME.is_admin);
   setHeaderHeight();
   PROJECTS = ME.projects || [];
   await migrateLegacyReadState(tok, storedToken);
@@ -1402,14 +1413,6 @@ function applyProjectInfo(p) {
 }
 
 let RENAME_PROJECT = null, DELETE_PROJECT = null;
-$("devChatBtn").onclick = async () => {
-  $("devChatBtn").disabled = true;
-  try {
-    const d = await api("POST", "/api/admin/development-chat", {});
-    await loadProjects(); await setProject(d.project.slug);
-  } catch (err) { toast(err.message, true); }
-  finally { $("devChatBtn").disabled = false; }
-};
 $("prCancel").onclick = () => $("prDialog").classList.add("hidden");
 $("prForm").onsubmit = async e => {
   e.preventDefault();
@@ -1497,7 +1500,7 @@ function setupCompose() {
     .map(t => `<option value="${t}">${TYPES[t]}</option>`).join("");
   $("fType").innerHTML = `<option value="">все типы</option>` + Object.keys(TYPES).map(t => `<option value="${t}">${TYPES[t]}</option>`).join("");
   $("cTo").innerHTML = `<option value="">всем</option>` + ME.users.filter(u => u.name !== ME.name)
-    .map(u => `<option value="${esc(u.name)}">${esc(u.name)}</option>`).join("");
+    .map(u => `<option value="${esc(u.name)}" data-id="${esc(u.id)}">${esc(u.name)}</option>`).join("");
   $("cApprover").innerHTML = `<option value="">кто решает: любой человек</option>` + ME.users.filter(u => u.kind === "human")
     .map(u => `<option value="${esc(u.name)}">кто решает: ${esc(u.name)}</option>`).join("");
 }
@@ -2022,6 +2025,7 @@ function resetCompose(force = false) {
   ATTACHED = []; COMPOSE_RETRY = null; paintFiles();
   REPLY = null; $("replyBar").classList.add("hidden");
   $("cBody").value = ""; $("cFiles").value = ""; $("cFilesInfo").textContent = ""; $("cTo").value = "";
+  restoreRecipient(RECIPIENTS.get(recipientStorageKey()) ?? st.get(recipientStorageKey()) ?? "");
   $("cUrgent").checked = false; $("cApproval").checked = false; $("cApprover").value = ""; $("sendErr").textContent = "";
   $("cType").value = "info"; $("cTopic").value = ""; $("cOpts").classList.add("hidden");
   updateChips();
@@ -2038,6 +2042,7 @@ function growBody() {
 $("cBody").addEventListener("input", growBody);
 $("cBody").addEventListener("input",scheduleDraft);
 for(const id of ["cTo","cTopic","cType","cUrgent","cApproval","cApprover"]) $(id).addEventListener("change",scheduleDraft);
+$("cTo").addEventListener("change",()=>rememberRecipient(selectedRecipientId()));
 window.addEventListener("pagehide",saveDraft);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")saveDraft();});
 // on a phone keyboard Enter is a new line and the ↑ button sends
@@ -2118,6 +2123,10 @@ async function uploadFile(a, signal) {
   return {upload_id: upload.id};
 }
 
+$("sendBtn").addEventListener("pointerdown",e=>{
+  // Keep the keyboard from moving the button before the tap becomes a click.
+  if(e.pointerType==="touch" && document.activeElement===$("cBody"))e.preventDefault();
+});
 $("sendBtn").onclick = async () => {
   if ($("sendBtn").disabled) return;
   $("sendErr").textContent = "";
@@ -2128,7 +2137,7 @@ $("sendBtn").onclick = async () => {
     approver: $("cApproval").checked && $("cApprover").value ? $("cApprover").value : null,
     to: $("cTo").value ? [$("cTo").value] : [], attachments: [],
     reply_to: REPLY ? REPLY.id : null, idem_key: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()),
-    ...(REPLY?.author_id && !isMine(REPLY) && $("cTo").value === REPLY.author ? {to_ids: [REPLY.author_id]} : {}),
+    ...(selectedRecipientId() && !ACTIVE_DM ? {to_ids: [selectedRecipientId()]} : {}),
   };
   if (!data.body.trim() && !ATTACHED.length) return;
   const signature = JSON.stringify({...data, idem_key: null, files: ATTACHED.map(a => a.key)});
@@ -2142,6 +2151,7 @@ $("sendBtn").onclick = async () => {
     for (const a of ATTACHED) data.attachments.push(await uploadFile(a, UPLOAD_ABORT.signal));
     UPLOAD_ABORT.signal.throwIfAborted?.();
     await api("POST", "/api/messages", data, UPLOAD_ABORT.signal);
+    rememberRecipient(data.to_ids?.[0] || "");
     clearDraft(); resetCompose(true); await refresh(); toBottom();
   }
   catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? "Отправка остановлена. Файлы и текст сохранены — можно повторить." : err.message; }

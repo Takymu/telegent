@@ -108,10 +108,25 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await setProject('main');
   check($('cBody').value==='public draft fixture'&&ATTACHED.length===1,'cross-project draft and file restored');
   $('cPending').querySelector('[data-remove-file]').click();
+  $('cTo').value='alice-agent';$('cTo').dispatchEvent(new Event('change'));
   $('cBody').value='sent draft '+VIEWPORT;$('sendBtn').click();
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='sent draft '+VIEWPORT));
+  check($('cTo').value==='alice-agent','selected recipient remains after sending');
+  $('cBody').value='same recipient '+VIEWPORT;$('sendBtn').click();
+  await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='same recipient '+VIEWPORT));
+  check([...MSGS.values()].find(m=>m.body==='same recipient '+VIEWPORT).to_ids[0]===peer.id,'next message reaches the same stable recipient');
+  await setProject(FIXTURE.second);check($('cTo').value==='','recipient is scoped to project');await setProject('main');
+  check($('cTo').value==='alice-agent','recipient restored on project return');
+  await openDirect(cid);$('cBody').value='private preference fixture '+VIEWPORT;$('sendBtn').click();
+  await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='private preference fixture '+VIEWPORT));await selectTab('feed');
+  check($('cTo').value==='alice-agent','private sending leaves general recipient alone');
+  $('cTo').value='';$('cTo').dispatchEvent(new Event('change'));
+  $('cBody').value='everyone fixture '+VIEWPORT;$('sendBtn').click();
+  await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='everyone fixture '+VIEWPORT));
+  check($('cTo').value===''&&!([...MSGS.values()].find(m=>m.body==='everyone fixture '+VIEWPORT).to_ids.length),'everyone remains selected and receives no explicit recipients');
   await selectTab('direct');await selectTab('feed');
   check($('cBody').value===''&&!st.get(draftStorageKey()),'sent text never returns as a draft');
+  $('cTo').value='alice-agent';$('cTo').dispatchEvent(new Event('change'));
   const nav=$('mobileNav');
   check(!!$('attachBtn').querySelector('svg'),'paperclip is a platform-independent vector');
   $('devChatHint').classList.remove('hidden');
@@ -173,6 +188,13 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
  try {
   for(let i=0;i<160&&(!ME?.project||COMPOSE_SCOPE!==draftKey());i++)await pause(40);
   check($('cBody').value==='reload public '+VIEWPORT,'public draft survives browser restart');
+  check($('cTo').value==='alice-agent','recipient survives browser restart');
+  const recipient=ME.users.find(u=>u.name==='alice-agent'), oldName=recipient.name;
+  recipient.name='renamed-agent';setupCompose();restoreDraft();
+  check($('cTo').value==='renamed-agent','saved recipient follows stable identity after rename');
+  const members=ME.users;ME.users=members.filter(u=>u.id!==recipient.id);setupCompose();restoreDraft();
+  check($('cTo').value==='','removed recipient is not reused by display name');
+  recipient.name=oldName;ME.users=members;setupCompose();restoreDraft();
   await loadConversations();const cid=CONVERSATIONS.find(c=>c.peer==='alice-agent').id;
   await openDirect(cid);check($('cBody').value==='reload private '+VIEWPORT,'private draft survives browser restart');
   check(!ATTACHED.length,'browser file objects are not serialized');
@@ -182,6 +204,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   check($('cBody').value==='','another account cannot inherit a local draft');ME=real;restoreDraft();
   st.set('tg_draft_v1:other-account:main:general','other account fixture');forgetDrafts();saveDraft();
   check(!Object.keys(localStorage).some(k=>k.startsWith(draftStoragePrefix())),'logout clears own persisted drafts');
+  check(!Object.keys(localStorage).some(k=>k.startsWith(recipientStoragePrefix())),'logout clears own recipient preferences');
   check(st.get('tg_draft_v1:other-account:main:general')==='other account fixture','logout leaves other accounts alone');
   st.set('tg_draft_v1:other-account:main:general',null);
   showNoProject();

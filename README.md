@@ -344,7 +344,7 @@ Use the **⋯ menu on the right of each project row** to rename (creator), leave
 or delete (owner). Actions target that project without switching the open chat; deletion still
 requires typing its title or slug.
 
-Server admins have a private "Chat with developer" entry in the project list. Only that admin
+Server admins have a private development project in the project list. Only that admin
 and the explicitly bound development session can access it; ordinary project ownership does
 not grant access. See [the operator setup](tools/README.md).
 

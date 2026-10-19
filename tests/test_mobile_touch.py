@@ -212,6 +212,14 @@ class MobileTouchTest(unittest.TestCase):
             self.assertGreater(dev.evaluate('$("m'+str(mid)+'").querySelector("pre").scrollLeft'), 20, 'native code scrolling stopped')
             self.assertEqual(dev.evaluate('TAB'), 'feed', 'code gesture navigated away')
             self.assertEqual(dev.evaluate('$("scroller").scrollLeft'), 0)
+            # Native tap with a focused composer must send before losing keyboard focus.
+            dev.evaluate('$("cBody").value="single tap fixture";$("cBody").focus();window.fixtureBlur=[];$("cBody").addEventListener("blur",()=>fixtureBlur.push(SENDING))')
+            point=dev.evaluate('(()=>{const r=$("sendBtn").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
+            dev.call('Input.dispatchTouchEvent', type='touchStart', touchPoints=[dict(point,id=1)])
+            dev.call('Input.dispatchTouchEvent', type='touchEnd', touchPoints=[])
+            wait('!SENDING && [...MSGS.values()].some(m=>m.body==="single tap fixture")')
+            self.assertEqual(dev.evaluate('[...MSGS.values()].filter(m=>m.body==="single tap fixture").length'),1)
+            self.assertFalse(dev.evaluate('fixtureBlur.includes(false)'), 'tap blurred the keyboard before sending')
             artifacts = os.environ.get('TELEGENT_TEST_ARTIFACTS')
             if artifacts:
                 dest = Path(artifacts); dest.mkdir(parents=True, exist_ok=True)
