@@ -39,6 +39,17 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   }
   check(UI_LANG==='ru','Russian initial UI');
   const peer=ME.users.find(u=>u.name==='alice-agent');
+  const compact=(await api('POST','/api/messages',{body:'Short fixture'})).id;await refresh();
+  const ownRow=$('m'+compact),own=ownRow.querySelector('.mmain'),incoming=$('m'+FIXTURE.agent).querySelector('.mmain');
+  check(ownRow.classList.contains('outgoing')&&incoming.closest('.mrow').classList.contains('incoming'),'alignment follows authenticated author identity');
+  check(own.getBoundingClientRect().right>incoming.getBoundingClientRect().right,'own bubble is to the right of incoming');
+  check(own.getBoundingClientRect().width<$('feed').getBoundingClientRect().width*.8,'short bubble fits its content');
+  check(getComputedStyle(own).borderTopWidth==='0px'&&getComputedStyle(incoming).borderTopWidth==='0px','message fills have no outlines');
+  check(getComputedStyle(own).backgroundColor!==getComputedStyle(incoming).backgroundColor,'own and incoming fills differ');
+  const range=document.createRange();range.selectNodeContents(own.querySelector('.mtext p').firstChild);
+  check(Math.abs(centerY(range.getBoundingClientRect())-centerY(own.querySelector('.message-meta').getBoundingClientRect()))<8,'short text and timestamp share final line');
+  check(!own.querySelector('.mhead .mtime')&&!own.querySelector('.mtext button,.mtext time'),'time and controls stay outside message source');
+  function centerY(r){return r.top+r.height/2}
   const mid=(await api('POST','/api/messages',{body:'Общий чат Сохранить '+VIEWPORT})).id;
   await actor('GET','/api/messages/'+mid);
   await actor('POST','/api/messages/'+mid+'/reaction',{emoji:'🔥',active:true});await refresh();

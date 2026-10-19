@@ -151,9 +151,12 @@ class MobileTouchTest(unittest.TestCase):
                     if expected=='more':
                         self.assertTrue(dev.evaluate('!$("moreView").classList.contains("hidden") && $("menu").classList.contains("hidden")'))
 
+            def feed_swipe(dx):
+                point=dev.evaluate('(()=>{$("scroller").scrollTop=$("scroller").scrollHeight;const r=$("scroller").getBoundingClientRect();return {y:r.bottom-8}})()')
+                swipe(280 if dx<0 else 100,point['y'],dx)
+
             for _ in range(3):
-                point=dev.evaluate('(()=>{const h=$("m'+str(mid)+'").querySelector(".mhead");h.scrollIntoView({block:"center"});const r=h.getBoundingClientRect();return {x:r.right-12,y:r.top+r.height/2}})()')
-                swipe(64,point['y'],-60,10)
+                feed_swipe(-85)
                 section(order[2])
                 swipe(280, 600, -85, 10)
                 section(order[3])
@@ -173,7 +176,7 @@ class MobileTouchTest(unittest.TestCase):
             self.assertTrue(dev.evaluate('document.activeElement===$("cBody")'),'reply swipe did not focus composer')
             self.assertEqual(dev.evaluate('$("m'+str(mid)+'").style.transform'),'','reply swipe left message displaced')
             dev.evaluate('$("cancelReply").click();$("cBody").blur()')
-            swipe(64,450,-60)
+            feed_swipe(-85)
             section('users')
             swipe(280, 600, -85)
             section('direct')
@@ -199,7 +202,7 @@ class MobileTouchTest(unittest.TestCase):
             swipe(100, 600, 85)
             wait('TAB==="feed" && MSGS.has('+str(mid)+')')
             dev.evaluate('$("scroller").scrollTop=0')
-            swipe(100, 260, 85)
+            feed_swipe(85)
             wait('$("projects").classList.contains("open")')
             point = dev.evaluate('(()=>{const r=$("projects").querySelector(".pselect").getBoundingClientRect();return {x:280,y:r.top+r.height/2}})()')
             self.assertGreater(point['y'], 844/2, 'project choices are outside the lower thumb area')
@@ -210,13 +213,13 @@ class MobileTouchTest(unittest.TestCase):
                 (dest/'chromium-projects-sheet.png').write_bytes(base64.b64decode(shot))
             swipe(point['x'], point['y'], -85)
             wait('!$("projects").classList.contains("open")')
-            swipe(100, 260, 85)
+            feed_swipe(85)
             wait('$("projects").classList.contains("open")')
             point=dev.evaluate('(()=>{const r=$("projectGrab").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
             swipe(point['x'],point['y'],0,85)
             wait('!$("projects").classList.contains("open")')
             self.assertEqual(dev.evaluate('$("projects").style.transform'), '')
-            swipe(100,260,85)
+            feed_swipe(85)
             wait('$("projects").classList.contains("open")')
             point=dev.evaluate('(()=>{const r=$("projects").querySelector(".pselect").getBoundingClientRect();return {x:r.left+100,y:r.top+r.height/2}})()')
             swipe(point['x'],point['y'],0,20)
@@ -224,7 +227,7 @@ class MobileTouchTest(unittest.TestCase):
             swipe(point['x'],point['y'],0,70)
             wait('!$("projects").classList.contains("open")')
             # Hold and drag uses native touch, without dismissing or selecting the sheet.
-            swipe(100,260,85);wait('$("projects").classList.contains("open")')
+            feed_swipe(85);wait('$("projects").classList.contains("open")')
             first=dev.evaluate('PROJECTS[0].id')
             point=dev.evaluate('(()=>{const r=document.querySelector("#projList .pselect").getBoundingClientRect();return {x:r.left+85,y:r.top+r.height/2}})()')
             target=dev.evaluate('(()=>{const rows=$("projList").querySelectorAll(".pitem");return rows[rows.length-1].getBoundingClientRect().bottom-2})()')

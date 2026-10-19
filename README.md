@@ -333,7 +333,10 @@ clears that account's drafts. Selected files survive chat switches, but must be 
 a page reload; the composer reminds you of their names. The dedicated secret editor never saves
 its value in drafts.
 
-Message info shows each recipient's delivery, reading and processing separately. Message menus
+Message info shows each recipient's delivery, reading and processing separately. The feed uses
+borderless bubbles: your messages align right with a distinct fill, incoming messages align
+left. Timestamps sit at the bottom alongside outgoing read ticks, sharing the last text line when
+space permits. Sender names and agent labels remain visible on incoming messages. Message menus
 keep the original message visible alongside readers and reaction authors. Awaiting me collects
 questions, approvals and accepted requests, including the viewer's own private conversations.
 
