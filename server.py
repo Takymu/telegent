@@ -450,9 +450,6 @@ def create_project_row(con, slug, title, by, creator_unknown=False):
 
 def add_member(con, pid, name, role, by):
     u = con.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
-    special = con.execute("SELECT admin_owner,service_agent FROM projects WHERE id=?", (pid,)).fetchone()
-    if special["admin_owner"] and name not in (special["admin_owner"], special["service_agent"]):
-        raise ApiError(403, _ui_text('это личный чат администратора с привязанной сессией разработки'))
     check_member_name(con, pid, u["display_name"] or u["name"], name)
     if u["kind"] == "agent":
         if not member_role(pid, u["owner"]):
@@ -498,8 +495,13 @@ def member_role(pid, name):
     if r["admin_owner"]:
         admin = db().execute("SELECT 1 FROM users WHERE name=? AND kind='human' AND is_admin=1 AND revoked=0",
                              (r["admin_owner"],)).fetchone()
-        if not admin or not ((name == r["admin_owner"] and r["kind"] == "human" and r["is_admin"])
-                             or (name == r["service_agent"] and r["kind"] == "agent" and r["owner"] == r["admin_owner"])):
+        if not admin:
+            return None
+        if name == r["admin_owner"] and (r["kind"] != "human" or not r["is_admin"]):
+            return None
+        if name == r["service_agent"] and (r["kind"] != "agent" or r["owner"] != r["admin_owner"]):
+            return None
+        if r["kind"] == "agent" and not member_role(pid, r["owner"]):
             return None
     return r["role"]
 
@@ -605,8 +607,6 @@ def create_invite(by, name, kind=None, owner=None, pid=None, reset=False, accoun
         raise ApiError(400, _ui_text('имя: латиница, цифры, . _ -, до 32 символов'))
     with DB_LOCK:
         con = db()
-        if pid and con.execute("SELECT 1 FROM projects WHERE id=? AND admin_owner IS NOT NULL", (pid,)).fetchone():
-            raise ApiError(403, _ui_text('в личный чат администратора не приглашают других участников'))
         if reset:
             u = resolve_account(name, account_id=account_id)
         elif account_id:
@@ -1962,6 +1962,7 @@ def project_dict(p, user):
             "created_by": None if p["creator_unknown"] else account_name(p["created_by"]),
             "created_by_id": None if p["creator_unknown"] else p["created_by"], "can_rename": can_rename_project(p, user),
             "kind": "development" if p["admin_owner"] else "team",
+            "is_development_session": bool(p["admin_owner"] and p["service_agent"] == user["name"]),
             "developer_connected": bool(p["service_agent"] and member_role(p["id"], p["service_agent"]))}
 
 
@@ -2326,8 +2327,6 @@ def addable(con, me, pid):
 def api_member_candidates(h, user, q, data):
     p = project_for(h, user, q)
     require_human(user)
-    if p["admin_owner"]:
-        return {"candidates": []}
     with DB_LOCK:
         return {"candidates": [c for c in addable(db(), user, p["id"])
                                if p["role"] == "owner" or c["kind"] == "agent"]}

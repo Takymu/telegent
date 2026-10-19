@@ -1,4 +1,4 @@
-"""Private admin scope and a session bridge with real HTTP, without model calls."""
+"""Development membership and owner session transport with real HTTP, without model calls."""
 from contextlib import redirect_stdout, nullcontext
 import importlib.util
 import io
@@ -70,28 +70,66 @@ class DevelopmentChatTest(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.s.cmd_development_agent(types.SimpleNamespace(admin='carol',name='developer',token_out=str(self.folder/'other.token'),rotate=False))
 
-    def test_foreign_participant_cannot_read_even_with_injected_owner_membership(self):
-        mid=self.api('POST','/api/messages',{'body':'private admin message','attachments':[{'name':'private.txt','content_b64':'Zml4dHVyZQ=='}]})['id']
+    def test_nonmembers_cannot_read_development_messages_or_files(self):
+        mid=self.api('POST','/api/messages',{'body':'development fixture','attachments':[{'name':'private.txt','content_b64':'Zml4dHVyZQ=='}]})['id']
         attachment=self.api('GET',f'/api/messages/{mid}')['message']['attachments'][0]['id']
-        pid=self.s.db().execute('SELECT id FROM projects WHERE slug=?',(self.project,)).fetchone()[0]
-        self.s.db().execute("INSERT INTO members(project_id,user,role) VALUES (?, 'bob','owner')",(pid,))
-        try:
-            listed=self.api('GET','/api/projects',who='bob',project=False)['projects']
+        for who in ('bob','alice-agent','carol'):
+            listed=self.api('GET','/api/projects',who=who,project=False)['projects']
             self.assertNotIn(self.project,[p['slug'] for p in listed])
             for path in ('/api/messages',f'/api/messages/{mid}',f'/api/attachments/{attachment}','/api/board','/api/claims'):
-                self.error(404,'GET',path,who='bob')
-            self.error(404,'POST',f'/api/messages/{mid}/reaction',{'emoji':'🔥'},who='bob')
-            self.error(404,'POST',f'/api/attachments/{attachment}/download',{},who='bob')
-            self.error(404,'POST','/api/messages',{'body':'forged'},who='bob')
-            self.assertNotIn('bob',[u['name'] for u in self.api('GET','/api/me')['users']])
-        finally:self.s.db().execute('DELETE FROM members WHERE project_id=? AND user=?',(pid,'bob'))
-        self.error(404,'GET',f'/api/messages/{mid}',who='alice-agent')
+                self.error(404,'GET',path,who=who)
+            self.error(404,'POST',f'/api/messages/{mid}/reaction',{'emoji':'fire'},who=who)
+            self.error(404,'POST',f'/api/attachments/{attachment}/download',{},who=who)
+            self.error(404,'POST','/api/messages',{'body':'forged'},who=who)
 
-    def test_admin_cannot_invite_foreign_people_or_agents_into_this_chat(self):
-        self.error(403,'POST','/api/invites',{'name':'another-agent','kind':'agent'})
-        self.error(403,'POST','/api/members/add',{'name':'bob','account_id':'bob'})
-        self.error(403,'POST','/api/members/add',{'name':'carol','account_id':'carol'})
-        self.assertEqual({u['id'] for u in self.api('GET','/api/me')['users']},{'alice',self.key})
+    def test_admin_can_invite_people_and_members_can_connect_own_agents(self):
+        mid=self.api('POST','/api/messages',{'body':'shared development history','attachments':[{'name':'fixture.txt','content_b64':'Zml4dHVyZQ=='}]})['id']
+        attachment=self.api('GET',f'/api/messages/{mid}')['message']['attachments'][0]['id']
+        invite=self.api('POST','/api/invites',{'name':'bob','kind':'human'})
+        self.api('POST','/api/join',{'code':invite['code']},who='bob',project=False)
+        try:
+            member=self.api('GET','/api/me',who='bob')
+            self.assertEqual(member['project']['role'],'member')
+            self.assertFalse(member['project']['is_development_session'])
+            self.assertEqual(self.api('GET',f'/api/messages/{mid}',who='bob')['message']['body'],'shared development history')
+            self.assertIn('url',self.api('POST',f'/api/attachments/{attachment}/download',{},who='bob'))
+            self.error(403,'POST','/api/invites',{'name':'uninvited-person','kind':'human'},who='bob')
+            helper='helper-'+self.s.secrets.token_hex(4)
+            invite=self.api('POST','/api/invites',{'name':helper,'kind':'agent'},who='bob')
+            joined=self.api('POST','/api/join',{'code':invite['code']},who=None,project=False)
+            key=joined['id'];self.fx.tokens[key]=joined['token']
+            self.assertEqual(self.api('GET','/api/me',who=key)['owner_id'],'bob')
+            config=self.folder/'invited-agent.json'
+            config.write_text(json.dumps({'server':self.fx.url,'token':joined['token'],'project':self.project,'url_source':''}))
+            with self.assertRaises(RuntimeError):self.bridge.validate_account(self.bridge.tg.Conf(str(config)))
+            self.assertTrue(self.api('GET','/api/me',who=self.key)['project']['is_development_session'])
+            # A colleague can talk in the project but cannot steer the owner's saved session.
+            self.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who=self.key)
+            peer=self.api('POST','/api/messages',{'body':'colleague fixture','to_ids':[self.key]},who='bob')['id']
+            self.run_step(lambda *a:self.fail('colleague obtained administrator transport'))
+            with self.assertRaises(RuntimeError):self.bridge.observe(self.conf,self.session,peer)
+            cid=self.api('POST','/api/conversations',{'peer_id':self.key})['conversation']['id']
+            private=self.api('POST','/api/messages',{'body':'private administrator fixture','conversation_id':cid})['id']
+            self.error(404,'GET',f'/api/messages/{private}',who='bob')
+            self.assertNotIn(private,[m['id'] for m in self.api('GET','/api/messages?conversation=all',who='bob')['messages']])
+            self.s.db().execute("UPDATE users SET is_admin=0 WHERE name='alice'")
+            try:
+                for who in ('bob',key):self.error(404,'GET',f'/api/messages/{mid}',who=who)
+            finally:self.s.db().execute("UPDATE users SET is_admin=1 WHERE name='alice'")
+        finally:self.api('POST','/api/members/remove',{'account_id':'bob'})
+        self.error(404,'GET',f'/api/messages/{mid}',who='bob')
+        self.error(404,'POST',f'/api/attachments/{attachment}/download',{},who='bob')
+        self.error(404,'GET',f'/api/messages/{mid}',who=key)
+
+    def test_admin_can_add_existing_people_without_expanding_other_projects(self):
+        candidates=self.api('GET','/api/members/candidates')['candidates']
+        self.assertIn('bob',[c['id'] for c in candidates])
+        self.api('POST','/api/members/add',{'account_id':'bob'})
+        try:
+            self.assertEqual(self.api('GET','/api/me',who='bob')['project']['role'],'member')
+            self.error(404,'GET','/api/messages?project=other',who='bob',project=False)
+            self.error(403,'POST','/api/admin/development-chat',{},who='bob',project=False)
+        finally:self.api('POST','/api/members/remove',{'account_id':'bob'})
 
     def test_loss_of_admin_role_revokes_private_scope_for_person_and_session(self):
         mid=self.api('POST','/api/messages',{'body':'admin access boundary'})['id']

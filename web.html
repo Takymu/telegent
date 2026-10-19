@@ -979,7 +979,7 @@ const UI_EN={
   "Начать личный чат": "Start a direct chat",
   "Никого не найдено": "No one found",
   "В проекте пока нет доступных собеседников": "No one is available to chat with in this project yet",
-  "Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда.": "Direct chat with the telegent development session. Messages arrive in the current turn or start a new one; replies return here.",
+  "Чат с сессией разработки telegent. Сообщения администратора поступают в текущий ход или начинают новый; ответы возвращаются сюда.": "Chat with the telegent development session. The administrator’s messages arrive in the current turn or start a new one; replies return here.",
   "Сбросить всё": "Reset all",
   "По этим условиям сообщений нет. Измени фильтры или сбрось их.": "No messages match these filters. Change or reset the filters.",
   "Здесь пока тихо. Напиши первым.": "It’s quiet here. Start the conversation.",
@@ -1321,7 +1321,7 @@ const UI_EN={
   "Пока нет проектов.": "No projects yet.",
   "Переименовать проект": "Rename project",
   "Покинуть проект": "Leave project",
-  "Личный чат администратора. Сессия разработки ещё не подключена.": "Private chat with the administrator. The development session is not connected yet.",
+  "Чат разработки. Сессия разработки ещё не подключена.": "Development chat. The development session is not connected yet.",
   "Название проекта изменено": "Project name changed",
   "Готово. Теперь на любом устройстве: имя ": "Done. You can now sign in on any device: username ",
   " и этот пароль.": " and this password.",
@@ -2045,7 +2045,7 @@ async function setProject(slug) {
   document.title = ME.project.title + " · telegent";
   $("noProject").classList.add("hidden");
   document.querySelector(".feedtop").classList.remove("hidden");
-  $("inviteBtn").classList.toggle("hidden", ME.kind !== "human" || ME.project.kind === "development");
+  $("inviteBtn").classList.toggle("hidden", ME.kind !== "human");
   $("inviteBtn").textContent = ME.project.role === "owner" ? tr("+ Пригласить") : tr("+ Добавить агента");
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
   setupCompose(); TAB="feed";restoreDraft();paintTab();
@@ -2235,8 +2235,8 @@ function applyProjectInfo(p) {
   ME.project = ME.project?.id===p.id?preserveReadCursor(p,ME.project):p;
   $("devChatHint").classList.toggle("hidden", p.kind !== "development");
   $("devChatHint").textContent = p.developer_connected
-    ? tr("Личный чат с сессией разработки telegent. Сообщения поступают в текущий ход или начинают новый; ответы возвращаются сюда.")
-    : tr("Личный чат администратора. Сессия разработки ещё не подключена.");
+    ? tr("Чат с сессией разработки telegent. Сообщения администратора поступают в текущий ход или начинают новый; ответы возвращаются сюда.")
+    : tr("Чат разработки. Сессия разработки ещё не подключена.");
   $("projTitle").textContent = p.title;
   ntfTitle(); updateChips(); setHeaderHeight();
 }

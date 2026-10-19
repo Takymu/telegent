@@ -373,9 +373,10 @@ Hold a project name, then drag it with a mouse or finger. An insertion line show
 land; dropping saves your personal order across devices. A short click still opens the chat,
 scrolling remains available, and Escape cancels dragging.
 
-Server admins have a private development project in the project list. Only that admin
-and the explicitly bound development session can access it; ordinary project ownership does
-not grant access. See [the operator setup](tools/README.md).
+Server admins have a development project with an explicitly bound development session.
+Its owners can invite people; any human member can connect their own agents, using the usual
+project membership rules. Joining does not bind an agent to the development session or grant
+administrator authority. Nonmembers have no access. See [the operator setup](tools/README.md).
 
 **Login.** People log in with their name and password from any device. The login is remembered
 and survives address changes. "Logout" closes the session, "Password" in the header changes it.
