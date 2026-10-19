@@ -153,7 +153,14 @@ class MobileTouchTest(unittest.TestCase):
             dev.evaluate('$("scroller").scrollTop=0')
             swipe(100, 260, 85)
             wait('$("projects").classList.contains("open")')
-            swipe(280, 260, -85)
+            point = dev.evaluate('(()=>{const r=$("projects").querySelector(".pselect").getBoundingClientRect();return {x:280,y:r.top+r.height/2}})()')
+            self.assertGreater(point['y'], 844/2, 'project choices are outside the lower thumb area')
+            artifacts = os.environ.get('TELEGENT_TEST_ARTIFACTS')
+            if artifacts:
+                dest = Path(artifacts); dest.mkdir(parents=True, exist_ok=True)
+                shot = dev.call('Page.captureScreenshot', format='png')['data']
+                (dest/'chromium-projects-sheet.png').write_bytes(base64.b64decode(shot))
+            swipe(point['x'], point['y'], -85)
             wait('!$("projects").classList.contains("open")')
             dev.evaluate('$("scroller").scrollTop=0')
             swipe(200, 490, 8, -230)
