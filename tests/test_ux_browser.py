@@ -81,12 +81,14 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   check(probe.querySelectorAll('path').length===1,'delivered but unread gives one tick');
   probe.innerHTML=receiptButton({...unread,receipts:[{user:'alice-agent',delivered:1,read:1}]});
   check(probe.querySelectorAll('path').length===2,'all recipients read gives two ticks');
-  for(const emoji of ['❤️','👍','👎','🤡'])await actor('POST','/api/messages/'+mid+'/reaction',{emoji,active:true});
+  for(const emoji of ['❤️','👍','👎','🤡','😁','😭'])await actor('POST','/api/messages/'+mid+'/reaction',{emoji,active:true});
   await refresh();
   const crowded=document.querySelector('#m'+mid+' .message-footer');crowded.style.width='120px';
   check(center(crowded.querySelector('[data-act="receipt"]'))>center(crowded.querySelector('.reaction')),'crowded reactions wrap receipt');
   check(crowded.scrollWidth<=crowded.clientWidth,'wrapped reactions stay within footer');crowded.style.width='';
   document.querySelector('#m'+mid+' [data-act="more"]').click();
+  for(const emoji of ['😁','😭'])check(!!$('menu').querySelector('[data-act="react"][data-emoji="'+emoji+'"]'),'new reaction is selectable');
+  check($('menu').scrollWidth<=$('menu').clientWidth,'reaction picker fits mobile menu');
   check($('menu').querySelector('.menu-message').textContent.includes('Общий чат Сохранить'),'tap menu keeps original message visible');
   check($('menu').querySelector('.menu-details').textContent.includes('alice-agent')&&$('menu').querySelector('.menu-details').textContent.includes('🔥'),'readers and reactions share message menu');closeMenu();
   await showReceipt(mid);check($('infoBody').textContent.includes('alice-agent')&&$('infoBody').textContent.includes('🔥'),'message info shows readers and reactions');closeInfo();

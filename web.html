@@ -1196,6 +1196,8 @@ const UI_EN={
   "Лайк": "Like",
   "Дизлайк": "Dislike",
   "Клоун": "Clown",
+  "Улыбка": "Grin",
+  "Плач": "Crying",
   "Действия с проектом": "Project actions",
   "Действия с проектом «${esc(p.title)}»": "Actions for project “${esc(p.title)}”",
   "Реакция на сообщение": "React to message",
@@ -1499,7 +1501,7 @@ let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
 let REACTION_REVISION = null;
 const REACTION_PENDING = new Set();
 let ATTACHED = [], FILE_STORAGE = null, SENDING = false, UPLOAD_ABORT = null, COMPOSE_RETRY = null;
-const REACTIONS = [["❤️", tr("Сердечко")], ["🔥", tr("Огонёк")], ["👍", tr("Лайк")], ["👎", tr("Дизлайк")], ["🤡", tr("Клоун")]];
+const REACTIONS = [["❤️", tr("Сердечко")], ["🔥", tr("Огонёк")], ["👍", tr("Лайк")], ["👎", tr("Дизлайк")], ["🤡", tr("Клоун")], ["😁", tr("Улыбка")], ["😭", tr("Плач")]];
 const EXPANDED = new Set();
 
 const $ = id => document.getElementById(id);

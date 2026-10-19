@@ -39,7 +39,7 @@ SYSTEM_TYPES = ("status", "approval")
 TRACKED_TYPES = ("request", "alert", "decision")      # these carry open/taken/done/rejected
 STATES = ("open", "taken", "done", "rejected")
 PRIORITIES = ("normal", "urgent")
-REACTION_EMOJI = ("❤️", "🔥", "👍", "👎", "🤡")
+REACTION_EMOJI = ("❤️", "🔥", "👍", "👎", "🤡", "😁", "😭")
 RESULT_FIELDS = ("metric", "dataset", "value", "err", "baseline", "commit", "weights", "note")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 
@@ -899,7 +899,7 @@ _UI_EN = {'активность сообщает клиент агента': 'Ac
  'нужны текущая revision и текст body для изменения': 'Current revision and body text are required for '
                                                       'editing',
  'нужны emoji и active (true или false)': 'emoji and active (true or false) are required',
- 'реакция: ❤️, 🔥, 👍, 👎, 🤡; active: true | false': 'reaction: ❤️, 🔥, 👍, 👎, 🤡; active: true | false',
+ 'реакция: ❤️, 🔥, 👍, 👎, 🤡, 😁, 😭; active: true | false': 'reaction: ❤️, 🔥, 👍, 👎, 🤡, 😁, 😭; active: true | false',
  'реакции доступны у сообщений участников': 'Reactions are available on member messages',
  'нужны Content-Length и offset': 'Content-Length and offset are required',
  'загрузка уже завершена': 'Upload is already complete',
@@ -2755,7 +2755,7 @@ def api_reaction(h, user, q, data, mid):
         if emoji == "+1":
             emoji = "👍"
         if emoji not in REACTION_EMOJI or type(active) is not bool:
-            raise ApiError(400, _ui_text('реакция: ❤️, 🔥, 👍, 👎, 🤡; active: true | false'))
+            raise ApiError(400, _ui_text('реакция: ❤️, 🔥, 👍, 👎, 🤡, 😁, 😭; active: true | false'))
         if message["type"] in SYSTEM_TYPES:
             raise ApiError(400, _ui_text('реакции доступны у сообщений участников'))
         con = db()

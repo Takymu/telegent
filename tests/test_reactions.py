@@ -35,12 +35,12 @@ class ReactionsTest(unittest.TestCase):
         return self.api('POST', f'/api/messages/{mid or self.mid}/reaction', {'emoji': emoji, 'active': active}, author)
 
     def test_reactions_are_idempotent_and_personal(self):
-        for emoji in ('❤️', '🔥', '👍', '👎', '🤡'):
+        for emoji in ('❤️', '🔥', '👍', '👎', '🤡', '😁', '😭'):
             self.react(emoji)
             self.react(emoji)
         self.react('❤', author='alice')
         msg = self.api('GET', f'/api/messages/{self.mid}')['message']
-        self.assertEqual(len(msg['reactions']), 5)
+        self.assertEqual(len(msg['reactions']), 7)
         self.assertEqual(msg['reactions'][0], {'emoji': '❤️', 'count': 2, 'mine': True, 'users': ['bob-agent', 'alice']})
         self.assertFalse(msg['read']); self.assertFalse(msg['acked'])
         self.assertFalse(msg['approvals'])
@@ -89,6 +89,11 @@ class ReactionsTest(unittest.TestCase):
         self.assertEqual(self.api('GET', '/api/messages')['reaction_revision'], revision)
 
     def test_agent_cli_and_rename_preserve_reactions(self):
+        for emoji in ('😁', '😭'):
+            added=self.fx.cli('react',str(self.mid),emoji)
+            self.assertEqual(added.returncode,0,added.stderr)
+            self.assertIn(emoji,self.fx.cli('read',str(self.mid),'--no-mark').stdout)
+            self.assertEqual(self.fx.cli('react',str(self.mid),emoji,'--remove').returncode,0)
         result = self.fx.cli('react', str(self.mid), '🤡')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('реакция 🤡', self.fx.cli('read', str(self.mid), '--no-mark').stdout)
