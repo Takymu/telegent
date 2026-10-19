@@ -344,6 +344,10 @@ Use the **⋯ menu on the right of each project row** to rename (creator), leave
 or delete (owner). Actions target that project without switching the open chat; deletion still
 requires typing its title or slug.
 
+Hold a project name, then drag it with a mouse or finger. An insertion line shows where it will
+land; dropping saves your personal order across devices. A short click still opens the chat,
+scrolling remains available, and Escape cancels dragging.
+
 Server admins have a private development project in the project list. Only that admin
 and the explicitly bound development session can access it; ordinary project ownership does
 not grant access. See [the operator setup](tools/README.md).

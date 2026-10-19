@@ -136,6 +136,12 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .pselect:focus-visible, .pmore:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .pitem:hover { background: var(--code); }
 .pitem.active { background: var(--chip); font-weight: 600; }
+.pselect { -webkit-touch-callout:none; user-select:none; }
+.pitem.reordering { opacity:.3; }
+.project-ghost { position:fixed; z-index:120; pointer-events:none; background:var(--panel); box-shadow:0 6px 22px #0006; opacity:.95; }
+.project-insert { position:fixed; z-index:121; height:3px; border-radius:2px; background:var(--accent); pointer-events:none; }
+.filter-heading { flex-basis:100%;display:flex;align-items:center;justify-content:space-between; }
+#closeFilters { min-height:44px; }
 .pitem .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 #projTitle { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -612,6 +618,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           <button id="filtersBtn" title="поиск и фильтры (Ctrl+K)"><span class="sm">🔍</span><span class="lg">Поиск и фильтры</span></button>
         </div>
         <div class="filters" id="filters">
+          <div class="filter-heading"><strong>Поиск и фильтры</strong><button id="closeFilters" type="button" aria-label="Закрыть поиск и фильтры">Закрыть ✕</button></div>
           <input type="search" id="q" placeholder="поиск по истории">
           <select id="fTopic"><option value="">все топики</option></select>
           <select id="fType"><option value="">все типы</option></select>
@@ -1288,6 +1295,7 @@ function showNoProject() {
 
 async function setProject(slug) {
   if (SENDING) { toast("Дождись отправки сообщения или нажми «Отмена»", true); return; }
+  cancelProjectDrag();
   saveDraft(); closeMenu();
   ACTIVE_DM = null; CONVERSATIONS = []; closeSecret();
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
@@ -1355,7 +1363,84 @@ async function newDirect(peer) {
 $("dmSearch").oninput=renderConversations;
 $("dmBack").onclick=()=> { if(SENDING)return; saveDraft(); ACTIVE_DM=null; resetFeedState(); paintTab(); loadConversations().catch(e=>toast(e.message,true)); };
 const seen = slug => +(PROJECTS.find(p => p.slug === slug)?.read_upto || 0);
+let PROJECT_DRAG=null, PROJECT_DRAG_CLICK=0, PROJECT_ORDER_SAVING=false;
+function cancelProjectDrag() {
+  const d=PROJECT_DRAG;PROJECT_DRAG=null;if(!d)return;
+  clearTimeout(d.timer);cancelAnimationFrame(d.frame);d.ghost?.remove();d.line?.remove();d.row.classList.remove("reordering");
+  if(d.active)PROJECT_DRAG_CLICK=performance.now()+600;
+}
+function moveProjectDrag(x,y) {
+  const d=PROJECT_DRAG;if(!d)return;
+  if(!d.active) {if(Math.hypot(x-d.x,y-d.y)>10)cancelProjectDrag();return;}
+  d.yNow=y;d.ghost.style.top=(y-d.offset)+"px";
+  const rows=[...$("projList").querySelectorAll(".pitem")].filter(r=>r!==d.row);
+  d.index=rows.findIndex(r=>y<r.getBoundingClientRect().top+r.getBoundingClientRect().height/2);
+  if(d.index<0)d.index=rows.length;
+  const target=rows[d.index],rect=(target || rows[rows.length-1] || d.row).getBoundingClientRect();
+  d.line.style.cssText=`left:${rect.left}px;top:${target?rect.top:rect.bottom}px;width:${rect.width}px`;
+}
+function startProjectDrag(target,x,y) {
+  cancelProjectDrag();
+  const row=target.closest(".pitem");
+  if(!row || target.closest("button") || ME?.kind!=="human" || PROJECT_ORDER_SAVING || SENDING || PROJECTS.length<2)return;
+  const d=PROJECT_DRAG={row,slug:row.dataset.slug,x,y,offset:y-row.getBoundingClientRect().top,token:TOKEN};
+  d.timer=setTimeout(()=>{
+    if(PROJECT_DRAG!==d)return;
+    closeMenu();finishProjectPull();NAV_TOUCH=null;gestureHint.classList.add("hidden");d.active=true;
+    const r=row.getBoundingClientRect();d.ghost=row.cloneNode(true);d.ghost.classList.add("project-ghost");
+    d.ghost.style.cssText=`left:${r.left}px;width:${r.width}px`;d.ghost.setAttribute("aria-hidden","true");
+    d.ghost.querySelectorAll("a,button").forEach(n=>n.tabIndex=-1);document.body.append(d.ghost);row.classList.add("reordering");
+    d.line=document.createElement("div");d.line.className="project-insert";document.body.append(d.line);moveProjectDrag(x,y);
+    const scroll=()=>{
+      if(PROJECT_DRAG!==d)return;
+      const panel=$("projects"),r=panel.getBoundingClientRect();
+      const top=Math.max(r.top,$("projList").getBoundingClientRect().top),bottom=Math.min(r.bottom,innerHeight);
+      const speed=d.yNow<top+36?-7:d.yNow>bottom-36?7:0;
+      if(speed){panel.scrollTop+=speed;moveProjectDrag(x,d.yNow);}
+      d.frame=requestAnimationFrame(scroll);
+    };d.frame=requestAnimationFrame(scroll);
+  },450);
+}
+async function finishProjectDrag(cancel=false) {
+  const d=PROJECT_DRAG;if(!d)return;
+  const active=d.active,index=d.index,slug=d.slug;cancelProjectDrag();
+  if(!active || cancel || TOKEN!==d.token)return;
+  const original=PROJECTS.map(p=>p.id),order=PROJECTS.filter(p=>p.slug!==slug),item=PROJECTS.find(p=>p.slug===slug);
+  if(!item)return;order.splice(index,0,item);
+  if(order.every((p,i)=>p.id===original[i]))return;
+  PROJECT_ORDER_SAVING=true;
+  try {
+    await api("POST","/api/projects/order",{project_ids:order.map(p=>p.id)});
+    if(TOKEN===d.token){PROJECTS=order;renderProjects();await loadProjects();}
+  } catch(err){if(TOKEN===d.token){renderProjects();toast(err.message,true);}}
+  finally {PROJECT_ORDER_SAVING=false;}
+}
+$("projList").addEventListener("mousedown",e=>{if(e.button===0)startProjectDrag(e.target,e.clientX,e.clientY);});
+document.addEventListener("mousemove",e=>{if(PROJECT_DRAG){moveProjectDrag(e.clientX,e.clientY);if(PROJECT_DRAG?.active)e.preventDefault();}});
+document.addEventListener("mouseup",()=>finishProjectDrag());
+$("projects").addEventListener("touchstart",e=>{
+  if(e.touches.length!==1)return cancelProjectDrag();
+  startProjectDrag(e.target,e.touches[0].clientX,e.touches[0].clientY);
+},{passive:true,capture:true});
+$("projects").addEventListener("touchmove",e=>{
+  if(e.touches.length!==1)return cancelProjectDrag();
+  if(PROJECT_DRAG?.active){e.preventDefault();e.stopImmediatePropagation();}
+  moveProjectDrag(e.touches[0].clientX,e.touches[0].clientY);
+},{passive:false,capture:true});
+$("projects").addEventListener("touchend",e=>{
+  if(PROJECT_DRAG?.active){e.preventDefault();e.stopImmediatePropagation();}
+  finishProjectDrag();
+},{passive:false,capture:true});
+$("projects").addEventListener("touchcancel",()=>cancelProjectDrag(),{passive:true});
+$("projList").addEventListener("click",e=>{
+  if(performance.now()<PROJECT_DRAG_CLICK){e.preventDefault();e.stopImmediatePropagation();}
+},true);
+$("projList").addEventListener("contextmenu",e=>{if(PROJECT_DRAG)e.preventDefault();});
+$("projList").addEventListener("dragstart",e=>e.preventDefault());
+document.addEventListener("keydown",e=>{if(e.key==="Escape" && PROJECT_DRAG){e.preventDefault();cancelProjectDrag();}});
+window.addEventListener("blur",()=>cancelProjectDrag());
 function renderProjects() {
+  if(PROJECT_DRAG)return;
   $("projList").innerHTML = PROJECTS.length ? PROJECTS.map(p => {
     const n = p.slug !== PROJECT ? (p.unread != null ? p.unread + (p.direct_unread || 0) : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
     return `<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
@@ -1648,6 +1733,10 @@ $("waitChip").onclick = () => {
   $("filters").classList.add("open"); updateFilterCount(); reload();
 };
 $("filtersBtn").onclick = () => { $("filters").classList.toggle("open"); if ($("filters").classList.contains("open")) $("q").focus(); };
+$("closeFilters").onclick = () => {
+  if($("filters").contains(document.activeElement))document.activeElement.blur();
+  $("filters").classList.remove("open");
+};
 function updateFilterCount() {
   const n = [$("q").value.trim(), $("fTopic").value, $("fType").value, $("fOpen").checked, $("fPending").checked, $("fWaiting").checked, !$("fSystem").checked]
     .filter(Boolean).length;

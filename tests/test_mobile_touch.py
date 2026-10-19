@@ -92,6 +92,8 @@ class MobileTouchTest(unittest.TestCase):
             body += '\n\nhttps://example.org/'+'segment'*100+'\n\n`'+'inline'*80+'`'
             body += '\n\n```text\n'+'wide_code_'*100+'\n```'
             mid = fx.api('POST', '/api/messages?project=main', {'body': body, 'topic': 'fixture-'+'W'*52}, who='alice')['id']
+            fx.api('POST','/api/projects',{'title':'Second fixture','slug':'second'},who='alice')
+            fx.api('POST','/api/projects',{'title':'Third fixture','slug':'third'},who='alice')
             profile = fx.work/'chromium-profile'
             browser = subprocess.Popen([chromium_path(), '--headless', '--disable-gpu', '--no-first-run',
                                         '--no-default-browser-check', '--remote-debugging-port=0',
@@ -201,6 +203,28 @@ class MobileTouchTest(unittest.TestCase):
             self.assertTrue(dev.evaluate('$("projects").classList.contains("open")'), 'short pull became a project tap')
             swipe(point['x'],point['y'],0,70)
             wait('!$("projects").classList.contains("open")')
+            # Hold and drag uses native touch, without dismissing or selecting the sheet.
+            swipe(100,260,85);wait('$("projects").classList.contains("open")')
+            first=dev.evaluate('PROJECTS[0].id')
+            point=dev.evaluate('(()=>{const r=document.querySelector("#projList .pselect").getBoundingClientRect();return {x:r.left+85,y:r.top+r.height/2}})()')
+            target=dev.evaluate('(()=>{const rows=$("projList").querySelectorAll(".pitem");return rows[rows.length-1].getBoundingClientRect().bottom-2})()')
+            dev.call('Input.dispatchTouchEvent',type='touchStart',touchPoints=[dict(point,id=1)])
+            time.sleep(.55)
+            self.assertTrue(dev.evaluate('!!document.querySelector(".project-insert")'),'hold did not show insertion line')
+            for step in range(1,9):
+                dev.call('Input.dispatchTouchEvent',type='touchMove',touchPoints=[{'x':point['x'],'y':point['y']+(target-point['y'])*step/8,'id':1}]);time.sleep(.025)
+            dev.call('Input.dispatchTouchEvent',type='touchEnd',touchPoints=[])
+            wait('!PROJECT_ORDER_SAVING && PROJECTS.at(-1).id==='+str(first))
+            self.assertTrue(dev.evaluate('$("projects").classList.contains("open") && PROJECT==="main"'))
+            self.assertEqual(dev.evaluate('(async()=> (await api("GET","/api/projects")).projects.at(-1).id)()'),first)
+            saved=dev.evaluate('PROJECTS.map(p=>p.id)')
+            point=dev.evaluate('(()=>{const r=document.querySelector("#projList .pselect").getBoundingClientRect();return {x:r.left+85,y:r.top+r.height/2}})()')
+            dev.call('Input.dispatchTouchEvent',type='touchStart',touchPoints=[dict(point,id=1)]);time.sleep(.55)
+            self.assertTrue(dev.evaluate('!!PROJECT_DRAG?.active'))
+            dev.call('Input.dispatchTouchEvent',type='touchCancel',touchPoints=[])
+            wait('!PROJECT_DRAG')
+            self.assertEqual(dev.evaluate('PROJECTS.map(p=>p.id)'),saved,'cancelled drag changed order')
+            dev.evaluate('closeMobilePanels()')
             dev.evaluate('$("scroller").scrollTop=0')
             swipe(200, 490, 8, -230)
             self.assertGreater(dev.evaluate('$("scroller").scrollTop'), 30, 'native vertical scrolling stopped '+json.dumps(dev.evaluate('({height:$("scroller").clientHeight,scroll:$("scroller").scrollHeight,target:document.elementFromPoint(200,490)?.outerHTML?.slice(0,100),events:fixtureTouches})')))

@@ -224,6 +224,7 @@ def db():
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
                                  ("members", "read_upto", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("members", "sidebar_position", "INTEGER"),
                                  ("messages", "conversation_id", "TEXT"),
                                  ("attachments", "upload_id", "TEXT"),
                                  ("projects", "admin_owner", "TEXT"), ("projects", "service_agent", "TEXT"),
@@ -481,7 +482,7 @@ def ensure_default_project(con):
 
 def my_projects(name):
     rows = db().execute("SELECT p.*, m.role FROM members m JOIN projects p ON p.id = m.project_id "
-                        "WHERE m.user = ? AND p.archived = 0 ORDER BY p.id", (name,)).fetchall()
+                        "WHERE m.user = ? AND p.archived = 0 ORDER BY m.sidebar_position IS NULL, m.sidebar_position, p.id", (name,)).fetchall()
     return [p for p in rows if member_role(p["id"], name)]
 
 
@@ -1888,6 +1889,31 @@ def api_projects(h, user, q, data):
             d["direct_unread"] = private_unread
             out.append(d)
     return {"projects": out}
+
+
+@route("POST", "/api/projects/order")
+def api_project_order(h, user, q, data):
+    if user["kind"] != "human":
+        raise ApiError(403, "порядок проектов выбирает человек")
+    ids = data.get("project_ids")
+    if set(data) != {"project_ids"} or not isinstance(ids, list) or any(type(x) is not int for x in ids) or len(ids) != len(set(ids)):
+        raise ApiError(400, "project_ids: список разных идентификаторов проектов")
+    with DB_LOCK:
+        con = db()
+        current = [p["id"] for p in my_projects(user["name"])]
+        if not set(ids).issubset(current):
+            raise ApiError(404, "проект не найден")
+        # Concurrently added memberships remain visible at the end of the list.
+        order = ids + [pid for pid in current if pid not in ids]
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            con.executemany("UPDATE members SET sidebar_position=? WHERE user=? AND project_id=?",
+                            [(i, user["name"], pid) for i, pid in enumerate(order)])
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    return {"project_ids": order}
 
 
 @route("POST", "/api/projects")

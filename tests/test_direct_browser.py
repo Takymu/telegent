@@ -170,6 +170,23 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     nav.querySelector('[data-mobile="feed"]').click();await wait(()=>TAB==='feed');
     check(nav.querySelector('[data-mobile="feed"]').getAttribute('aria-current')==='page','bottom navigation reflects selected tab');
   } else check(getComputedStyle(nav).display==='none','desktop keeps its existing navigation');
+  if(VIEWPORT==='mobile')nav.querySelector('[data-mobile="more"]').click();
+  if(VIEWPORT==='mobile'){await wait(()=>TAB==='more');document.querySelector('#moreView [data-act="mobilesearch"]').click();}
+  else $('filtersBtn').click();
+  await wait(()=>$('filters').classList.contains('open'));
+  check($('closeFilters').getBoundingClientRect().height>=44,'filter close action reachable');
+  $('closeFilters').click();check(!$('filters').classList.contains('open'),'filters close from inside the panel');
+  if(VIEWPORT==='desktop') {
+    const original=PROJECTS.map(p=>p.id),rows=[...$('projList').querySelectorAll('.pitem')];
+    const first=rows[0].querySelector('.pselect'),a=first.getBoundingClientRect(),b=rows[rows.length-1].getBoundingClientRect();
+    first.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:a.left+50,clientY:a.top+15,button:0}));await pause(500);
+    check(!!document.querySelector('.project-insert'),'holding a project displays insertion line');
+    document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:a.left+50,clientY:b.bottom-2}));
+    document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+    await wait(()=>!PROJECT_ORDER_SAVING&&PROJECTS.at(-1).id===original[0]);
+    await loadProjects();check(PROJECTS.at(-1).id===original[0],'mouse reorder persists on server');
+    check(PROJECT==='main','reordering does not open another project');
+  }
   $('cBody').value='reload public '+VIEWPORT;$('cBody').dispatchEvent(new Event('input'));
   await pause(300);check(JSON.parse(st.get(draftStorageKey())).body===$('cBody').value,'typing persists draft before navigation');
   await openDirect(cid);$('cBody').value='reload private '+VIEWPORT;

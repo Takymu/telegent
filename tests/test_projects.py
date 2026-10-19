@@ -58,6 +58,28 @@ class ProjectTest(unittest.TestCase):
     def rename(self, title, who='alice', **extra):
         return self.api('POST', '/api/project/rename', dict(title=title, **extra), who=who)
 
+    def test_personal_project_order_persists_without_changing_other_accounts(self):
+        before=self.api('GET','/api/projects',project=False)['projects']
+        bob_before=self.api('GET','/api/projects',who='bob',project=False)['projects']
+        ids=[p['id'] for p in reversed(before)]
+        self.api('POST','/api/projects/order',{'project_ids':ids},project=False)
+        self.assertEqual([p['id'] for p in self.api('GET','/api/projects',project=False)['projects']],ids)
+        self.assertEqual([p['id'] for p in self.api('GET','/api/me')['projects']],ids)
+        self.assertEqual(self.api('GET','/api/projects',who='bob',project=False)['projects'],bob_before)
+        with self.s.DB_LOCK:
+            self.s._db.close();self.s._db=None
+        self.assertEqual([p['id'] for p in self.api('GET','/api/projects',project=False)['projects']],ids)
+        self.api('POST','/api/projects/order',{'project_ids':[self.p['id']]},project=False)
+        self.assertEqual(self.api('GET','/api/projects',project=False)['projects'][0]['id'],self.p['id'])
+
+    def test_project_order_rejects_agents_foreign_projects_and_invalid_payloads(self):
+        self.error(403,'POST','/api/projects/order',{'project_ids':[]},who=self.agent,project=False)
+        self.error(404,'POST','/api/projects/order',{'project_ids':[self.p['id']+100000]},project=False)
+        self.error(404,'POST','/api/projects/order',{'project_ids':[self.p['id']]},who='carol',project=False)
+        for payload in ({},{'project_ids':'1'},{'project_ids':[True]},{'project_ids':['1']},
+                        {'project_ids':[self.p['id']]*2},{'project_ids':[],'user':'bob'}):
+            self.error(400,'POST','/api/projects/order',payload,project=False)
+
     def test_creator_can_rename_after_becoming_regular_member(self):
         self.api('POST', '/api/members/role', {'name': 'bob', 'role': 'owner'})
         self.api('POST', '/api/members/role', {'name': 'alice', 'role': 'member'}, who='bob')
