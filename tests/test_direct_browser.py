@@ -24,9 +24,23 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
  try {
   await wait(()=>ME&&MSGS.has(FIXTURE.general)&&document.querySelector('#m'+FIXTURE.general));
   const projects=$('projList').querySelectorAll('.pitem').length;
+  const openMessage=id=>{
+    const node=document.querySelector('#m'+id);
+    if(VIEWPORT==='desktop')node.querySelector('.mtext').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:innerWidth-12,clientY:innerHeight-12}));
+    else node.querySelector('[data-act="more"]').click();
+  };
+  openMessage(FIXTURE.general);
+  check(!$('menu').classList.contains('hidden'),'message actions opened');
+  if(VIEWPORT==='desktop'){
+    const r=$('menu').getBoundingClientRect();
+    check(r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,'context menu stays within viewport');
+    check(getComputedStyle(document.querySelector('#m'+FIXTURE.general+' [data-act="more"]')).display==='none','desktop ellipsis hidden');
+  }
+  closeMenu();
+
   $('cBody').value='public draft fixture';
   const edit=async id=>{
-    document.querySelector('#m'+id+' [data-act="more"]').click();
+    openMessage(id);
     document.querySelector('#menu [data-act="edit"]').click();
     await wait(()=>$('editDialog').open);
   };
@@ -41,14 +55,14 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   $('editBody').value='unsaved conflict fixture';$('editSave').click();
   await wait(()=>!$('editSave').disabled&&$('editErr').textContent);
   check($('editDialog').open&&$('editBody').value==='unsaved conflict fixture','conflict keeps unsaved text');$('editCancel').click();
-  document.querySelector('#m'+FIXTURE.agent+' [data-act="more"]').click();
+  openMessage(FIXTURE.agent);
   check(!document.querySelector('#menu [data-act="edit"],#menu [data-act="delete"]'),'agent messages have no human editing action');closeMenu();
   const disposable=(await api('POST','/api/messages',{body:'delete browser fixture'})).id;await refresh();
   const realConfirm=window.confirm;window.confirm=()=>false;
-  document.querySelector('#m'+disposable+' [data-act="more"]').click();document.querySelector('#menu [data-act="delete"]').click();
+  openMessage(disposable);document.querySelector('#menu [data-act="delete"]').click();
   await pause(50);check(!MSGS.get(disposable).deleted,'delete can be cancelled');
   window.confirm=()=>true;
-  document.querySelector('#m'+disposable+' [data-act="more"]').click();document.querySelector('#menu [data-act="delete"]').click();
+  openMessage(disposable);document.querySelector('#menu [data-act="delete"]').click();
   await wait(()=>MSGS.get(disposable)?.deleted&&document.querySelector('#m'+disposable+'.deleted'));
   window.confirm=realConfirm;
   check(!document.querySelector('#m'+disposable+' [data-act="edit"]'),'deleted message cannot be edited');

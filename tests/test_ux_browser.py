@@ -50,6 +50,12 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   const quote=$('m'+nested).querySelector('.mquote');
   check(+quote.dataset.id===answer&&quote.textContent.includes('Answer first line Answer second line')&&!quote.textContent.includes('Original root fixture'),'nested quote uses exact parent body even outside loaded page');
   check(quote.querySelector('.quote-author').textContent==='alice-agent','quote author is separate from body');
+  const quotedParent=(await actor('POST','/api/messages',{body:'Long quote fixture '.repeat(25)})).id;
+  const quotedReply=(await api('POST','/api/messages',{body:'Short answer',reply_to:quotedParent})).id;
+  await refresh();
+  check($('m'+quotedReply).querySelector('.mmain').getBoundingClientRect().width<=300,'long quote does not stretch a short reply');
+  const threadButton=$('m'+root).querySelector('.message-footer [data-act="thread"]');
+  check(Math.abs(threadButton.getBoundingClientRect().left-$('m'+root).querySelector('.mtext').getBoundingClientRect().left)<2,'reply count aligns with left text edge');
   showSettings();const colors=$('infoBody').querySelector('[data-color-scheme]');
   colors.value='default';colors.dispatchEvent(new Event('change',{bubbles:true}));
   check(document.documentElement.dataset.colors==='default','default palette can be restored');
