@@ -2630,12 +2630,12 @@ function row(m, prev) {
   if(hasReplies)html+=ui`<button class="receipt-button" data-act="thread" data-id="${m.thread_id}">Ответы: ${m.reply_count} →</button>`;
   if(!inlineMeta)html+=meta;
   html+='</div>';
-  html += `</div><div class="mtools">` +
+  html += `<div class="mtools">` +
     ui`<button data-act="reactmenu" data-id="${m.id}" title="Добавить реакцию" aria-label="Добавить реакцию">☺+</button>` +
     ui`<button data-act="reply" data-id="${m.id}" title="ответить">↩</button>` +
     ui`<button data-act="thread" data-id="${m.thread_id}" title="вся ветка">≡</button>` +
     (!m.acked && !isMine(m) ? ui`<button data-act="ack" data-id="${m.id}" title="отметить обработанным">✓</button>` : "") +
-    ui`<button data-act="more" data-id="${m.id}" title="ещё">⋯</button></div></div>`;
+    ui`<button data-act="more" data-id="${m.id}" title="ещё">⋯</button></div></div></div>`;
   return html;
 }
 

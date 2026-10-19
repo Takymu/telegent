@@ -63,6 +63,11 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   const compact=(await api('POST','/api/messages',{body:'Short fixture'})).id;await refresh();
   const ownRow=$('m'+compact),own=ownRow.querySelector('.mmain'),incoming=$('m'+FIXTURE.agent).querySelector('.mmain');
   check(ownRow.classList.contains('outgoing')&&incoming.closest('.mrow').classList.contains('incoming'),'alignment follows authenticated author identity');
+  if(VIEWPORT==='desktop')for(const bubble of [own,incoming]){
+    const tools=bubble.querySelector('.mtools');tools.style.display='flex';
+    check(Math.abs(tools.getBoundingClientRect().right-bubble.getBoundingClientRect().right+10)<2,'hover actions are anchored to their bubble');
+    tools.style.display='';
+  }
   check(own.getBoundingClientRect().right>incoming.getBoundingClientRect().right,'own bubble is to the right of incoming');
   check(own.getBoundingClientRect().width<$('feed').getBoundingClientRect().width*.8,'short bubble fits its content');
   check(getComputedStyle(own).borderTopWidth==='0px'&&getComputedStyle(incoming).borderTopWidth==='0px','message fills have no outlines');
