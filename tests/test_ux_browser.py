@@ -22,6 +22,8 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     check(PROJECTS.find(p=>p.slug===FIXTURE.second)?.title==='Сохранить','project title is never translated');
     check(document.querySelector('.tabs [data-tab="feed"]').textContent.startsWith('Team chat'),'English navigation');
     showSettings();check($('infoHeading').textContent==='Settings','English settings');
+    check($('infoBody').querySelector('[data-color-scheme]').value==='telegram','color scheme survives reload');
+    check($('infoBody').querySelector('[data-color-scheme]').textContent.includes('Gray (white ticks)'),'color choices translated');
     check($('infoBody').querySelector('[data-language]').value==='en','manual language override retained');closeInfo();
     await showReceipt(fixture.mid);check($('infoHeading').textContent==='Message information','English message info');
     check($('infoBody').textContent.includes('Общий чат Сохранить '+VIEWPORT),'English info preserves original message');closeInfo();
@@ -38,7 +40,20 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     await fetch('/debug/result',{method:'POST',body:JSON.stringify({ok:true,viewport:VIEWPORT,checks})});return;
   }
   check(UI_LANG==='ru','Russian initial UI');
+  const originalTitle=$('projTitle').textContent;$('projTitle').textContent='Project development team';
+  check($('projTitle').scrollWidth<=$('projTitle').clientWidth,'mobile title uses available header space before ellipsis');$('projTitle').textContent=originalTitle;
   const peer=ME.users.find(u=>u.name==='alice-agent');
+  const root=(await api('POST','/api/messages',{body:'Original root fixture'})).id;
+  const answer=(await actor('POST','/api/messages',{body:'Answer first line\nAnswer second line',reply_to:root})).id;
+  const nested=(await api('POST','/api/messages',{body:'Reply to answer',reply_to:answer})).id;
+  await refresh();MSGS.delete(answer);render(true);
+  const quote=$('m'+nested).querySelector('.mquote');
+  check(+quote.dataset.id===answer&&quote.textContent.includes('Answer first line Answer second line')&&!quote.textContent.includes('Original root fixture'),'nested quote uses exact parent body even outside loaded page');
+  check(quote.querySelector('.quote-author').textContent==='alice-agent','quote author is separate from body');
+  showSettings();const colors=$('infoBody').querySelector('[data-color-scheme]');
+  colors.value='default';colors.dispatchEvent(new Event('change',{bubbles:true}));
+  check(document.documentElement.dataset.colors==='default','default palette can be restored');
+  colors.value='telegram';colors.dispatchEvent(new Event('change',{bubbles:true}));closeInfo();
   const compact=(await api('POST','/api/messages',{body:'Short fixture'})).id;await refresh();
   const ownRow=$('m'+compact),own=ownRow.querySelector('.mmain'),incoming=$('m'+FIXTURE.agent).querySelector('.mmain');
   check(ownRow.classList.contains('outgoing')&&incoming.closest('.mrow').classList.contains('incoming'),'alignment follows authenticated author identity');
@@ -46,6 +61,8 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   check(own.getBoundingClientRect().width<$('feed').getBoundingClientRect().width*.8,'short bubble fits its content');
   check(getComputedStyle(own).borderTopWidth==='0px'&&getComputedStyle(incoming).borderTopWidth==='0px','message fills have no outlines');
   check(getComputedStyle(own).backgroundColor!==getComputedStyle(incoming).backgroundColor,'own and incoming fills differ');
+  check(getComputedStyle(own).backgroundColor==='rgb(96, 96, 96)','gray scheme applies to own bubble');
+  check(getComputedStyle(own.querySelector('[data-act="receipt"]')).color==='rgb(255, 255, 255)','gray scheme uses white ticks');
   const range=document.createRange();range.selectNodeContents(own.querySelector('.mtext p').firstChild);
   check(Math.abs(centerY(range.getBoundingClientRect())-centerY(own.querySelector('.message-meta').getBoundingClientRect()))<8,'short text and timestamp share final line');
   check(!own.querySelector('.mhead .mtime')&&!own.querySelector('.mtext button,.mtext time'),'time and controls stay outside message source');
@@ -111,6 +128,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='image fixture '+VIEWPORT));
   const image=[...MSGS.values()].find(m=>m.body==='image fixture '+VIEWPORT);
   const imageRow=$('m'+image.id);
+  check(getComputedStyle(imageRow.querySelector('.file-card')).color===getComputedStyle(document.body).color,'attachment text remains readable in gray scheme');
   check(imageRow.querySelector('.file-card').getBoundingClientRect().right<=imageRow.querySelector('.mmain').getBoundingClientRect().right,'attachment fits message outline');
   await previewFile(image.attachments[0].id,'fixture.png');await wait(()=>$('infoBody').querySelector('img')?.complete);
   check($('infoBody').querySelector('img').naturalWidth===1,'authenticated image preview decodes');closeInfo();await pause(20);check(!PREVIEW_URL,'closing preview releases blob URL');

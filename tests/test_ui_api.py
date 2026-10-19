@@ -43,5 +43,29 @@ class UIAPITest(unittest.TestCase):
         self.assertNotIn(private,{m['id'] for m in public})
         self.assertEqual(next(m for m in public if m['id']==root)['reply_count'],1)
 
+    def test_reply_preview_uses_direct_parent_body_and_survives_pagination(self):
+        root=self.fx.api('POST','/api/messages?project=main',{'body':'root fixture'},who='alice')['id']
+        parent=self.fx.api('POST','/api/messages?project=main',{'body':'answer first line\nanswer second line','reply_to':root})['id']
+        child=self.fx.api('POST','/api/messages?project=main',{'body':'reply to answer','reply_to':parent},who='alice')['id']
+        result=self.fx.api('GET',f'/api/messages?project=main&after={parent}',who='alice')['messages']
+        preview=next(m for m in result if m['id']==child)['reply_preview']
+        self.assertEqual(preview['id'],parent)
+        self.assertEqual(preview['body'],'answer first line\nanswer second line')
+        self.assertNotEqual(preview['id'],root)
+        self.fx.api('POST',f'/api/messages/{root}/delete',{'revision':0},who='alice')
+        self.assertTrue(self.fx.api('GET',f'/api/messages/{parent}',who='alice')['message']['reply_preview']['deleted'])
+        self.assertEqual(self.fx.api('GET',f'/api/messages/{parent}',who='alice')['message']['reply_preview']['body'],'')
+
+    def test_reply_preview_does_not_cross_project_or_conversation(self):
+        public=self.fx.api('POST','/api/messages?project=main',{'body':'public preview fixture'},who='alice')['id']
+        foreign=self.fx.api('POST','/api/messages?project=other',{'body':'foreign preview fixture'},who='carol')['id']
+        cid=self.fx.api('POST','/api/conversations?project=main',{'peer_id':'alice-agent'},who='alice')['conversation']['id']
+        private=self.fx.api('POST','/api/messages?project=main',{'body':'private preview fixture','conversation_id':cid},who='alice')['id']
+        for parent in (foreign,private):
+            with self.fx.s.DB_LOCK:
+                self.fx.s.db().execute('UPDATE messages SET reply_to=? WHERE id=?',(parent,public))
+            for who in ('alice','alice-agent'):
+                self.assertIsNone(self.fx.api('GET',f'/api/messages/{public}',who=who)['message']['reply_preview'])
+
 
 if __name__=='__main__':unittest.main(verbosity=2)

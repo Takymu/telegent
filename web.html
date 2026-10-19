@@ -12,21 +12,23 @@
   --accent: #2f5bd3; --accent-ink: #ffffff; --urgent: #c2321f; --urgent-bg: #fdecea;
   --ok: #1f7a46; --ok-bg: #e6f4ec; --warn: #9a5b00; --warn-bg: #fff3df; --human: #7a3fb8; --human-bg: #f2eafb;
   --chip: #efefeb; --code: #f1f1ed; --offline: #8e939a; --bubble-in:#ffffff; --bubble-out:#e1edff;
+  --bubble-own-ink:var(--ink);--bubble-own-muted:var(--muted);--bubble-own-link:var(--accent);--receipt:var(--accent);--bubble-mono-in:#ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #141517; --panel: #1c1e21; --ink: #e7e7e4; --muted: #9a9ea6; --line: #2d3035;
     --accent: #7c9bff; --accent-ink: #0d1020; --urgent: #ff7a66; --urgent-bg: #3a1d19;
     --ok: #6fd39b; --ok-bg: #16301f; --warn: #f0b259; --warn-bg: #352712; --human: #c49bff; --human-bg: #2a1f3a;
-    --chip: #26292d; --code: #23262a; --offline: #4f5359; --bubble-in:#25282e; --bubble-out:#2c4160;
+    --chip: #26292d; --code: #23262a; --offline: #4f5359; --bubble-in:#25282e; --bubble-out:#2c4160;--bubble-mono-in:#222222;
   }
 }
 :root[data-theme="dark"] {
   --bg: #141517; --panel: #1c1e21; --ink: #e7e7e4; --muted: #9a9ea6; --line: #2d3035;
   --accent: #7c9bff; --accent-ink: #0d1020; --urgent: #ff7a66; --urgent-bg: #3a1d19;
   --ok: #6fd39b; --ok-bg: #16301f; --warn: #f0b259; --warn-bg: #352712; --human: #c49bff; --human-bg: #2a1f3a;
-  --chip: #26292d; --code: #23262a; --offline: #4f5359; --bubble-in:#25282e; --bubble-out:#2c4160;
+  --chip: #26292d; --code: #23262a; --offline: #4f5359; --bubble-in:#25282e; --bubble-out:#2c4160;--bubble-mono-in:#222222;
 }
+:root[data-colors="telegram"] { --bubble-in:var(--bubble-mono-in);--bubble-out:#606060;--bubble-own-ink:#ffffff;--bubble-own-muted:#e1e1e1;--bubble-own-link:#c4dfff;--receipt:#ffffff; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -170,7 +172,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   .lg { display: none; }
   .tabs { flex-wrap: nowrap; }
   .tabs button { padding: 5px 9px; }
-  #projTitle { flex: 1; font-size: 15px; }
+  #projTitle { flex:0 1 auto;font-size:15px; }
   .feedtop { padding: 10px 12px 0; }
   #scroller { padding: 4px 12px 20px; }
   #composer { padding: 2px 10px 12px; }
@@ -234,7 +236,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .mgutter { visibility:hidden; }
 .mhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; line-height: 1.3; }
 .mmain { position:relative;flex:0 1 auto;width:fit-content;min-width:0;max-width:min(82%,640px);border:0;border-radius:15px 15px 15px 4px;padding:7px 10px;background:var(--bubble-in); }
-.outgoing .mmain { background:var(--bubble-out);border-radius:15px 15px 4px 15px; }
+.outgoing .mmain { background:var(--bubble-out);color:var(--bubble-own-ink);border-radius:15px 15px 4px 15px; }
+.mmain :where(.file-card,.mextra,.mappr,.md pre,.md code,[data-ux=preview],[data-act=secret-revoke]) { color:var(--ink); }
 .mhead > * { min-width:0;max-width:100%; }
 .mhead, .mrc, .mextra, .sysrow { overflow-wrap:anywhere; }
 .mname { font-weight: 700; }
@@ -252,8 +255,13 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .pill.s-taken { color: var(--accent); }
 .pill.s-done { background: var(--ok-bg); color: var(--ok); }
 .pill.s-rejected { background: var(--urgent-bg); color: var(--urgent); }
-.mquote { display: block; font-size: 12.5px; color: var(--muted); border-left: 2px solid var(--line); padding: 0 8px;
-  margin: 3px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
+.mquote { display:block;font-size:12.5px;color:var(--ink);border-left:3px solid var(--accent);padding:5px 8px;margin:4px 0;background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:4px;overflow:hidden;text-decoration:none; }
+.quote-author { display:block;font-weight:650;color:var(--accent); }
+.quote-text { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;white-space:normal; }
+.outgoing .mquote,.outgoing .mmeta,.outgoing .message-meta,.outgoing .mtime { color:var(--bubble-own-muted); }
+.outgoing .quote-author,.outgoing .md a { color:var(--bubble-own-link); }
+.outgoing .mquote { border-left-color:var(--bubble-own-link); }
+.outgoing .md blockquote,.outgoing .secret-card .muted { color:var(--bubble-own-muted); }
 .mquote:hover { color: var(--ink); border-left-color: var(--accent); }
 .mtext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; margin-top: 1px; }
 .mtext::after { content:"";display:block;clear:both; }
@@ -479,7 +487,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .ux-muted { font-size:13px;color:var(--muted); }
 .receipt-button { display:block;margin:4px 0 0 auto;padding:2px 8px;min-width:44px;min-height:28px;border:0;background:transparent;color:var(--muted);font-size:12px; }
 .receipt-button.read { color:var(--accent); }
-.receipt-button[data-act=receipt],.receipt-spinner { color:var(--accent); }
+.receipt-button[data-act=receipt],.receipt-spinner { color:var(--receipt); }
 .message-footer { display:flex;flex-wrap:wrap;gap:3px 5px;align-items:center;margin:3px 0 0; }
 .message-footer:empty { display:none; }
 .message-meta { display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--muted);font-size:11px;line-height:18px; }
@@ -1353,7 +1361,12 @@ const UI_EN={
   "Получение": "Delivery",
   "Прочитали:": "Read by:",
   "Пока никто": "No one yet",
-  "Реакций пока нет": "No reactions yet"
+  "Реакций пока нет": "No reactions yet",
+  "Цветовая схема": "Color scheme",
+  "Стандартная (синяя)": "Default (blue)",
+  "Серая (белые галочки)": "Gray (white ticks)",
+  "Настройка сохраняется в этом браузере.": "This setting is saved in this browser.",
+  "Вложение": "Attachment"
 };
 let LANGUAGE_SETTING="auto";
 try{LANGUAGE_SETTING=localStorage.getItem("tg_language")||"auto";}catch{}
@@ -1876,7 +1889,9 @@ async function api(method, path, body, signal) {
 function applyTheme() {
   const t = st.get("tg_theme");
   if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme");
+  document.documentElement.dataset.colors=st.get("tg_colors")==="telegram"?"telegram":"default";
 }
+document.addEventListener("change",e=>{if(e.target.matches("[data-color-scheme]")){st.set("tg_colors",e.target.value==="telegram"?"telegram":"default");applyTheme();}});
 $("themeBtn").onclick = () => {
   const cur = st.get("tg_theme");
   const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
@@ -2512,8 +2527,9 @@ function row(m, prev) {
     if(bits.length)html += `<div class="mhead">${bits.join("")}</div>`;
   }
   if (m.reply_to) {
-    const p = MSGS.get(m.reply_to);
-    html += `<a href="#" class="mquote" data-act="jump" data-id="${m.reply_to}">↪ ${p ? `${esc(p.author)}: ${esc(p.subject)}` : ui`ответ на #${m.reply_to}`}</a>`;
+    const p = m.reply_preview || MSGS.get(m.reply_to);
+    const preview=p?(p.deleted?tr("Сообщение удалено"):(p.body||p.subject||tr("Вложение")).replace(/\s+/g," ").trim()):ui`ответ на #${m.reply_to}`;
+    html += `<a href="#" class="mquote" data-act="jump" data-id="${m.reply_to}">${p?`<span class="quote-author">${esc(p.author)}</span>`:""}<span class="quote-text">${esc(preview)}</span></a>`;
   }
   // a message is one text (the old separate subject is its first line now)
   const body = (m.body || m.subject || "").replace(/^\s*\n/, "");
@@ -2795,7 +2811,7 @@ $("cTopic").addEventListener("input", () => {updateChips();scheduleDraft();});
 function startReply(m) {
   REPLY = m;
   $("replyBar").classList.remove("hidden");
-  $("replyText").textContent = ui`Ответ на #${m.id} (${m.author}): ${m.subject}`;
+  $("replyText").textContent = ui`Ответ на #${m.id} (${m.author}): ${(m.body||m.subject||tr("Вложение")).replace(/\s+/g," ").slice(0,240)}`;
   $("cTopic").value = m.topic || "";
   $("cTo").value = !isMine(m) ? m.author : "";
   $("cBody").focus(); scheduleDraft();
@@ -3479,6 +3495,8 @@ function showSettings(){
   const labels={on:tr("Включены"),off:tr("Выключены"),blocked:tr("Заблокированы браузером"),unsupported:tr("Браузер не поддерживает уведомления")};
   showInfo(tr("Настройки"),ui`<div class="ux-card"><b>${esc(ME.name)}</b><p>${ME.kind==="human"?tr("Человек"):tr("Агент")} · ${esc(ME.project?.title||tr("Нет проекта"))}</p><div class="actions">${ME.kind==="human"?tr('<button data-ux="password">Сменить пароль</button>'):""}<button data-ux="theme">Сменить тему</button><button data-ux="logout">Выйти</button></div></div><div class="ux-card"><label>Язык <select data-language><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере. Тексты сообщений и имена остаются в исходном виде.</p></div><div class="ux-card"><b>Уведомления: ${labels[state]}</b><p class="ux-muted">Сейчас уведомления работают, пока открыта вкладка. Разрешение относится к этому адресу сайта.</p>${state==="blocked"?tr('<p>Разреши уведомления в настройках сайта в браузере, затем вернись сюда.</p>'):state!=="unsupported"?'<button data-ux="notify">'+(state==="on"?tr("Выключить"):tr("Включить"))+'</button>':""}</div>`);
   $("infoBody").querySelector('[data-language]').value=LANGUAGE_SETTING;
+  $("infoBody").querySelector('[data-language]').closest('.ux-card').insertAdjacentHTML('beforebegin',ui`<div class="ux-card"><label>Цветовая схема <select data-color-scheme><option value="default">Стандартная (синяя)</option><option value="telegram">Серая (белые галочки)</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере.</p></div>`);
+  $("infoBody").querySelector('[data-color-scheme]').value=st.get('tg_colors')==='telegram'?'telegram':'default';
 }
 async function loadWork(){
   const scope=uiScope(),mode=WORK_MODE;$("workBox").innerHTML=tr('<p role="status">Загружаем…</p>');

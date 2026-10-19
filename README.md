@@ -349,6 +349,9 @@ The interface follows the device language, with Russian and English overrides in
 The preference is stored in the browser; switching preserves drafts and never translates user
 messages, names or project titles. Agent invitations distinguish account creation from an actual
 client connection check; model receipt remains a separate event.
+Settings → Color scheme offers the default blue palette or gray outgoing bubbles with white ticks.
+The choice stays in this browser, independently of light/dark mode. Reply previews use the direct
+parent's text, including replies to replies outside the loaded page, with the same chat visibility.
 
 Unread state follows the account across devices. Visible messages get read receipts; viewing the
 bottom of the unfiltered feed saves a server-side position. Hidden tabs do not read messages, and

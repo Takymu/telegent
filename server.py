@@ -1260,6 +1260,12 @@ def msg_dicts(rows, me=None, full=True):
         ",".join("?" for _ in thread_ids) + ") AND m.project_id IN (" + ",".join("?" for _ in project_ids) +
         ") AND m.deleted_ts IS NULL AND m.reply_to IS NOT NULL AND m.type NOT IN ('status','approval') AND " +
         visible + " GROUP BY m.thread_id", thread_ids + project_ids + visible_args)} if thread_ids else {}
+    parent_ids = list({r["reply_to"] for r in rows if r["reply_to"]})
+    parents = {r["id"]: r for r in con.execute(
+        "SELECT m.id,m.author,m.project_id,m.conversation_id,m.deleted_ts,substr(m.body,1,400) AS body "
+        "FROM messages m WHERE m.id IN (" + ",".join("?" for _ in parent_ids) +
+        ") AND m.project_id IN (" + ",".join("?" for _ in project_ids) + ") AND " + visible,
+        parent_ids + project_ids + visible_args)} if parent_ids else {}
     out = []
     for r in rows:
         rc = receipts.get(r["id"], [])
@@ -1273,6 +1279,7 @@ def msg_dicts(rows, me=None, full=True):
             "priority": r["priority"], "subject": r["subject"],
             "body": r["body"] if full else r["body"][:400],
             "reply_to": r["reply_to"], "thread_id": r["thread_id"],
+            "reply_preview": None,
             "reply_count": thread_counts.get(r["thread_id"], 0),
             "conversation_id": r["conversation_id"],
             "revision": r["revision"], "edited": iso(r["edited_ts"]), "deleted": bool(r["deleted_ts"]),
@@ -1291,6 +1298,11 @@ def msg_dicts(rows, me=None, full=True):
             "read": bool(mine and mine["read_ts"]), "acked": bool(mine and mine["ack_ts"]),
             "acked_by": [account_name(x["user"]) for x in rc if x["ack_ts"]],
         }
+        parent = parents.get(r["reply_to"])
+        if parent and parent["project_id"] == r["project_id"] and parent["conversation_id"] == r["conversation_id"]:
+            d["reply_preview"] = {"id": parent["id"], "author": account_name(parent["author"]),
+                                  "author_id": parent["author"], "deleted": bool(parent["deleted_ts"]),
+                                  "body": "" if parent["deleted_ts"] else parent["body"][:400]}
         # per-recipient delivery: delivered (their watch/inbox got it) -> read -> acked
         by_user = {x["user"]: x for x in rc if x["user"] != r["author"]}
         to = d["to_ids"] or [a for a in agents[r["project_id"]] if a != r["author"]]
