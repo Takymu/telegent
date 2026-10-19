@@ -44,6 +44,20 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await actor('POST','/api/messages/'+mid+'/reaction',{emoji:'🔥',active:true});await refresh();
   check(!!document.querySelector('#m'+mid+' .receipt-button svg'),'compact receipt icon is visible');
   check(!document.querySelector('#m'+mid+' .mrc'),'recipient names removed from the feed');
+  const footer=document.querySelector('#m'+mid+' .message-footer'),tick=footer.querySelector('[data-act="receipt"]');
+  const center=node=>{const r=node.getBoundingClientRect();return r.top+r.height/2};
+  check(Math.abs(center(tick)-center(footer.querySelector('.reaction')))<1,'one reaction shares a line with receipt');
+  check(Math.abs(tick.querySelector('svg').getBoundingClientRect().width-17.5)<.1,'receipt icon reduced by factor 1.2');
+  const unread={...MSGS.get(mid),receipts:[{user:'alice-agent',delivered:1,read:null}]};
+  const probe=document.createElement('div');probe.innerHTML=receiptButton(unread);
+  check(probe.querySelectorAll('path').length===1,'delivered but unread gives one tick');
+  probe.innerHTML=receiptButton({...unread,receipts:[{user:'alice-agent',delivered:1,read:1}]});
+  check(probe.querySelectorAll('path').length===2,'all recipients read gives two ticks');
+  for(const emoji of ['❤️','👍','👎','🤡'])await actor('POST','/api/messages/'+mid+'/reaction',{emoji,active:true});
+  await refresh();
+  const crowded=document.querySelector('#m'+mid+' .message-footer');crowded.style.width='120px';
+  check(center(crowded.querySelector('[data-act="receipt"]'))>center(crowded.querySelector('.reaction')),'crowded reactions wrap receipt');
+  check(crowded.scrollWidth<=crowded.clientWidth,'wrapped reactions stay within footer');crowded.style.width='';
   document.querySelector('#m'+mid+' [data-act="more"]').click();
   check($('menu').querySelector('.menu-message').textContent.includes('Общий чат Сохранить'),'tap menu keeps original message visible');
   check($('menu').querySelector('.menu-details').textContent.includes('alice-agent')&&$('menu').querySelector('.menu-details').textContent.includes('🔥'),'readers and reactions share message menu');closeMenu();
@@ -65,6 +79,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   $('actionNote').value='fixture decision';$('actionSave').click();await wait(()=>!$('actionDialog').open&&!$('actionSave').disabled);
   check((await api('GET','/api/messages/'+approval)).message.approvals.some(a=>a.by_id===ME.id),'approval form persists human decision');
   await actor('POST','/api/board',{now:'Declared fixture task',next:'Fixture next step'});
+  await loadPresence();check(document.querySelector('.participant-card[data-account="'+peer.id+'"] .member-work')?.textContent.includes('Declared fixture task'),'participant list shows declared task separately from connection');
   await selectTab('board');await loadBoard();check($('boardBox').textContent.includes('Declared fixture task'),'board shows explicit reported work');
   await showMember(peer.id);check($('infoBody').textContent.includes('Declared fixture task')&&$('infoBody').textContent.includes('Наличие связи'),'participant card separates connection and declared work');closeInfo();
   await selectTab('feed');openInvite('');
@@ -84,6 +99,8 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   $('cBody').value='image fixture '+VIEWPORT;$('sendBtn').click();
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='image fixture '+VIEWPORT));
   const image=[...MSGS.values()].find(m=>m.body==='image fixture '+VIEWPORT);
+  const imageRow=$('m'+image.id);
+  check(imageRow.querySelector('.file-card').getBoundingClientRect().right<=imageRow.querySelector('.mmain').getBoundingClientRect().right,'attachment fits message outline');
   await previewFile(image.attachments[0].id,'fixture.png');await wait(()=>$('infoBody').querySelector('img')?.complete);
   check($('infoBody').querySelector('img').naturalWidth===1,'authenticated image preview decodes');closeInfo();await pause(20);check(!PREVIEW_URL,'closing preview releases blob URL');
   await actor('POST','/api/claims',{key:'fixture-'+VIEWPORT,hours:1});await selectTab('claims');await loadClaims();

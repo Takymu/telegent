@@ -35,6 +35,7 @@ class DevTools:
         self.sock = socket.create_connection((parsed.hostname, parsed.port), timeout=15)
         self.stream = self.sock.makefile('rb')
         self.sequence = 0
+        self.events = []
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall(('GET '+parsed.path+' HTTP/1.1\r\nHost: '+parsed.netloc+
                            '\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: '+key+
@@ -63,6 +64,8 @@ class DevTools:
             data = self.stream.read(n)
             if head[0] & 15 == 8: raise RuntimeError('CDP closed')
             reply = json.loads(data)
+            if 'method' in reply:
+                self.events.append(reply)
             if reply.get('id') != self.sequence: continue
             if 'error' in reply: raise RuntimeError(reply['error'])
             return reply.get('result', {})
@@ -149,7 +152,8 @@ class MobileTouchTest(unittest.TestCase):
                         self.assertTrue(dev.evaluate('!$("moreView").classList.contains("hidden") && $("menu").classList.contains("hidden")'))
 
             for _ in range(3):
-                swipe(280, 260, -85, 10)
+                point=dev.evaluate('(()=>{const h=$("m'+str(mid)+'").querySelector(".mhead");h.scrollIntoView({block:"center"});const r=h.getBoundingClientRect();return {x:r.right-12,y:r.top+r.height/2}})()')
+                swipe(point['x'],point['y'],-85,10)
                 section(order[2])
                 swipe(280, 600, -85, 10)
                 section(order[3])
@@ -236,12 +240,38 @@ class MobileTouchTest(unittest.TestCase):
             self.assertGreater(dev.evaluate('$("m'+str(mid)+'").querySelector("pre").scrollLeft'), 20, 'native code scrolling stopped')
             self.assertEqual(dev.evaluate('TAB'), 'feed', 'code gesture navigated away')
             self.assertEqual(dev.evaluate('$("scroller").scrollLeft'), 0)
+            def tap(selector):
+                point=dev.evaluate('(()=>{const r=document.querySelector('+json.dumps(selector)+').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
+                dev.call('Input.dispatchTouchEvent',type='touchStart',touchPoints=[dict(point,id=1)])
+                dev.call('Input.dispatchTouchEvent',type='touchEnd',touchPoints=[])
+
+            # Native buttons must activate before a keyboard blur can move their target.
+            dev.evaluate('$("cBody").focus();window.fixtureButtonBlur=0;$("cBody").addEventListener("blur",()=>fixtureButtonBlur++)')
+            tap('#cOptsBtn');wait('!$("cOpts").classList.contains("hidden")')
+            self.assertEqual(dev.evaluate('fixtureButtonBlur'),0)
+            tap('#cOptsBtn');wait('$("cOpts").classList.contains("hidden")')
+            dev.call('Page.setInterceptFileChooserDialog',enabled=True)
+            tap('#attachBtn')
+            dev.evaluate('true')
+            self.assertTrue(any(e['method']=='Page.fileChooserOpened' for e in dev.events),'first touch did not open native file chooser')
+            self.assertEqual(dev.evaluate('fixtureButtonBlur'),0)
+            dev.call('Page.setInterceptFileChooserDialog',enabled=False)
+            dev.evaluate('startReply(MSGS.get('+str(mid)+'))')
+            tap('#cancelReply');wait('!REPLY')
+            self.assertEqual(dev.evaluate('fixtureButtonBlur'),0)
+            dev.evaluate('(async()=>{await addFiles([new File(["fixture"],"fixture.txt")]);$("cBody").focus()})()')
+            tap('#cPending .file-remove');wait('ATTACHED.length===0')
+            self.assertEqual(dev.evaluate('fixtureButtonBlur'),0)
+            dev.evaluate('$("cTopic").value=""')
             # Native tap with a focused composer must send before losing keyboard focus.
-            dev.evaluate('$("cBody").value="single tap fixture";$("cBody").focus();window.fixtureBlur=[];$("cBody").addEventListener("blur",()=>fixtureBlur.push(SENDING))')
+            dev.evaluate('window.fixtureApi=api;api=async(...args)=>{if(args[0]==="POST"&&args[1]==="/api/messages")await new Promise(r=>setTimeout(r,700));return fixtureApi(...args)};$("cBody").value="single tap fixture";$("cBody").focus();window.fixtureBlur=[];$("cBody").addEventListener("blur",()=>fixtureBlur.push(SENDING))')
             point=dev.evaluate('(()=>{const r=$("sendBtn").getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
             dev.call('Input.dispatchTouchEvent', type='touchStart', touchPoints=[dict(point,id=1)])
             dev.call('Input.dispatchTouchEvent', type='touchEnd', touchPoints=[])
+            wait('!!$("pendingOutgoing").querySelector(".receipt-spinner")')
+            self.assertEqual(dev.evaluate('$("pendingOutgoing").querySelectorAll("svg path").length'),0,'sending showed a delivery tick')
             wait('!SENDING && [...MSGS.values()].some(m=>m.body==="single tap fixture")')
+            self.assertEqual(dev.evaluate('$("pendingOutgoing").childElementCount'),0,'pending copy remained after delivery')
             self.assertEqual(dev.evaluate('[...MSGS.values()].filter(m=>m.body==="single tap fixture").length'),1)
             self.assertFalse(dev.evaluate('fixtureBlur.includes(false)'), 'tap blurred the keyboard before sending')
             artifacts = os.environ.get('TELEGENT_TEST_ARTIFACTS')

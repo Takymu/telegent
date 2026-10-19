@@ -98,8 +98,9 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .feedtop > * { max-width: 880px; margin-left: auto; margin-right: auto; }
 #scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 32px 28px; overscroll-behavior: contain; }
 #composer { flex: none; position: relative; padding: 4px 32px 28px; }
-#replyBar { font-size: 12.5px; color: var(--muted); margin: 0 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#replyBar a { text-decoration: none; margin-left: 4px; }
+#replyBar { display:flex;align-items:center;gap:4px;font-size:12.5px;color:var(--muted);margin:0 4px 6px; }
+#replyText { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+#replyBar a { display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;min-width:28px;min-height:28px;text-decoration:none; }
 .cbox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 10px 16px;
   box-shadow: 0 2px 14px rgba(0, 0, 0, .10); }
 .cbox:focus-within { border-color: var(--accent); }
@@ -230,7 +231,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .mgutter { font-size: 11px; color: var(--muted); text-align: right; padding-top: 3px; visibility: hidden; }
 .mrow.grouped:hover .mgutter { visibility: visible; }
 .mhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; line-height: 1.3; }
-.mmain { min-width:0; }
+.mmain { min-width:0;border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:color-mix(in srgb,var(--panel) 55%,transparent); }
 .mhead > * { min-width:0;max-width:100%; }
 .mhead, .mrc, .mextra, .sysrow { overflow-wrap:anywhere; }
 .mname { font-weight: 700; }
@@ -276,6 +277,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .matt { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--line);
   border-radius: 8px; padding: 4px 8px; margin: 5px 6px 0 0; background: var(--panel); max-width: 100%; overflow-wrap: anywhere; }
 .file-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 7px; }
+.file-list > div { min-width:0;max-width:100%; }
 .file-card { display: flex; align-items: center; gap: 10px; width: 310px; max-width: 100%; min-width: 0;
   padding: 9px 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); text-align: left; }
 .file-symbol { display: grid; place-items: center; flex: 0 0 42px; height: 46px; border-radius: 10px;
@@ -473,9 +475,15 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .ux-muted { font-size:13px;color:var(--muted); }
 .receipt-button { display:block;margin:4px 0 0 auto;padding:2px 8px;min-width:44px;min-height:28px;border:0;background:transparent;color:var(--muted);font-size:12px; }
 .receipt-button.read { color:var(--accent); }
-.message-footer { display:flex;justify-content:flex-end;gap:8px;align-items:center;min-height:28px; }
-.message-footer .receipt-button { display:inline-flex;align-items:center;margin:0; }
-.receipt-button svg { width:21px;height:16px;vertical-align:middle; }
+.receipt-button[data-act=receipt],.receipt-spinner { color:var(--accent); }
+.message-footer { display:flex;flex-wrap:wrap;gap:3px 5px;align-items:center;min-height:28px;margin:6px 0 3px; }
+.message-footer .mreactions { display:contents; }
+.message-footer > .receipt-button { display:inline-flex;flex:0 0 auto;align-items:center;margin:0; }
+.message-footer > .receipt-button:first-of-type { margin-left:auto; }
+.receipt-button svg { width:17.5px;height:13.333px;vertical-align:middle; }
+.receipt-spinner { display:inline-block;width:12px;height:12px;box-sizing:border-box;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:receipt-spin .8s linear infinite; }
+@keyframes receipt-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .receipt-spinner { animation:none; } }
 .receipt-person { padding:10px 0;border-bottom:1px solid var(--line); }
 .reaction-count { border:0;background:transparent;color:inherit;padding:6px;min-height:32px; }
 .reaction-group { display:inline-flex;align-items:center;gap:0; }
@@ -495,6 +503,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .inv-stage { padding:10px;background:var(--code);border-radius:8px;font-size:13px;margin-top:12px; }
 #settingsBtn { min-width:44px;min-height:44px; }
 .participant-card { cursor:pointer; }
+.member-work { margin-top:4px;font-size:12px;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden; }
 .participant-card:focus-visible { outline:2px solid var(--accent); }
 #menu { max-height:82dvh;overflow:auto;max-width:min(540px,92vw); }
 .menu-message { padding:12px;margin:4px;border:1px solid var(--line);border-radius:8px;max-height:140px;overflow:auto;overflow-wrap:anywhere;background:var(--code); }
@@ -704,6 +713,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         <div id="feedView" class="column">
           <div id="moreBox" class="hidden" style="text-align:center;margin:0 0 10px"><button id="moreBtn">Загрузить раньше</button></div>
           <div id="feed"></div>
+          <div id="pendingOutgoing"></div>
           <div id="feedEnd"></div>
         </div>
         <div id="directView" class="column hidden">
@@ -1069,6 +1079,8 @@ const UI_EN={
   "Прочитано всеми адресатами": "Read by all recipients",
   "Есть получившие сообщение": "Received by one or more recipients",
   "Отправлено на сервер": "Sent to server",
+  "Доставлено на сервер": "Delivered to server",
+  "Отправляется…": "Sending…",
   ". Информация о сообщении": ". Message information",
   "Получил: ": "Received: ",
   "Ещё не получил": "Not received yet",
@@ -1685,6 +1697,14 @@ window.visualViewport?.addEventListener("resize",mobileViewport);
 window.addEventListener("resize",mobileViewport);
 document.addEventListener("focusin",mobileViewport);document.addEventListener("focusout",()=>setTimeout(mobileViewport,0));
 mobileViewport();
+document.addEventListener("pointerdown",e=>{
+  const editing=document.activeElement;
+  if(e.pointerType!=="touch" || !e.isPrimary || !editing?.matches("input,textarea,[contenteditable=true]"))return;
+  const button=e.target.closest("button,a[href],summary,[role=button],input[type=button],input[type=submit],input[type=reset]");
+  // A focus change can hide the keyboard and move the target before touchend.
+  // Keep native click activation, including the file picker's user gesture.
+  if(button && !button.matches(":disabled") && e.cancelable)e.preventDefault();
+},{capture:true});
 function swipeAction(direction) {
   const section=mobileSection(), panels=["projects","users"].includes(section);
   const targets={projects:{label:tr("Проекты"),run:()=>mobilePanel("projects")},
@@ -2495,8 +2515,8 @@ function row(m, prev) {
     const state=m.secret.state==="pending"&&m.secret.claimed_ts?tr("Получение начато"):{pending:tr("Ожидает получения"),received:tr("Получен агентом"),expired:tr("Срок истёк"),revoked:tr("Отозван")}[m.secret.state];
     html+=ui`<div class="secret-card"><b>🔐 Секрет</b><p>${state}</p><p class="muted">До ${esc(new Date(m.secret.expires*1000).toLocaleString())}</p>${isMine(m) && m.secret.state==="pending"&&!m.secret.claimed_ts?ui`<button data-act="secret-revoke" data-id="${m.id}">Отозвать</button>`:""}</div>`;
   }
-  html += reactionBar(m);
   html+='<div class="message-footer">';
+  html += reactionBar(m);
   if(m.reply_count && !THREAD && m.id===m.thread_id)html+=ui`<button class="receipt-button" data-act="thread" data-id="${m.thread_id}">Ответы: ${m.reply_count} →</button>`;
   if(isMine(m))html+=receiptButton(m);
   html+='</div>';
@@ -2860,10 +2880,6 @@ async function uploadFile(a, signal) {
   return {upload_id: upload.id};
 }
 
-$("sendBtn").addEventListener("pointerdown",e=>{
-  // Keep the keyboard from moving the button before the tap becomes a click.
-  if(e.pointerType==="touch" && document.activeElement===$("cBody"))e.preventDefault();
-});
 $("sendBtn").onclick = async () => {
   if ($("sendBtn").disabled) return;
   $("sendErr").textContent = "";
@@ -2882,6 +2898,8 @@ $("sendBtn").onclick = async () => {
   if (COMPOSE_RETRY?.signature === signature) data.idem_key = COMPOSE_RETRY.key;
   else COMPOSE_RETRY = {signature, key: data.idem_key};
   saveDraft(); SENDING = true; UPLOAD_ABORT = new AbortController();
+  $("pendingOutgoing").innerHTML=`<div class="mrow outgoing-pending">${avatar(ME.name,ME.kind)}<div class="mmain"><div class="mhead"><span class="mname">${esc(ME.name)}</span></div><div class="mtext md">${markdown(data.body)}</div>${ATTACHED.map(a=>`<div class="mextra">${esc(a.file.name)}</div>`).join("")}<div class="message-footer"><span class="receipt-button" role="status" aria-label="${tr("Отправляется…")}" title="${tr("Отправляется…")}"><span class="receipt-spinner" aria-hidden="true"></span></span></div></div></div>`;
+  toBottom();
   $("sendBtn").disabled = true; $("attachBtn").disabled = true;
   $("cBody").disabled = true;
   $("cancelUpload").classList.toggle("hidden", !ATTACHED.length); paintFiles();
@@ -2889,18 +2907,19 @@ $("sendBtn").onclick = async () => {
     for (const a of ATTACHED) data.attachments.push(await uploadFile(a, UPLOAD_ABORT.signal));
     UPLOAD_ABORT.signal.throwIfAborted?.();
     await api("POST", "/api/messages", data, UPLOAD_ABORT.signal);
+    $("pendingOutgoing").replaceChildren();
     rememberRecipient(data.to_ids?.[0] || "");
     clearDraft(); resetCompose(true); await refresh(); toBottom();
   }
   catch (err) { $("sendErr").textContent = UPLOAD_ABORT.signal.aborted ? tr("Отправка остановлена. Файлы и текст сохранены — можно повторить.") : err.message;$("retrySend").classList.remove("hidden"); }
-  finally { SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
+  finally { $("pendingOutgoing").replaceChildren(); SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
 };
 
 async function loadPresence() {
   if (!PROJECT) return;
   const slug = PROJECT, token=TOKEN;
   try {
-    const me = await api("GET", "/api/me");
+    const [me,board] = await Promise.all([api("GET", "/api/me"),api("GET","/api/board").catch(()=>null)]);
     if (slug !== PROJECT || TOKEN!==token) return;
     applyProjectInfo(me.project);
     ME.users = me.users;
@@ -2908,6 +2927,7 @@ async function loadPresence() {
     const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент")};
     MEMBER_ACTS = {};
     $("presence").innerHTML = me.users.map(u => {
+      const work=board?.board.find(b=>b.id===u.id && b.now);
       const txt = u.listening ? (u.kind === "agent" ? tr("слушает") : tr("в сети"))
         : u.last_check && u.last_check > (u.last_listen || "") ? ui`проверял входящие ${shortTime(u.last_check)}`
         : u.last_listen ? ui`был ${shortTime(u.last_listen)}` : tr("ещё не подключался");
@@ -2927,7 +2947,8 @@ async function loadPresence() {
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
         `${esc(initials(u.name))}<span class="pres ${u.listening ? "on" : ""}"></span></div>` +
         `<div class="minfo participant-card" data-ux="member" data-account="${esc(u.id)}" role="button" tabindex="0"><b>${esc(u.name)}</b>${u.name === ME.name ? tr(' <span class="muted">(ты)</span>') : ""}` +
-        `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
+        `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div>` +
+        (work?`<div class="member-work" title="${esc(tr("Обновлено ")+shortTime(work.time))}"><b>${tr("Сейчас")}:</b> ${esc(work.now)}${work.age==null||work.age>=86400?tr(" · давно не обновлялось"):""}</div>`:"")+`</div>` +
         (acts.length ? ui`<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
     }).join("");
     if(INV_TRACK && !$("invDialog").classList.contains("hidden"))paintInviteProgress(me.users);
@@ -3390,9 +3411,9 @@ $("infoDialog").addEventListener("close",()=>{if($("infoDialog").open)return;if(
 $("infoDialog").addEventListener("cancel",()=>{INFO_VERSION++;});
 $("infoDialog").addEventListener("click",e=>{const r=$("infoDialog").getBoundingClientRect();if(e.target===$("infoDialog")&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))closeInfo();});
 function receiptButton(m){
-  const rs=m.receipts || [],read=rs.length>0&&rs.every(r=>r.read),delivered=rs.some(r=>r.delivered||r.read);
-  const label=read?tr("Прочитано всеми адресатами"):delivered?tr("Есть получившие сообщение"):tr("Отправлено на сервер");
-  const ticks=`<svg viewBox="0 0 25 18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m2 9 4 4L17 3"/>${delivered?'<path d="m11 12 2 2L24 4"/>':""}</svg>`;
+  const rs=m.receipts || [],read=rs.length>0&&rs.every(r=>r.read);
+  const label=read?tr("Прочитано всеми адресатами"):tr("Доставлено на сервер");
+  const ticks=`<svg viewBox="0 0 25 18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m2 9 4 4L17 3"/>${read?'<path d="m11 12 2 2L24 4"/>':""}</svg>`;
   return ui`<button class="receipt-button ${read?"read":""}" data-act="receipt" data-id="${m.id}" aria-label="${label}. Информация о сообщении" title="${label}">${ticks}</button>`;
 }
 async function showReceipt(id){
