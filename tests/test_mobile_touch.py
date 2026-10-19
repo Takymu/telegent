@@ -187,6 +187,8 @@ class MobileTouchTest(unittest.TestCase):
             wait('!!ACTIVE_DM')
             dm_mid=dev.evaluate('(async()=>{const id=(await api("POST","/api/messages",{body:"Private swipe fixture",conversation_id:ACTIVE_DM.id})).id;await refresh();return id})()')
             point=dev.evaluate('(()=>{const r=$("m'+str(dm_mid)+'").querySelector(".mtext").getBoundingClientRect();return {x:r.left+120,y:r.top+r.height/2}})()')
+            swipe(point['x'],point['y'],70)
+            self.assertTrue(dev.evaluate('TAB==="direct" && !!ACTIVE_DM && !REPLY'),'message swipe unexpectedly switched sections')
             swipe(point['x'],point['y'],-85)
             wait('REPLY?.id==='+str(dm_mid))
             self.assertTrue(dev.evaluate('!!ACTIVE_DM'),'private reply swipe left its conversation')
@@ -263,6 +265,32 @@ class MobileTouchTest(unittest.TestCase):
                 point=dev.evaluate('(()=>{const r=document.querySelector('+json.dumps(selector)+').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
                 dev.call('Input.dispatchTouchEvent',type='touchStart',touchPoints=[dict(point,id=1)])
                 dev.call('Input.dispatchTouchEvent',type='touchEnd',touchPoints=[])
+
+            def swipe_over(selector,dx):
+                dev.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                point=dev.evaluate('(()=>{const r=document.querySelector('+json.dumps(selector)+').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()')
+                swipe(point['x'],point['y'],dx)
+
+            # Navigation covers the composer and bottom bar, including their controls.
+            dev.evaluate('$("cBody").value="navigation draft fixture";$("cBody").dispatchEvent(new Event("input"))')
+            tap('#cBody');wait('document.activeElement===$("cBody")')
+            dev.call('Emulation.setDeviceMetricsOverride',width=390,height=500,deviceScaleFactor=1,mobile=True)
+            wait('document.body.classList.contains("keyboard-open")')
+            self.assertEqual(dev.evaluate('getComputedStyle($("mobileNav")).display'),'none')
+            swipe_over('#cBody',-85);section('users')
+            self.assertFalse(dev.evaluate('!!REPLY'),'composer swipe started a reply')
+            dev.call('Emulation.setDeviceMetricsOverride',width=390,height=844,deviceScaleFactor=1,mobile=True)
+            dev.evaluate('selectTab("feed")');section('feed')
+            self.assertEqual(dev.evaluate('$("cBody").value'),'navigation draft fixture')
+            swipe_over('#sendBtn',-85);section('users')
+            self.assertFalse(dev.evaluate('SENDING'),'swiping the send button submitted the draft')
+            dev.evaluate('selectTab("feed")');section('feed')
+            swipe_over('#attachBtn',85);wait('$("projects").classList.contains("open")')
+            dev.evaluate('closeMobilePanels()');section('feed')
+            swipe_over('#mobileNav [data-mobile="feed"]',-85);section('users')
+            swipe_over('#mobileNav [data-mobile="users"]',-85);section('direct')
+            tap('#mobileNav [data-mobile="feed"]');section('feed')
+            self.assertFalse(any(m['body']=='navigation draft fixture' for m in fx.api('GET','/api/messages?project=main',who='alice')['messages']))
 
             # Native buttons must activate before a keyboard blur can move their target.
             dev.evaluate('$("cBody").focus();window.fixtureButtonBlur=0;$("cBody").addEventListener("blur",()=>fixtureButtonBlur++)')

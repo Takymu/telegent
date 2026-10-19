@@ -444,7 +444,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 @media(max-width:900px) {
   #menu { max-width:none; }
   #app { height:var(--app-height,100dvh); }
-  #scroller, #projects, #app aside { touch-action:pan-y pinch-zoom; }
+  #scroller, #projects, #app aside, #composer, #mobileNav { touch-action:pan-y pinch-zoom; }
   #devChatHint, #projBtn, #sideBtn, #bellBtn, .feedtop .tabs { display:none !important; }
   .feedtop { padding-top:4px; }
   #app header { min-height:44px;padding:8px 16px; }
@@ -1757,7 +1757,7 @@ function swipeAction(direction) {
 }
 let NAV_TOUCH=null;
 const gestureHint=document.createElement("div");gestureHint.id="gestureHint";gestureHint.className="hidden";gestureHint.setAttribute("aria-hidden","true");$("app").append(gestureHint);
-const gestureRoot=document.querySelector("#app .wrap");
+const gestureRoot=$("app");
 function finishNavTouch(){
   const n=NAV_TOUCH;NAV_TOUCH=null;gestureHint.classList.add("hidden");
   if(n?.message){const row=$("m"+n.message);if(row){row.style.removeProperty("transform");row.classList.remove("reply-swipe");}}
@@ -1766,9 +1766,9 @@ function finishNavTouch(){
 }
 function messageSwipeAction(n,dx){
   if(dx<0 && n.reminder)return {label:tr("Убрать из списка"),dismiss:true,run:()=>dismissWaiting([n.reminder])};
-  if(dx<0 && n.message){
+  if(n.message){
     const m=MSGS.get(n.message);
-    return m&&!m.deleted?{label:tr("Ответить"),reply:true,run:()=>startReply(m)}:null;
+    return dx<0&&m&&!m.deleted?{label:tr("Ответить"),reply:true,run:()=>startReply(m)}:null;
   }
   return swipeAction(Math.sign(dx));
 }
@@ -1776,7 +1776,9 @@ gestureRoot.addEventListener("touchstart",e=>{
   finishNavTouch();
   if(!mobileLayout() || SENDING || e.touches.length!==1 || getSelection()?.toString())return;
   const target=e.target;
-  if(target.closest("input,textarea,select,button:not(.dm-item),summary,[contenteditable=true],pre,code,#composer"))return;
+  const lower=!!target.closest("#composer,#mobileNav");
+  if(!lower && target.closest("input,textarea,select,button:not(.dm-item),summary,[contenteditable=true],pre,code"))return;
+  if(target.closest(":disabled") || document.querySelector("dialog[open]"))return;
   if(["invDialog","pwDialog","npDialog","prDialog","pdDialog","secretDialog","menu"].some(id=>!$(id).classList.contains("hidden")))return;
   for(let node=target;node&&node!==gestureRoot;node=node.parentElement) {
     if(!["scroller","projects","aside"].includes(node.id) && node.scrollWidth>node.clientWidth+2 && /auto|scroll/.test(getComputedStyle(node).overflowX))return;
@@ -1784,7 +1786,7 @@ gestureRoot.addEventListener("touchstart",e=>{
   const t=e.touches[0];if(t.clientX<24 || t.clientX>innerWidth-24)return;
   const message=target.closest(".mmain")?.closest(".mrow[data-msg]");
   const reminder=target.closest("[data-reminder]");
-  NAV_TOUCH={x:t.clientX,y:t.clientY,at:performance.now(),scope:`${PROJECT}|${TAB}|${ACTIVE_DM?.id}`,horizontal:false,message:message?+message.dataset.msg:null,reminder:reminder?+reminder.dataset.reminder:null};
+  NAV_TOUCH={x:t.clientX,y:t.clientY,at:performance.now(),scope:`${PROJECT}|${TAB}|${ACTIVE_DM?.id}`,horizontal:false,lower,message:message?+message.dataset.msg:null,reminder:reminder?+reminder.dataset.reminder:null};
 },{passive:true});
 gestureRoot.addEventListener("touchmove",e=>{
   const n=NAV_TOUCH;if(!n || e.touches.length!==1) {finishNavTouch();return;}
@@ -1792,6 +1794,7 @@ gestureRoot.addEventListener("touchmove",e=>{
   if(!n.horizontal && Math.abs(dy)>12 && Math.abs(dy)>Math.abs(dx)) {NAV_TOUCH=null;return;}
   if(Math.abs(dx)>12 && Math.abs(dx)>Math.abs(dy)*1.4) {
     n.horizontal=true;if(e.cancelable)e.preventDefault();
+    if(n.lower && document.activeElement?.matches("input,textarea,[contenteditable=true]")){saveDraft();document.activeElement.blur();}
     const action=messageSwipeAction(n,dx);gestureHint.textContent=action?.label||"";gestureHint.classList.toggle("hidden",!action);
     if(n.message){const row=$("m"+n.message);if(row){row.style.transform=action?.reply?`translateX(${Math.max(-48,dx*.4)}px)`:"";row.classList.toggle("reply-swipe",!!action?.reply);}}
     if(n.reminder){const row=$("workBox").querySelector(`[data-reminder="${n.reminder}"]`);if(row){row.style.transform=action?.dismiss?`translateX(${Math.max(-64,dx*.5)}px)`:"";row.classList.toggle("dismiss-swipe",!!action?.dismiss);}}
