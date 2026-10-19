@@ -22,7 +22,7 @@ import tg
 class Transcript:
     def __init__(self, path):
         self.path, self.offset = Path(path), 0
-        self.turn, self.busy, self.completed = None, True, {}
+        self.turn, self.busy, self.completed, self.closed = None, True, {}, set()
 
     def poll(self):
         if self.path.stat().st_size < self.offset:
@@ -46,8 +46,10 @@ class Transcript:
                 elif payload.get('type') == 'task_complete':
                     self.busy = False
                     self.completed[payload.get('turn_id')] = payload.get('last_agent_message') or ''
+                    self.closed.add(payload.get('turn_id'))
                 elif payload.get('type') == 'turn_aborted':
                     self.busy = False
+                    self.closed.add(payload.get('turn_id') or self.turn)
 
 
 def session_transcript(session):
@@ -91,11 +93,30 @@ def runtime(conf):
     return folder
 
 
+def command_authorized(conf, me, message):
+    if message['author_kind'] != 'human':
+        return False
+    if message.get('author_id') == me.get('owner_id'):
+        return True
+    # Delegation is an explicit local owner decision, never inferred from message text or roles.
+    config = json.loads(Path(conf.path).read_text(encoding='utf-8-sig')) if conf.path else {}
+    delegation = config.get('development_command_delegates') or {}
+    if not delegation:
+        return False
+    if (not isinstance(delegation, dict) or delegation.get('project_id') != me['project']['id']
+            or not isinstance(delegation.get('account_ids'), list)
+            or not all(isinstance(key, str) for key in delegation['account_ids'])):
+        raise RuntimeError('Development delegation must name stable human ids in this project')
+    humans = {u['id'] for u in me.get('users', []) if u['kind'] == 'human'}
+    return (not message.get('conversation_id') and message.get('author_id') in humans
+            and message.get('author_id') in delegation['account_ids'])
+
+
 def observe(conf, session, mid):
     me = validate_account(conf)
     message = tg.api_retry(conf, 'GET', '/api/messages/'+str(mid))['message']
-    if message.get('author_id') != me.get('owner_id') or message['author_kind'] != 'human':
-        raise RuntimeError('Only the bound administrator may address this session')
+    if not command_authorized(conf, me, message):
+        raise RuntimeError('Only the session owner or an explicitly delegated human may address this session')
     path = runtime(conf)/('message-'+str(mid)+'.json')
     record = ipc.load_json(path)
     receipt = ipc.load_json(runtime(conf)/('dispatch-'+str(mid)+'.json'))
@@ -113,7 +134,7 @@ def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
     transcript.poll()
     tg.codex_report_activity(conf, {'session_id':session}, bool(transcript.turn and transcript.busy), str(folder/'activity.json'))
     messages = tg.api_retry(conf, 'GET', '/api/messages?for_me=1&unacked=1&limit=1000')['messages']
-    wanted = [m for m in messages if m['author_kind'] == 'human' and m.get('author_id') == me.get('owner_id')
+    wanted = [m for m in messages if command_authorized(conf, me, m)
               and m['type'] not in ('status', 'approval')]
     held = False
     for message in wanted:
@@ -128,12 +149,20 @@ def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
             ipc.write_receipt(path, record)
         receipt = ipc.load_json(dispatch_path)
         if receipt.get('status') != 'accepted':
+            scope = ipc.load_json(folder/'turn-scope.json')
+            if (scope.get('turn') and scope['turn'] not in transcript.closed
+                    and scope.get('conversation_id') != message.get('conversation_id')):
+                held = True
+                continue
             try:
                 receipt = deliver({'thread': session, 'cwd': str(Path.cwd())},
                                   notice(message, config, session), record['id'], dispatch_path)
             except (ipc.RpcError, OSError, subprocess.TimeoutExpired):
                 held = True
                 continue
+            if receipt.get('status') == 'accepted':
+                ipc.write_receipt(folder/'turn-scope.json', {'turn': receipt.get('turn_id'),
+                                  'conversation_id': message.get('conversation_id')})
         # IPC acceptance is not a model read. Only explicit observation enables forwarding.
         record = ipc.load_json(path)
         answer = transcript.completed.get(record.get('observed_turn')) if record.get('observed_at') else None
@@ -141,7 +170,7 @@ def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
             tg.scan_local(conf, 'body', answer)
             response = tg.api_retry(conf, 'POST', '/api/messages', {
                 'body': answer, 'type': 'info', 'reply_to': mid, 'topic': message.get('topic') or '',
-                'to': [me['owner_id']], 'idem_key': 'codex-session-'+session+'-'+str(mid)})
+                'to_ids': [message['author_id']], 'idem_key': 'codex-session-'+session+'-'+str(mid)})
             record.update(reply_id=response['id'], replied_at=time.time())
             ipc.write_receipt(path, record)
             tg.api_retry(conf, 'POST', '/api/receipts', {'kind': 'ack', 'ids': [mid]})

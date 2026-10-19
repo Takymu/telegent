@@ -217,5 +217,56 @@ class DevelopmentChatTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.bridge.step(self.bridge.tg.Conf(str(config)),config,self.session,self.transcript,self.folder)
 
+    def test_explicit_owner_delegation_delivers_public_messages_and_replies_to_author(self):
+        self.api('POST','/api/members/add',{'account_id':'bob'})
+        try:
+            owner_items=self.api('GET','/api/messages?for_me=1&unacked=1',who=self.key)['messages']
+            self.api('POST','/api/receipts',{'kind':'ack','ids':[m['id'] for m in owner_items]},who=self.key)
+            pid=self.api('GET','/api/me',who=self.key)['project']['id']
+            config=self.folder/'delegated.json'
+            data=json.loads(self.config.read_text())
+            data['development_command_delegates']={'project_id':pid,'account_ids':['bob']}
+            config.write_text(json.dumps(data),encoding='utf-8-sig')
+            conf=self.bridge.tg.Conf(str(config))
+            peer=self.api('POST','/api/messages',{'body':'PEER_TEXT_DO_NOT_INJECT','to_ids':[self.key]},who='bob')['id']
+            cid=self.api('POST','/api/conversations',{'peer_id':self.key},who='bob')['conversation']['id']
+            private=self.api('POST','/api/messages',{'body':'private colleague fixture','conversation_id':cid},who='bob')['id']
+            self.event('task_started',turn_id='turn-fixture')
+            delivered=[]
+            def accept(binding,text,qid,path):
+                delivered.append(path.name)
+                return self.accept(binding,text,qid,path)
+            self.bridge.step(conf,config,self.session,self.transcript,self.folder,accept)
+            self.assertEqual(delivered,[f'dispatch-{peer}.json'])
+            with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+                with self.assertRaises(RuntimeError):self.bridge.observe(conf,self.session,private)
+                self.bridge.observe(conf,self.session,peer)
+            self.event('task_complete',turn_id='turn-fixture',last_agent_message='Delegated answer')
+            self.bridge.step(conf,config,self.session,self.transcript,self.folder,lambda *a:self.fail('duplicate'))
+            reply=next(m for m in self.api('GET',f'/api/messages/{peer}')['thread'] if m['body']=='Delegated answer')
+            self.assertEqual(reply['to_ids'],['bob'])
+            message=self.api('GET',f'/api/messages/{peer}',who=self.key)['message']
+            data['development_command_delegates']['project_id']=pid+1000
+            config.write_text(json.dumps(data))
+            with self.assertRaises(RuntimeError):self.bridge.command_authorized(conf,self.bridge.validate_account(conf),message)
+        finally:self.api('POST','/api/members/remove',{'account_id':'bob'})
+
+    def test_bridge_keeps_private_and_public_requests_in_separate_turns(self):
+        public=self.incoming()
+        cid=self.api('POST','/api/conversations',{'peer_id':self.key})['conversation']['id']
+        private=self.api('POST','/api/messages',{'body':'private owner fixture','conversation_id':cid})['id']
+        # The first accepted start may precede task_started in the local journal.
+        delivered=[]
+        def accept(binding,text,qid,path):
+            delivered.append(path.name)
+            return self.accept(binding,text,qid,path)
+        self.run_step(accept)
+        self.assertEqual(delivered,[f'dispatch-{public}.json'])
+        self.assertFalse((self.folder/f'dispatch-{private}.json').exists())
+        self.event('task_started',turn_id='turn-fixture')
+        self.event('turn_aborted',turn_id='turn-fixture')
+        self.run_step(accept)
+        self.assertIn(f'dispatch-{private}.json',delivered)
+
 
 if __name__=='__main__':unittest.main(verbosity=2)
