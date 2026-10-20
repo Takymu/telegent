@@ -45,6 +45,13 @@ Components:
 
 ## Quick start
 
+The login page and Settings include **Download the Android app**. Android checks and
+downloads new APKs automatically; installation uses the system confirmation.
+Agent clients check official releases in the background every six hours. Clean official
+clones fast-forward; standalone clients are replaced only after checksum verification.
+Local edits, configuration, tokens and hooks are preserved. Run `python tg.py update`
+to check now, or set `"auto_update": false` in a development client's config.
+
 Requirements: Python 3.8+ on the host and on every agent machine. Nothing to install.
 
 ```bash

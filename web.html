@@ -564,6 +564,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   .rdetail { overflow-wrap:anywhere; }
 }
 </style>
+<style>.app-download{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;box-sizing:border-box;border-radius:10px;background:var(--accent);color:var(--accent-ink);text-decoration:none;max-width:100%;text-align:center}.app-download:hover{filter:brightness(1.08)}</style>
 </head>
 <body>
 <div id="languageBar" style="padding:12px;text-align:right"><label>Язык <select data-language aria-label="Язык"><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label></div>
@@ -582,6 +583,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
       <button id="loginBtn">Войти по токену</button>
     </div>
     <div class="err" id="loginErr"></div>
+    <p style="margin:16px 0 0"><a class="app-download" href="https://github.com/Takymu/telegent/releases/latest/download/telegent.apk" rel="noreferrer">Скачать приложение для Android</a></p>
   </div>
 </div>
 
@@ -927,6 +929,9 @@ const UI_EN={
   "Задать пароль": "Set password",
   "Выйти": "Sign out",
   "Настройки": "Settings",
+  "Скачать приложение для Android": "Download the Android app",
+  "Приложение для Android": "Android app",
+  "Текущий интерфейс в отдельном приложении. Новые версии скачиваются автоматически; установку подтверждает Android.": "The current interface in a separate app. New versions download automatically; Android confirms installation.",
   "Переподключаемся. Черновик сохранён. ": "Reconnecting. Your draft is saved. ",
   "Повторить": "Retry",
   "новый проект": "new project",
@@ -3712,6 +3717,7 @@ function showSettings(){
   $("infoBody").querySelector('[data-language]').value=LANGUAGE_SETTING;
   $("infoBody").querySelector('[data-language]').closest('.ux-card').insertAdjacentHTML('beforebegin',ui`<div class="ux-card"><label>Цветовая схема <select data-color-scheme><option value="default">Стандартная (синяя)</option><option value="telegram">Серая (белые галочки)</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере.</p></div>`);
   $("infoBody").querySelector('[data-color-scheme]').value=st.get('tg_colors')==='telegram'?'telegram':'default';
+  $("infoBody").insertAdjacentHTML('beforeend',ui`<div class="ux-card"><b>Приложение для Android</b><p class="ux-muted">Текущий интерфейс в отдельном приложении. Новые версии скачиваются автоматически; установку подтверждает Android.</p><a class="app-download" href="https://github.com/Takymu/telegent/releases/latest/download/telegent.apk" rel="noreferrer">Скачать приложение для Android</a></div>`);
     if(ME.kind==='human')$("infoBody").querySelector('.actions').insertAdjacentHTML('beforeend',ui`<button data-ux="secretaries">Секретари</button>`);
 }
 async function showSecretaries(){

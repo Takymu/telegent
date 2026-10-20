@@ -8,7 +8,15 @@
     <string name="cancel">Cancel</string>
     <string name="open_browser">Open in browser</string>
     <string name="about">About</string>
-    <string name="about_text">telegent 0.1.0\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nBackground notifications are planned for a later release.</string>
+    <string name="about_text">telegent 0.1.1\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nNew APKs are checked and downloaded automatically. Android confirms installation. Background notifications are not available yet.</string>
+    <string name="check_updates">Check for updates</string>
+    <string name="checking_updates">Checking for updates…</string>
+    <string name="latest_version">The latest version is installed</string>
+    <string name="update_ready">telegent update is ready</string>
+    <string name="update_help">The new version has been downloaded and verified. Android will ask you to confirm installation. Your login and settings will be preserved.</string>
+    <string name="install_update">Install update</string>
+    <string name="later">Later</string>
+    <string name="update_error">Could not check or install the update. Try again from the app menu.</string>
     <string name="connection_error">Could not open telegent</string>
     <string name="connection_help">Check your internet connection. Reconnecting discovers the server address again. Your login is preserved.</string>
     <string name="retry">Retry</string>

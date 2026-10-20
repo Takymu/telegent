@@ -34,6 +34,15 @@ public final class NavigationPolicyTest {
         check("file".equals(NavigationPolicy.downloadName(null, "..")), "reject special path name");
         String longName = new String(new char[150]).replace('\0', 'я');
         check(NavigationPolicy.downloadName(null, longName).getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 200, "bound Unicode name by UTF-8 byte length");
+        String asset="https://github.com/Takymu/telegent/releases/download/v0.1.1/telegent.apk";
+        check(UpdatePolicy.newer(1,2,33000,new String(new char[64]).replace('\0','a'),asset),"valid newer official APK");
+        check(!UpdatePolicy.newer(2,2,33000,new String(new char[64]).replace('\0','a'),asset),"never reinstall current APK");
+        check(!UpdatePolicy.newer(2,1,33000,new String(new char[64]).replace('\0','a'),asset),"never downgrade");
+        for(String url:new String[]{"http://github.com/Takymu/telegent/releases/download/v0.1.1/telegent.apk",asset+"?token=fixture",asset.replace("Takymu","other"),"https://chat.example/update.apk"})
+            check(!UpdatePolicy.asset(url),"release cannot redirect the source repository");
+        check(UpdatePolicy.transport("https://release-assets.githubusercontent.com/asset?signature=fixture"),"official HTTPS asset redirect");
+        check(!UpdatePolicy.transport("https://release-assets.githubusercontent.com.evil.test/asset"),"fake asset host rejected");
+        check(!UpdatePolicy.transport("http://release-assets.githubusercontent.com/asset"),"cleartext release rejected");
         System.out.println("Navigation checks passed: " + checks);
     }
 }

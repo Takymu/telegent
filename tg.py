@@ -24,6 +24,7 @@ import platform
 import re
 import socket
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -44,8 +45,153 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 # copy up to 5 minutes old), but limited to 60 requests an hour per IP, so raw stays the fallback
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
+RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
+CLIENT_VERSION = "2026.10.20.1"
+UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
+
+
+def release_bytes(url, limit):
+    # Release requests never carry the team's API credentials.
+    request = urllib.request.Request(url, headers={"User-Agent": "telegent-updater/1", "Cache-Control": "no-cache"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        if not response.geturl().startswith("https://"):
+            raise ValueError("обновление требует HTTPS")
+        data = response.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("слишком большой файл обновления")
+    return data
+
+
+def validate_client_release(doc):
+    release = doc['client']
+    commit = release['commit']
+    if not re.fullmatch(r'[0-9a-f]{40}', commit) or not isinstance(release.get('version'), str):
+        raise ValueError('некорректный выпуск клиента')
+    for name, item in release['files'].items():
+        if name not in ('tg.py', 'AGENTS.md', 'MANIFEST.md') or not re.fullmatch(r'[0-9a-f]{64}', item['sha256']):
+            raise ValueError('некорректный файл выпуска')
+    if 'tg.py' not in release['files']:
+        raise ValueError('в выпуске нет tg.py')
+    return release
+
+
+def apply_client_release(release, client_path):
+    """Fast-forward a clean official clone, or replace recognized standalone files atomically."""
+    from pathlib import Path
+    client = Path(client_path).resolve()
+    directory = client.parent
+    git = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--show-toplevel'],
+                         capture_output=True, text=True, timeout=10) if shutil.which('git') else None
+    if git and git.returncode == 0:
+        root = Path(git.stdout.strip()).resolve()
+        def command(*parts):
+            return subprocess.run(['git', '-C', str(root), *parts], capture_output=True, text=True, timeout=45)
+        if client != root/'tg.py':
+            raise ValueError('клиент внутри другого git-проекта; локальные файлы сохранены')
+        remote = command('remote', 'get-url', 'origin').stdout.strip()
+        if remote not in ('https://github.com/Takymu/telegent.git', 'https://github.com/Takymu/telegent',
+                          'git@github.com:Takymu/telegent.git', 'https://Takymu@github.com/Takymu/telegent.git'):
+            raise ValueError('у клона другой источник; локальные файлы сохранены')
+        if command('status', '--porcelain', '--untracked-files=no').stdout.strip():
+            raise ValueError('в клоне есть локальные изменения; они сохранены')
+        if command('symbolic-ref', '--short', 'HEAD').stdout.strip() != 'main':
+            raise ValueError('клиент на рабочей ветке; она сохранена')
+        if command('fetch', '--no-tags', 'https://github.com/Takymu/telegent.git', release['commit']).returncode:
+            raise ValueError('не удалось получить выпуск клиента')
+        if command('merge-base', '--is-ancestor', 'HEAD', release['commit']).returncode:
+            raise ValueError('локальная история расходится с выпуском; она сохранена')
+        # Recheck after the network operation: a developer may have started editing meanwhile.
+        if command('status', '--porcelain', '--untracked-files=no').stdout.strip():
+            raise ValueError('в клоне появились локальные изменения; они сохранены')
+        if command('merge', '--ff-only', release['commit']).returncode:
+            raise ValueError('не удалось обновить клон без потери локальных изменений')
+    else:
+        staged = []
+        try:
+            for name, item in release['files'].items():
+                path = directory/name
+                if path.is_symlink():
+                    raise ValueError('символическая ссылка оставлена без изменений')
+                before = path.read_bytes() if path.exists() else None
+                digest = hashlib.sha256(before).hexdigest() if before is not None else None
+                if digest == item['sha256']:
+                    continue
+                if before is not None and digest not in item.get('previous_sha256', []):
+                    if name != 'tg.py': continue  # Project instructions belong to their author.
+                    raise ValueError('локальный файл изменён: '+name+'; он сохранён')
+                data = release_bytes('https://raw.githubusercontent.com/'+GH_REPO+'/'+release['commit']+'/'+name, 2*1024*1024)
+                if hashlib.sha256(data).hexdigest() != item['sha256']:
+                    raise ValueError('не совпала SHA-256 файла '+name)
+                if name == 'tg.py': compile(data, 'tg.py', 'exec')
+                fd, temporary = tempfile.mkstemp(prefix='.telegent-update-', dir=directory)
+                with os.fdopen(fd, 'wb') as stream: stream.write(data)
+                if path.exists(): os.chmod(temporary, path.stat().st_mode)
+                staged.append((path, temporary, before))
+            if any((path.read_bytes() if path.exists() else None) != before for path, _, before in staged):
+                raise ValueError('локальные файлы изменились во время загрузки; обновление отменено')
+            # The executable is replaced last; a failed download never installs a partial client.
+            for path, temporary, _ in sorted(staged, key=lambda row: row[0].name == 'tg.py'):
+                os.replace(temporary, path)
+        finally:
+            for _, temporary, _ in staged:
+                if os.path.exists(temporary): os.unlink(temporary)
+
+
+def update_cache():
+    identity = hashlib.sha256(os.path.abspath(__file__).encode('utf-8')).hexdigest()[:20]
+    return os.path.join(os.path.expanduser('~'), '.telegent', 'updates', identity)
+
+
+def update_settings(conf):
+    if not conf.path: return {}
+    with open(conf.path, encoding='utf-8-sig') as stream: return json.load(stream)
+
+
+def client_digest():
+    with open(__file__, 'rb') as stream: return hashlib.sha256(stream.read()).hexdigest()
+
+
+def cmd_update(conf, args):
+    folder = update_cache(); os.makedirs(folder, exist_ok=True)
+    lock = os.path.join(folder, 'lock')
+    try:
+        if os.path.exists(lock) and time.time()-os.path.getmtime(lock) > 600: os.unlink(lock)
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600); os.close(fd)
+    except FileExistsError:
+        return
+    status = {'checked_at': time.time()}
+    try:
+        release = validate_client_release(json.loads(release_bytes(RELEASE_FEED, 65536)))
+        current = client_digest()
+        if current != release['files']['tg.py']['sha256']:
+            apply_client_release(release, __file__)
+        status.update(version=release['version'], status='current')
+        if not args.automatic: print('Клиент обновлён: '+release['version']+'. Конфиги, токены и хуки сохранены.')
+    except Exception as error:
+        status.update(status='deferred', reason=str(error))
+        if not args.automatic: die('обновление отложено: '+str(error))
+    finally:
+        write_json_atomic(os.path.join(folder, 'status.json'), status)
+        os.unlink(lock)
+
+
+def schedule_update(conf):
+    """Check in a separate process so unavailable releases cannot delay a message or hook."""
+    try:
+        settings = update_settings(conf)
+        if settings.get('auto_update', True) is False or not conf.url_source or os.environ.get('TELEGENT_URL'):
+            return
+        folder = update_cache(); os.makedirs(folder, exist_ok=True)
+        marker = os.path.join(folder, 'scheduled')
+        if os.path.exists(marker) and time.time()-os.path.getmtime(marker) < UPDATE_INTERVAL: return
+        with open(marker, 'w'): pass
+        command = [sys.executable, os.path.abspath(__file__), '--config', conf.path, 'update', '--automatic']
+        options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
+        subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
+    except (OSError, ValueError, TypeError):
+        pass
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -875,6 +1021,7 @@ def cmd_watch(conf, args):
     delay = 1.0
     me = None
     announced_down = False
+    running_digest = client_digest()
     while True:
         try:
             if me is None:
@@ -900,6 +1047,14 @@ def cmd_watch(conf, args):
             cursor = msgs[-1]["id"] if msgs else max(cursor, res["last_id"])
             st[key] = cursor
             conf.save_state(st)
+            schedule_update(conf)
+            if client_digest() != running_digest and __name__ == '__main__':
+                # The saved cursor, rather than the original --since, resumes this watcher.
+                arguments = list(sys.argv[1:])
+                if '--since' in arguments:
+                    index = arguments.index('--since'); del arguments[index:index+2]
+                arguments = [value for value in arguments if not value.startswith('--since=')]
+                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *arguments])
             delay = 1.0
         except NetError as e:
             if not announced_down:
@@ -1347,7 +1502,9 @@ def cmd_codex_hook(args):
             event = json.loads(raw)
             if isinstance(event, dict):
                 with contextlib.redirect_stderr(io.StringIO()):
-                    result = codex_hook_result(Conf(args.config), event)
+                    conf = Conf(args.config)
+                    schedule_update(conf)
+                    result = codex_hook_result(conf, event)
     except (Exception, SystemExit):
         pass   # a failed optional integration must not block Codex or print private error details
     print(json.dumps(result, ensure_ascii=False))
@@ -1734,6 +1891,8 @@ def main():
     s = sub.add_parser("refresh", help="обновить блок инструкции telegent без переустановки хуков")
     s.add_argument("--dir", default=".", help="папка рабочего проекта")
     s.add_argument("--client", choices=("auto", "codex", "claude"), default="auto")
+    s = sub.add_parser("update", help="обновить клиент из официального выпуска, сохранив локальные изменения")
+    s.add_argument('--automatic', action='store_true', help=argparse.SUPPRESS)
     s = sub.add_parser("init", help="записать tg.config.json")
     s.add_argument("--server", required=True)
     s.add_argument("--token-file", required=True)
@@ -1765,11 +1924,12 @@ def main():
             return cmd_codex_hook(args)
         return cmd_codex_install(Conf(args.config), args)
     conf = Conf(args.config)
+    if args.cmd != 'update': schedule_update(conf)
     {
         "send": cmd_send, "reply": cmd_reply, "inbox": cmd_inbox, "read": cmd_read, "ack": cmd_ack,
         "watch": cmd_watch, "get": cmd_get, "board": cmd_board, "results": cmd_results,
         "search": cmd_search, "whoami": cmd_whoami, "sent": cmd_sent, "hook": cmd_hook, "projects": cmd_projects,
-        "react": cmd_react, "dm": cmd_dm, "secret": cmd_secret, "refresh": cmd_refresh,
+        "react": cmd_react, "dm": cmd_dm, "secret": cmd_secret, "refresh": cmd_refresh, "update": cmd_update,
         "claim": cmd_claim, "claims": cmd_claims, "release": cmd_release,
         "take": lambda c, a: cmd_status(c, a, "taken"), "done": lambda c, a: cmd_status(c, a, "done"),
         "reject": lambda c, a: cmd_status(c, a, "rejected"), "reopen": lambda c, a: cmd_status(c, a, "open"),

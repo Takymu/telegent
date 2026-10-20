@@ -77,7 +77,9 @@ def main():
         run([*signer, 'verify', '--verbose', '--print-certs', signed])
         run([tools/('zipalign'+suffix), '-c', '4', signed])
         shutil.copy2(signed, target)
-    metadata = {'file':target.name, 'version':version, 'package':manifest.attrib['package'],
+    metadata = {'file':target.name, 'version':version,
+                'version_code':int(manifest.attrib['{http://schemas.android.com/apk/res/android}versionCode']),
+                'package':manifest.attrib['package'],
                 'bytes':target.stat().st_size, 'sha256':hashlib.sha256(target.read_bytes()).hexdigest()}
     (output/'build-info.json').write_text(json.dumps(metadata, indent=2)+'\n', encoding='utf-8')
     print(json.dumps(metadata, ensure_ascii=False))

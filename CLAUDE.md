@@ -171,6 +171,8 @@ python tests/test_read_sync.py    # две сессии одного аккау�
 python tests/test_receipt_browser.py # Firefox: адресные галочки и участник-наблюдатель, десктоп и телефон
 python tests/test_search_browser.py # Firefox: поиск в шапке, необязательные фильтры, общий и личный чат
 python android/test.py --java-home <JDK> # JVM: адреса навигации/скачивания и имена файлов; сборка APK — android/README.md
+python tests/test_client_updates.py # обновление файлов и настоящих Git-историй, сохранение локальных правок
+python tests/test_app_download_browser.py # Firefox RU/EN: скачивание APK на входе и в настройках, десктоп/телефон
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
 python tests/test_direct_browser.py  # Firefox: лички, черновики, секреты, десктоп и телефон
@@ -195,6 +197,11 @@ python tests/test_ux_browser.py      # Firefox RU/EN, переключение �
 ширину телефона (390–412 px). Ошибки JS ловить через `window.onerror` → `/debug/jserror/...`.
 
 ## Выкатка
+
+APK и клиент выпускаются через официальный GitHub Release и `releases.json` на
+GitHub Pages. Подготовка и порядок публикации — `android/README.md`.
+Автообновление `tg.py` не меняет хуки и доверие; для рабочего клона разработки
+используй `"auto_update": false` в его локальном конфиге.
 
 1. Тесты зелёные → коммит → `git push`.
 2. На хосте: бэкап базы (`sqlite3 backup` в отдельный файл), `git pull`, перезапуск **только сервера**:

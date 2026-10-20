@@ -2,11 +2,12 @@
 
 Первый APK открывает существующий веб-интерфейс сервера в Android WebView.
 Сверху находится строка `Telegent - for agents and humans`. Нужны Android 8.0+
-и актуальный Android System WebView. Фоновых уведомлений в версии 0.1.0 нет.
+и актуальный Android System WebView. Фоновых уведомлений в версии 0.1.1 нет.
 
 ## Установка и использование
 
-Откройте полученный `telegent-0.1.0.apk` на телефоне и разрешите установку для
+Нажмите «Скачать приложение для Android» на странице входа или в настройках telegent.
+Откройте полученный APK на телефоне и разрешите установку для
 приложения, из которого открываете файл. Войдите своей обычной учётной записью:
 вход приложения хранится отдельно от браузера. Серверные сообщения, членства,
 личные чаты и отметки прочтения остаются общими для аккаунта.
@@ -28,6 +29,14 @@ WebView не имеет JavaScript-моста к нативным функция
 HTTP и ошибочные TLS-сертификаты запрещены; внешние ссылки открываются в браузере.
 Для скачивания передаётся только cookie своего HTTPS-сервера, без перехода по редиректам.
 Резервное копирование данных приложения средствами Android отключено.
+
+Начиная с 0.1.1 приложение проверяет официальный выпуск при открытии, не чаще раза
+в шесть часов, и скачивает обновление в закрытый каталог. Перед установкой проверяются
+SHA-256, имя пакета, более новая версия и прежний ключ подписи. Новую версию устанавливает
+штатный установщик Android с подтверждением человека. При первом обновлении Android может
+попросить разрешить установку из telegent. Через меню можно проверить обновления сразу
+или установить отложенное обновление. Отказ не блокирует чат. Версию 0.1.0 нужно один раз
+обновить вручную: в ней механизма обновлений ещё нет. Вход и настройки при обновлении сохраняются.
 
 ## Сборка
 
@@ -66,10 +75,36 @@ The first APK embeds the existing server UI, with a native
 System WebView are required. Log in using your existing account; the app has its
 own login storage. The header menu reconnects through the permanent launcher or
 selects a custom HTTPS server. Files use Android's picker and save dialog. Version
-0.1.0 has no background notifications. Server authorization is unchanged.
+0.1.1 has no background notifications. Server authorization is unchanged.
+The login page and Settings link to the latest official APK. Starting with 0.1.1,
+the app checks and downloads updates automatically, verifying the checksum, package,
+version and signing key. Android confirms installation. Version 0.1.0 needs one manual
+update to acquire this feature. Login and settings survive updates.
 
 Build from the repository root using the commands above, JDK 21, Android SDK
 platform 36 and Build Tools 36.0.0. The APK and checksum are in `android/build/`.
 Keep a private backup of `android/.signing/` for future updates; never publish it.
 The JVM checks do not replace testing login, messaging, attachments and lifecycle
 on an Android device.
+
+## Публикация выпуска
+
+После проверок закоммитьте и отправьте исходники. Соберите APK этой версии с прежним
+ключом, затем подготовьте публичные файлы:
+
+```text
+python tools/prepare_release.py --commit HEAD --apk android/build/telegent-0.1.1.apk --out android/build/release
+```
+
+1. Создайте GitHub Release с тегом `v<versionName>` на выбранном коммите; загрузите
+   `telegent.apk` из подготовленного каталога. Файл по этому тегу после выпуска не заменяйте.
+2. Проверьте публичное скачивание APK и SHA-256.
+3. Опубликуйте подготовленный `releases.json` в корень ветки `gh-pages`, сохранив
+   `url.txt` и страницу запуска. Получайте свежую ветку перед записью: хост также
+   публикует туда адрес туннеля. Не используйте force-push.
+4. Проверьте `https://takymu.github.io/telegent/releases.json` и новый клиент на
+   временной копии. Только после публикации манифеста клиенты начинают обновление.
+
+Манифест содержит неизменяемый коммит исходников, SHA-256 файлов, прежние известные
+контрольные суммы для сохранения локальных правок и метаданные APK. В нём нет данных
+развёртывания или авторизации. Для выпуска новой версии увеличьте версии клиента и APK.

@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
     private volatile HttpURLConnection downloadConnection;
     private File downloadedFile;
     private AlertDialog downloadDialog;
+    private AppUpdates updates;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -102,7 +103,7 @@ public final class MainActivity extends Activity {
         errorPanel.addView(errorTitle); errorPanel.addView(errorText); errorPanel.addView(retry); errorPanel.addView(address);
         errorPanel.setVisibility(View.GONE); content.addView(errorPanel, new FrameLayout.LayoutParams(-1, -1));
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1)); setContentView(root);
-        configureInsets(); configureWebView(); colors(); reconnect();
+        configureInsets(); configureWebView(); colors(); reconnect(); updates=new AppUpdates(this);
     }
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
@@ -137,7 +138,7 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true); settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.1");
         CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {
@@ -208,11 +209,13 @@ public final class MainActivity extends Activity {
         popup.getMenu().add(0, 2, 1, R.string.server_address);
         popup.getMenu().add(0, 3, 2, R.string.open_browser);
         popup.getMenu().add(0, 4, 3, R.string.about);
+        popup.getMenu().add(0, 5, 4, R.string.check_updates);
         popup.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) {
                 web.evaluateJavascript("if(typeof saveDraft==='function')saveDraft()", value -> reconnect());
             } else if (item.getItemId() == 2) addressDialog();
             else if (item.getItemId() == 3) openExternal(NavigationPolicy.publicUrl(web.getUrl()));
+            else if(item.getItemId()==5) updates.check(true);
             else new AlertDialog.Builder(this).setTitle(R.string.about).setMessage(R.string.about_text).setPositiveButton(R.string.ok, null).show();
             return true;
         }); popup.show();
@@ -344,10 +347,11 @@ public final class MainActivity extends Activity {
     private void backInPage() { if (web != null && web.canGoBack()) web.goBack(); else moveTaskToBack(true); }
     private void toast(int message) { if (!destroyed) Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
     @Override protected void onPause() { web.onPause(); web.pauseTimers(); CookieManager.getInstance().flush(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); if (web != null) { web.resumeTimers(); web.onResume(); } }
+    @Override protected void onResume() { super.onResume(); if (web != null) { web.resumeTimers(); web.onResume(); } if(updates!=null)updates.resume(); }
     @Override public void onConfigurationChanged(Configuration configuration) { super.onConfigurationChanged(configuration); colors(); }
     @Override protected void onDestroy() {
         destroyed = true; cancelDownload(); files.shutdownNow(); finishDownload();
+        if(updates!=null)updates.destroy();
         if (fileSelection != null) { fileSelection.onReceiveValue(null); fileSelection = null; }
         if (web != null) { web.stopLoading(); web.destroy(); }
         super.onDestroy();

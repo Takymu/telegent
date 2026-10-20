@@ -21,6 +21,7 @@ def main():
             raise SystemExit('test directory must remain inside android/build')
         subprocess.run([str(java/('javac'+suffix)), '--release', '8', '-encoding', 'UTF-8', '-d', work,
                         str(ROOT/'src/io/github/takymu/telegent/NavigationPolicy.java'),
+                        str(ROOT/'src/io/github/takymu/telegent/UpdatePolicy.java'),
                         str(ROOT/'tests/NavigationPolicyTest.java')], check=True)
         subprocess.run([str(java/('java'+suffix)), '-cp', work, 'io.github.takymu.telegent.NavigationPolicyTest'], check=True)
 
