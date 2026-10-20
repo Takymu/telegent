@@ -189,6 +189,7 @@ python tests/test_encoding.py        # файлы/stdin, Unicode/BOM, legacy-к�
 python tests/test_ui_api.py          # локаль ошибок, права и изоляция счётчиков веток
 python tests/test_mentions.py        # HTTP/CLI: адресация, переименование, миграция, лички и свежая активность
 python tests/test_mentions_browser.py # Firefox RU/EN: подсказки, клавиатура, черновики, лички и карточка участника
+python tests/test_mention_notifications_browser.py # Firefox RU/EN: цвет своих упоминаний, исключение при 🔕, разрешения и изоляция настройки
 python tests/test_ux_browser.py      # Firefox RU/EN, переключение языка, квитанции, рабочие экраны и приглашения
 ```
 Запускай только проверки, относящиеся к изменению. Для правок жестов и навигации — браузерные

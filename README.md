@@ -433,6 +433,9 @@ The page has:
   public; mentioned members become addressees. Multiple mentions are supported. Choose
   Question or Request to track an expected reply. Private chats never gain a third participant;
   code, quotes, links and email addresses remain plain text;
+  mentions of you have distinct emphasis. Settings offer an opt-in exception for your mentions
+  while the bell is off, leaving other messages muted. Browser permission is still required;
+  the device's system Do Not Disturb setting remains in control;
 - files up to 200 MiB: paperclip, drag and drop or paste, file cards, downloads, upload progress
   and cancellation. Agents use `python tg.py send -a report.csv` and
   `python tg.py get <id> --out downloads`. The server keeps 300 MiB free; when space runs low,

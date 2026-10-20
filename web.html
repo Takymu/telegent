@@ -110,7 +110,12 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;box-shadow:0 4px 18px #0003; }
 #mentionList button { display:flex;align-items:center;gap:10px;width:100%;min-height:44px;text-align:left;border:0;background:transparent; }
 #mentionList button[aria-selected="true"] { background:var(--line); }
-.mention { color:var(--accent);cursor:pointer;font-weight:600; }
+.mention { color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:4px;padding:0 2px;cursor:pointer;font-weight:600;box-decoration-break:clone;-webkit-box-decoration-break:clone; }
+.mention.mention-me { color:var(--accent-ink);background:var(--accent); }
+.outgoing .mention:not(.mention-me) { color:var(--bubble-own-link);background:color-mix(in srgb,var(--bubble-own-link) 14%,transparent); }
+.mention:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+.mention-notify-label { display:flex;align-items:center;gap:10px;min-height:44px; }
+.mention-notify-label input { flex:none;width:18px;height:18px;accent-color:var(--accent); }
 #cBody { display: block; width: 100%; min-height: 24px; max-height: 40vh; resize: none; border: 0; outline: none;
   background: transparent; padding: 2px 0 6px; font: inherit; font-size: 14.5px; line-height: 1.5; overflow-y: auto; }
 .cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1069,6 +1074,11 @@ const UI_EN={
   "слушает": "listening",
   "в сети": "online",
   "недавно активен": "recently active",
+  "Тебя упомянули": "You were mentioned",
+  "Только @упоминания": "Only @mentions",
+  "Уведомления только об @упоминаниях; нажми, чтобы включить остальные": "Only @mention notifications; click to enable the others",
+  "Уведомлять об @упоминаниях при выключенном колокольчике": "Notify about @mentions when the bell is off",
+  "Исключение действует только для упоминаний тебя. Требуется разрешение браузера; системный режим «Не беспокоить» управляется устройством. Настройка сохраняется для этого аккаунта в этом браузере.": "This exception applies only when you are mentioned. Browser permission is required; your device controls system Do Not Disturb. This setting is saved for this account in this browser.",
   "проверял входящие ": "last checked inbox ",
   "был ": "last active ",
   "ещё не подключался": "not connected yet",
@@ -3243,7 +3253,7 @@ function paintMentions(){
         let label=match[0];while(!labels.has(label)&&label.endsWith('.'))label=label.slice(0,-1);
         const item=labels.get(label);if(!item)continue;
         fragment.append(document.createTextNode(text.slice(end,match.index)));
-        const span=document.createElement('span');span.className='mention';span.dataset.ux='member';span.dataset.account=item.id;span.setAttribute('role','button');span.tabIndex=0;span.textContent=label;span.title='@'+item.name;
+        const span=document.createElement('span');span.className='mention'+(item.id===ME.id?' mention-me':'');span.dataset.ux='member';span.dataset.account=item.id;span.setAttribute('role','button');span.tabIndex=0;span.textContent=label;span.title=(item.id===ME.id?tr('Тебя упомянули')+' · ':'')+'@'+item.name;
         fragment.append(span);end=match.index+label.length;
       }
       if(end){fragment.append(document.createTextNode(text.slice(end)));node.replaceWith(fragment);}
@@ -3927,9 +3937,10 @@ $("actionForm").onsubmit=async e=>{
 };
 function showSettings(){
   const state=ntfOK()?ntfState():"unsupported";
-  const labels={on:tr("Включены"),off:tr("Выключены"),blocked:tr("Заблокированы браузером"),unsupported:tr("Браузер не поддерживает уведомления")};
+  const labels={on:tr("Включены"),off:ntfMentionsOn()?tr('Только @упоминания'):tr("Выключены"),blocked:tr("Заблокированы браузером"),unsupported:tr("Браузер не поддерживает уведомления")};
   showInfo(tr("Настройки"),ui`<div class="ux-card"><b>${esc(ME.name)}</b><p>${ME.kind==="human"?tr("Человек"):ME.is_secretary?tr("Секретарь"):tr("Агент")} · ${esc(ME.project?.title||tr("Нет проекта"))}</p><div class="actions">${ME.kind==="human"?tr('<button data-ux="password">Сменить пароль</button>'):""}<button data-ux="theme">Сменить тему</button><button data-ux="logout">Выйти</button></div></div><div class="ux-card"><label>Язык <select data-language><option value="auto">Как на устройстве</option><option value="ru">Русский</option><option value="en">English</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере. Тексты сообщений и имена остаются в исходном виде.</p></div><div class="ux-card"><b>Уведомления: ${labels[state]}</b><p class="ux-muted">Сейчас уведомления работают, пока открыта вкладка. Разрешение относится к этому адресу сайта.</p>${state==="blocked"?tr('<p>Разреши уведомления в настройках сайта в браузере, затем вернись сюда.</p>'):state!=="unsupported"?'<button data-ux="notify">'+(state==="on"?tr("Выключить"):tr("Включить"))+'</button>':""}</div>`);
   $("infoBody").querySelector('[data-language]').value=LANGUAGE_SETTING;
+  if(ntfOK())$('infoBody').insertAdjacentHTML('beforeend',ui`<div class="ux-card"><label class="mention-notify-label"><input type="checkbox" data-mention-notify ${ntfMentionsOn()?'checked':''}><span>Уведомлять об @упоминаниях при выключенном колокольчике</span></label><p class="ux-muted">Исключение действует только для упоминаний тебя. Требуется разрешение браузера; системный режим «Не беспокоить» управляется устройством. Настройка сохраняется для этого аккаунта в этом браузере.</p></div>`);
   $("infoBody").querySelector('[data-language]').closest('.ux-card').insertAdjacentHTML('beforebegin',ui`<div class="ux-card"><label>Цветовая схема <select data-color-scheme><option value="default">Стандартная (синяя)</option><option value="telegram">Серая (белые галочки)</option></select></label><p class="ux-muted">Настройка сохраняется в этом браузере.</p></div>`);
   $("infoBody").querySelector('[data-color-scheme]').value=st.get('tg_colors')==='telegram'?'telegram':'default';
   $("infoBody").insertAdjacentHTML('beforeend',ui`<div class="ux-card"><b>Приложение для Android</b><p class="ux-muted">Текущий интерфейс в отдельном приложении. Новые версии скачиваются автоматически; установку подтверждает Android.</p><a class="app-download" href="https://github.com/Takymu/telegent/releases/latest/download/telegent.apk" rel="noreferrer">Скачать приложение для Android</a></div>`);
@@ -4126,6 +4137,23 @@ window.addEventListener("popstate",async e=>{
 // ---- browser notifications (humans only; they work while the page is open in a tab, there is no push)
 const NTF = {reg: null, seen: 0, unread: 0, pending: 0};
 const ntfOK = () => ME && ME.kind === "human" && "Notification" in window;
+const ntfMentionKey = () => 'tg_mention_notify_v1:'+encodeURIComponent(ME.id);
+const ntfMentionsOn = () => !!ME&&st.get(ntfMentionKey())==='1';
+const mentionedMe = m => !!ME&&!!m.mentions?.some(item=>item.id===ME.id);
+document.addEventListener('change',async e=>{
+  if(!e.target.matches('[data-mention-notify]')||!ntfOK())return;
+  const key=ntfMentionKey(),scope=uiScope(),enable=e.target.checked;
+  e.target.disabled=true;
+  let granted=!enable||Notification.permission==='granted';
+  if(enable&&Notification.permission==='default'){
+    try{granted=(await new Promise(resolve=>{const result=Notification.requestPermission(resolve);if(result?.then)result.then(resolve,()=>resolve('denied'));}))==='granted';}catch{}
+  }
+  if(scope!==uiScope())return;
+  st.set(key,enable&&granted?'1':'0');
+  if(enable&&!granted)toast(tr('Уведомления заблокированы в браузере: разреши их в настройках сайта'),true);
+  if(enable&&granted)ntfRegister();
+  ntfPaint();showSettings();
+});
 function ntfState() {
   if (Notification.permission === "denied") return "blocked";
   return st.get("tg_notify") === "1" && Notification.permission === "granted" ? "on" : "off";
@@ -4139,7 +4167,7 @@ function ntfPaint() {
   b.textContent = s === "on" ? "🔔" : "🔕";
   b.title = s === "on" ? tr("уведомления включены: пока вкладка открыта, браузер сообщит о просьбах одобрить, срочных и адресованных тебе (нажми, чтобы выключить)")
     : s === "blocked" ? tr("уведомления заблокированы в браузере: разреши их в настройках сайта (значок замка рядом с адресом), потом нажми снова")
-    : tr("уведомления выключены: нажми, чтобы включить; они приходят, пока вкладка открыта");
+    : ntfMentionsOn()?tr('Уведомления только об @упоминаниях; нажми, чтобы включить остальные'):tr("уведомления выключены: нажми, чтобы включить; они приходят, пока вкладка открыта");
 }
 async function ntfRegister() {
   if (NTF.reg || !("serviceWorker" in navigator)) return;
@@ -4147,7 +4175,7 @@ async function ntfRegister() {
 }
 function ntfInit() {
   ntfPaint();
-  if (ntfOK() && ntfState() === "on") ntfRegister();
+  if (ntfOK() && (ntfState() === "on" || ntfMentionsOn()&&Notification.permission==='granted')) ntfRegister();
 }
 $("bellBtn").onclick = async () => {
   const s = ntfState();
@@ -4173,6 +4201,7 @@ function ntfReason(m) {
   if (m.needs_approval && !m.approvals.length && (!m.approver || m.approver === ME.name)) return tr("Нужно твоё решение");
   if (m.priority === "urgent") return tr("Срочно");
   if (m.conversation_id) return tr("Личное сообщение");
+  if (mentionedMe(m)) return tr('Тебя упомянули');
   if (m.to.includes(ME.name)) return tr("Тебе");
   return null;
 }
@@ -4193,7 +4222,7 @@ function ntfNew(msgs) {
     const why = ntfReason(m);
     if (!why) continue;
     if (hidden) NTF.unread++;
-    if (on) ntfShow(m, why);
+    if (on || ntfMentionsOn()&&mentionedMe(m)&&Notification.permission==='granted') ntfShow(m, why);
   }
   ntfTitle();
 }
