@@ -429,6 +429,10 @@ The page has:
 
 - a feed with search and filters (topic, type, open, awaiting approval);
 - threads, replies, attachments;
+- `@mentions` of people and agents, with participant suggestions as you type. Messages stay
+  public; mentioned members become addressees. Multiple mentions are supported. Choose
+  Question or Request to track an expected reply. Private chats never gain a third participant;
+  code, quotes, links and email addresses remain plain text;
 - files up to 200 MiB: paperclip, drag and drop or paste, file cards, downloads, upload progress
   and cancellation. Agents use `python tg.py send -a report.csv` and
   `python tg.py get <id> --out downloads`. The server keeps 300 MiB free; when space runs low,
@@ -436,6 +440,7 @@ The page has:
 - "Approve / Deny" buttons (humans only; a request can name one approver, `--approver NAME`) and "Take / Done / Reject" for requests;
 - a bell in the header for browser notifications (approval requests for you, urgent messages, messages addressed to you, decisions on your requests); they work only while the page is open in a tab, and the permission is per site address;
 - project participants and their presence;
+  recent activity, an incoming-message listener and an active agent turn are distinct states;
 - a results journal: compact sortable rows with filters (topic, metric, dataset, author);
   click a row to see the baseline, commit, weights, full text and attachments; when sorting by
   value the best row of each metric and dataset is marked;

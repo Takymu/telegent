@@ -222,6 +222,7 @@ def db():
         _db.executescript(SCHEMA)
         for table, col, decl in (("receipts", "delivered_ts", "REAL"), ("users", "last_seen_ts", "REAL"),
                                  ("messages", "revision", "INTEGER NOT NULL DEFAULT 0"),
+                                 ("messages", "mentions_json", "TEXT NOT NULL DEFAULT '[]'"),
                                  ("messages", "edited_ts", "REAL"), ("messages", "deleted_ts", "REAL"),
                                  ("users", "last_wait_ts", "REAL"), ("users", "pw_hash", "TEXT"),
                                  ("users", "last_check_ts", "REAL"),
@@ -806,7 +807,8 @@ def redeem_invite(code, password=None, label="", me=None, as_existing=False):
 
 # UI language affects exception text only; protocol values and stored messages stay unchanged.
 _UI_CONTEXT = threading.local()
-_UI_EN = {'активность сообщает клиент агента': 'Activity is reported by the agent client',
+_UI_EN = {'упоминание недоступно в этом чате': 'Mention is not available in this chat',
+ 'активность сообщает клиент агента': 'Activity is reported by the agent client',
  'активность: state working/idle и непрозрачная метка клиента': 'Activity requires state working/idle and an opaque client id',
  'аккаунта нет в выбранном проекте или среди твоих агентов без проекта': 'Account not found in the selected '
                                                                          'project or among your agents '
@@ -1158,7 +1160,8 @@ def touch(user, waiting=False, checking=False):
 def presence(row, now=None):
     now = now or time.time()
     lw = row["last_wait_ts"]
-    return {"listening": bool(lw and now - lw < LISTEN_WINDOW), "last_listen": iso(lw),
+    return {"listening": bool(lw and 0 <= now - lw < LISTEN_WINDOW), "last_listen": iso(lw),
+            "online": bool(row['last_seen_ts'] and 0 <= now-row['last_seen_ts'] < LISTEN_WINDOW),
             "working": agent_working(row["name"], now) if row["kind"] == "agent" else None,
             "last_check": iso(row["last_check_ts"]), "last_seen": iso(row["last_seen_ts"])}
 
@@ -1333,6 +1336,39 @@ def expected_recipients(pid, author, to):
     return [a for a in project_agents(pid) if a != author]
 
 
+def message_mentions(body, pid, bindings=None, parties=None, allowed=None):
+    """Resolve ordinary-text mentions once, against active members of this project only."""
+    members={r['name']:r for r in db().execute('SELECT u.* FROM users u JOIN members m ON m.user=u.name '
+             'WHERE m.project_id=? AND u.revoked=0',(pid,)) if member_role(pid,r['name'])}
+    if parties is not None:members={key:row for key,row in members.items() if key in parties}
+    if allowed is not None:members={key:row for key,row in members.items() if key in allowed}
+    labels={(row['display_name'] or key).lower():key for key,row in members.items()}
+    if bindings is None:bindings={}
+    if allowed is not None and isinstance(bindings,dict):
+        bindings={label:key for label,key in bindings.items() if key in members}
+    if not isinstance(bindings,dict) or any(not isinstance(label,str) or not NAME_RE.fullmatch(label)
+            or not isinstance(key,str) or key not in members for label,key in bindings.items()):
+        raise ApiError(400,_ui_text('упоминание недоступно в этом чате'))
+    labels.update({label.lower():key for label,key in bindings.items()})
+    result=[];offset=0;fence=None
+    for line in body.splitlines(keepends=True):
+        marker=re.match(r' {0,3}(`{3,}|~{3,})',line)
+        if fence:
+            if marker and marker[1][0]==fence[0] and len(marker[1])>=len(fence):fence=None
+        elif marker:fence=marker[1]
+        elif not re.match(r'(?: {4}|\t|\s*>)',line):
+            protected=[m.span() for m in re.finditer(r'(`+).*?\1|https?://\S+|www\.\S+|\[[^\]]*\]\([^)]*\)|<[^>]*>',line)]
+            for found in re.finditer(r'(?<![\w@./\\:+-])@([A-Za-z0-9][A-Za-z0-9_.-]*)',line):
+                if any(start<=found.start()<end for start,end in protected):continue
+                label=found[1];key=labels.get(label.lower())
+                while key is None and label.endswith('.'):
+                    label=label[:-1];key=labels.get(label.lower())
+                if key is not None:
+                    result.append({'id':key,'text':'@'+label,'start':offset+found.start(),'end':offset+found.start()+len(label)+1})
+        offset+=len(line)
+    return result
+
+
 def msg_dicts(rows, me=None, full=True):
     purge_expired_secrets()
     if not rows:
@@ -1385,6 +1421,8 @@ def msg_dicts(rows, me=None, full=True):
             "to_ids": recipients_list(r["recipients"]), "topic": r["topic"], "type": r["type"],
             "priority": r["priority"], "subject": r["subject"],
             "body": r["body"] if full else r["body"][:400],
+            "mentions": [{**item,'name':account_name(item['id'])} for item in json.loads(r['mentions_json'])
+                         if full or item['end']<=400],
             "reply_to": r["reply_to"], "thread_id": r["thread_id"],
             "reply_preview": None,
             "reply_count": thread_counts.get(r["thread_id"], 0),
@@ -1425,7 +1463,7 @@ def msg_dicts(rows, me=None, full=True):
             d["secret"]["state"] = "revoked" if secret["revoked"] else "received" if secret["consumed"] else "expired" if secret["expires"] <= time.time() else "pending"
         if r["deleted_ts"]:
             d.update(body="Сообщение удалено",subject="Сообщение удалено",topic="",attachments=[],reactions=[],approvals=[],
-                     result=None,status=None,needs_approval=False,priority="normal")
+                     result=None,status=None,needs_approval=False,priority="normal",mentions=[])
             d.pop("secret",None)
         out.append(d)
     return out
@@ -1539,6 +1577,12 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
         if data.get("claim"):
             raise ApiError(400, _ui_text('заявки проекта публикуются в общем чате'))
         to = [key for key in parties if key != user["name"]]
+    mentions=[] if system or secret else message_mentions(body,pid,data.get('mention_bindings'),
+                     (conversation['human'],conversation['agent']) if conversation else None)
+    if not conversation:
+        for mention in mentions:
+            if mention['id'] not in to:to.append(mention['id'])
+        if to and approver and approver not in to and approver != user['name']:to.append(approver)
     status = "open" if mtype in TRACKED_TYPES else None
 
     # attachments: decode + validate before writing anything
@@ -1607,6 +1651,7 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
                  reply_to, thread_id, int(needs_approval), status,
                  json.dumps(result, ensure_ascii=False) if result else None, idem, pid, approver, cid))
             mid = cur.lastrowid
+            con.execute('UPDATE messages SET mentions_json=? WHERE id=?',(json.dumps(mentions,ensure_ascii=False),mid))
             if secret:
                 con.execute("INSERT INTO secret_envelopes(message_id,recipient,key_id,envelope,expires) VALUES (?,?,?,?,?)",
                             (mid, conversation["agent"], secret["key_id"], json.dumps(secret["envelope"]), secret["expires"]))
@@ -2903,11 +2948,16 @@ def mutate_message(h,user,q,data,mid,deleting=False):
                 con.execute("INSERT OR IGNORE INTO pending_file_deletions(upload_id) SELECT upload_id FROM attachments WHERE message_id=? AND upload_id IS NOT NULL",(mid,))
                 con.execute("DELETE FROM attachments WHERE message_id=?",(mid,))
                 con.execute("UPDATE messages SET body='',subject='Сообщение удалено',topic='',result=NULL,needs_approval=0,"
-                            "status=NULL,status_ref=NULL,status_note=NULL,deleted_ts=?,revision=revision+1 WHERE id=?",(now,mid))
+                            "status=NULL,status_ref=NULL,status_note=NULL,mentions_json='[]',deleted_ts=?,revision=revision+1 WHERE id=?",(now,mid))
                 con.execute("UPDATE secret_envelopes SET envelope=NULL,revoked=CASE WHEN claimed_ts IS NULL THEN COALESCE(revoked,?) ELSE revoked END WHERE message_id=?",(now,mid))
             else:
                 subject=next((line.strip() for line in body.splitlines() if line.strip()),"")[:120]
-                con.execute("UPDATE messages SET body=?,subject=?,edited_ts=?,revision=revision+1 WHERE id=?",(body,subject,now,mid))
+                # Editing does not redeliver an old message or change its addressees.
+                bindings={item['text'][1:]:item['id'] for item in json.loads(message['mentions_json'])}
+                mentions=message_mentions(body,p['id'],bindings,
+                    allowed=expected_recipients(p['id'],message['author'],recipients_list(message['recipients'])))
+                con.execute("UPDATE messages SET body=?,subject=?,mentions_json=?,edited_ts=?,revision=revision+1 WHERE id=?",
+                            (body,subject,json.dumps(mentions,ensure_ascii=False),now,mid))
                 if message["type"]=="decision":
                     con.execute("UPDATE messages SET status='open',status_by=NULL,status_ts=NULL WHERE id=?",(mid,))
             con.execute("COMMIT")

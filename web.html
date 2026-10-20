@@ -103,9 +103,14 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #replyBar { display:flex;align-items:center;gap:4px;font-size:12.5px;color:var(--muted);margin:0 4px 6px; }
 #replyText { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 #replyBar a { display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;min-width:28px;min-height:28px;text-decoration:none; }
-.cbox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 10px 16px;
+.cbox { position:relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 10px 16px;
   box-shadow: 0 2px 14px rgba(0, 0, 0, .10); }
 .cbox:focus-within { border-color: var(--accent); }
+#mentionList { position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:12;max-height:min(280px,35vh);overflow-y:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;box-shadow:0 4px 18px #0003; }
+#mentionList button { display:flex;align-items:center;gap:10px;width:100%;min-height:44px;text-align:left;border:0;background:transparent; }
+#mentionList button[aria-selected="true"] { background:var(--line); }
+.mention { color:var(--accent);cursor:pointer;font-weight:600; }
 #cBody { display: block; width: 100%; min-height: 24px; max-height: 40vh; resize: none; border: 0; outline: none;
   background: transparent; padding: 2px 0 6px; font: inherit; font-size: 14.5px; line-height: 1.5; overflow-y: auto; }
 .cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -795,9 +800,10 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         <div class="column">
           <div id="replyBar" class="hidden"><span id="replyText"></span> <a href="#" id="cancelReply" title="отменить ответ">✕</a></div>
           <div class="cbox">
+            <div id="mentionList" class="hidden" role="listbox" aria-label="Участники"></div>
             <div id="cPending" aria-live="polite"></div>
             <div id="cChips"></div>
-            <textarea id="cBody" rows="1" placeholder="Сообщение"></textarea>
+            <textarea id="cBody" rows="1" placeholder="Сообщение" aria-autocomplete="list" aria-controls="mentionList" aria-expanded="false"></textarea>
             <div class="cbar">
               <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 200 МБ" aria-label="Прикрепить файл"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m21 11-8.6 8.6a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6"/></svg></button><input type="file" id="cFiles" multiple hidden>
               <button type="button" class="iconbtn hidden" id="secretBtn" title="Передать секрет агенту" aria-label="Передать секрет агенту"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg></button>
@@ -1062,6 +1068,7 @@ const UI_EN={
   "Отправка остановлена. Файлы и текст сохранены — можно повторить.": "Sending stopped. Your files and message are saved; you can retry.",
   "слушает": "listening",
   "в сети": "online",
+  "недавно активен": "recently active",
   "проверял входящие ": "last checked inbox ",
   "был ": "last active ",
   "ещё не подключался": "not connected yet",
@@ -1504,7 +1511,7 @@ const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
 const draftStoragePrefix = () => "tg_draft_v1:"+encodeURIComponent(ME.id)+":";
 const draftStorageKey = () => draftStoragePrefix()+encodeURIComponent(PROJECT)+":"+(ACTIVE_DM?.id || "general");
 const RECIPIENTS = new Map();
-let RECIPIENT_PENDING=null;
+let RECIPIENT_PENDING=null, MENTION_BINDINGS={};
 const recipientStoragePrefix = () => "tg_recipient_v1:"+encodeURIComponent(ME.id)+":";
 const recipientStorageKey = () => recipientStoragePrefix()+encodeURIComponent(PROJECT);
 const selectedRecipientId = () => $("cTo").selectedOptions[0]?.dataset.id || (RECIPIENT_PENDING?.scope===draftKey()?RECIPIENT_PENDING.id:"");
@@ -1520,7 +1527,7 @@ function restoreRecipient(id) {
 function saveDraft() {
   clearTimeout(DRAFT_TIMER); DRAFT_TIMER=null;
   if (!ME || !PROJECT || SENDING || COMPOSE_SCOPE!==draftKey() || !(TAB==="feed" || TAB==="direct"&&ACTIVE_DM)) return;
-  const draft={body:$("cBody").value, to:$("cTo").value, recipient_id:selectedRecipientId(), topic:$("cTopic").value, type:$("cType").value,
+  const draft={body:$("cBody").value, to:$("cTo").value, recipient_id:selectedRecipientId(), mention_bindings:{...MENTION_BINDINGS}, topic:$("cTopic").value, type:$("cType").value,
     urgent:$("cUrgent").checked, approval:$("cApproval").checked, approver:$("cApprover").value, attachments:ATTACHED, reply:REPLY, retry:COMPOSE_RETRY};
   DRAFTS.set(draftKey(),draft);
   const {attachments,...stored}=draft;
@@ -1551,6 +1558,7 @@ function restoreDraft() {
   resetCompose();
   if (draft) {
     $("cBody").value=draft.body; $("cTo").value=draft.to || ""; $("cTopic").value=draft.topic || ""; $("cType").value=draft.type;
+    MENTION_BINDINGS=draft.mention_bindings || {};
     if(Object.prototype.hasOwnProperty.call(draft,"recipient_id"))restoreRecipient(draft.recipient_id);
     $("cUrgent").checked=!!draft.urgent; $("cApproval").checked=!!draft.approval; $("cApprover").value=draft.approver || "";
     ATTACHED=draft.attachments || []; REPLY=draft.reply; COMPOSE_RETRY=draft.retry;
@@ -2768,6 +2776,7 @@ function render(force) {
     prev = m;
   }
   $("feed").innerHTML = list.length ? html : `<div class="sysrow" style="margin-top:20vh">${hasFilters()?tr("По этим условиям сообщений нет. Измени фильтры или сбрось их."):tr("Здесь пока тихо. Напиши первым.")}</div>`;
+  paintMentions();
   paintOutgoing(); observeInlineImages();
   observeReadRows();
   $("moreBox").classList.toggle("hidden", NO_MORE || !list.length);
@@ -3141,6 +3150,7 @@ function startReply(m) {
 }
 function resetCompose(force = false) {
   if (SENDING && !force) return;
+  closeMentions();MENTION_BINDINGS={};
   $("retrySend").classList.add("hidden");
   ATTACHED = []; COMPOSE_RETRY = null; paintFiles();
   REPLY = null; $("replyBar").classList.add("hidden");
@@ -3169,8 +3179,77 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState!==
 const TOUCH = matchMedia("(pointer: coarse)").matches;
 if (TOUCH) $("cBody").placeholder = tr("Написать команде…");
 $("cBody").addEventListener("keydown", e => {
+  if(mentionKey(e))return;
   if (!TOUCH && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("sendBtn").click(); }
 });
+let MENTION_OPTIONS=[],MENTION_INDEX=0,MENTION_CONTEXT=null;
+function closeMentions(){
+  MENTION_OPTIONS=[];MENTION_CONTEXT=null;$('mentionList').classList.add('hidden');
+  $('cBody').setAttribute('aria-expanded','false');$('cBody').removeAttribute('aria-activedescendant');
+}
+function mentionContext(){
+  const t=$('cBody'),before=t.value.slice(0,t.selectionStart);
+  if(t.selectionStart!==t.selectionEnd)return null;
+  const found=before.match(/(?:^|[\s(])@([A-Za-z0-9_.-]{0,32})$/);if(!found)return null;
+  let fence=null;
+  for(const line of before.split('\n').slice(0,-1)){
+    const mark=line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if(mark){if(!fence)fence=mark[1];else if(mark[1][0]===fence[0]&&mark[1].length>=fence.length)fence=null;}
+  }
+  const line=before.split('\n').at(-1);
+  let inline=null;for(const mark of line.matchAll(/`+/g)){if(!inline)inline=mark[0];else if(mark[0]===inline)inline=null;}
+  if(fence||inline||/^( {4}|\t|\s*>)/.test(line)||/https?:\/\/\S*$/.test(line))return null;
+  return {start:before.length-found[1].length-1,end:t.selectionStart,prefix:found[1].toLowerCase(),scope:draftKey()};
+}
+function updateMentions(){
+  const context=mentionContext();if(!context||!ME||document.activeElement!==$('cBody')){closeMentions();return;}
+  MENTION_OPTIONS=ME.users.filter(u=>u.id!==ME.id&&(!ACTIVE_DM||u.id===ACTIVE_DM.peer_id)&&u.name.toLowerCase().startsWith(context.prefix)).slice(0,8);
+  if(!MENTION_OPTIONS.length){closeMentions();return;}
+  MENTION_CONTEXT=context;MENTION_INDEX=0;paintMentionList();
+}
+function paintMentionList(){
+  $('mentionList').innerHTML=MENTION_OPTIONS.map((u,i)=>`<button type="button" role="option" id="mention-${i}" data-mention="${i}" aria-selected="${i===MENTION_INDEX}" tabindex="-1">${avatar(u.name,u.kind)}<span><b>${esc('@'+u.name)}</b><span class="muted"> · ${u.kind==='agent'?tr('агент'):tr('Человек')}</span></span></button>`).join('');
+  $('mentionList').classList.remove('hidden');$('cBody').setAttribute('aria-expanded','true');$('cBody').setAttribute('aria-activedescendant','mention-'+MENTION_INDEX);
+  $('mention-'+MENTION_INDEX)?.scrollIntoView({block:'nearest'});
+}
+function chooseMention(index){
+  const u=MENTION_OPTIONS[index],c=MENTION_CONTEXT,t=$('cBody');if(!u||!c||c.scope!==draftKey())return closeMentions();
+  MENTION_BINDINGS[u.name]=u.id;t.setRangeText('@'+u.name+' ',c.start,c.end,'end');closeMentions();t.focus();t.dispatchEvent(new Event('input'));
+}
+function mentionKey(e){
+  if(!MENTION_OPTIONS.length||e.isComposing)return false;
+  if(['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(e.key)){
+    e.preventDefault();
+    if(e.key==='Escape')closeMentions();
+    else if(e.key==='Enter'||e.key==='Tab')chooseMention(MENTION_INDEX);
+    else {MENTION_INDEX=(MENTION_INDEX+(e.key==='ArrowDown'?1:-1)+MENTION_OPTIONS.length)%MENTION_OPTIONS.length;paintMentionList();}
+    return true;
+  }return false;
+}
+$('cBody').addEventListener('input',updateMentions);$('cBody').addEventListener('click',updateMentions);
+$('cBody').addEventListener('keyup',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key))updateMentions();});
+$('cBody').addEventListener('blur',closeMentions);
+$('mentionList').addEventListener('mousedown',e=>e.preventDefault());
+$('mentionList').addEventListener('click',e=>{const b=e.target.closest('[data-mention]');if(b)chooseMention(+b.dataset.mention);});
+function paintMentions(){
+  for(const m of MSGS.values()){
+    const root=document.querySelector(`[data-body="${m.id}"]`);if(!root||!m.mentions?.length)continue;
+    const labels=new Map(m.mentions.map(item=>[item.text,item]));
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+    for(const node of nodes){
+      if(node.parentElement.closest('a,code,pre,blockquote,.mention'))continue;
+      const text=node.textContent,fragment=document.createDocumentFragment();let end=0;
+      for(const match of text.matchAll(/(?<![\p{L}\p{N}_@./\\:+-])@([A-Za-z0-9][A-Za-z0-9_.-]*)/gu)){
+        let label=match[0];while(!labels.has(label)&&label.endsWith('.'))label=label.slice(0,-1);
+        const item=labels.get(label);if(!item)continue;
+        fragment.append(document.createTextNode(text.slice(end,match.index)));
+        const span=document.createElement('span');span.className='mention';span.dataset.ux='member';span.dataset.account=item.id;span.setAttribute('role','button');span.tabIndex=0;span.textContent=label;span.title='@'+item.name;
+        fragment.append(span);end=match.index+label.length;
+      }
+      if(end){fragment.append(document.createTextNode(text.slice(end)));node.replaceWith(fragment);}
+    }
+  }
+}
 const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+tr(" МБ") : n >= 1024 ? Math.ceil(n/1024)+tr(" КБ") : n+tr(" Б");
 const fileExt = name => (name.includes(".") ? name.split(".").pop() : "FILE").slice(0, 5).toUpperCase();
 function nativeSharing(){const v=navigator.userAgent.match(/ telegent-android\/(\d+)\.(\d+)\.(\d+)/);return !!v&&(+v[1]>0||+v[2]>1||+v[2]===1&&+v[3]>=3);}
@@ -3268,6 +3347,7 @@ $("sendBtn").onclick = async () => {
   const data = {
     conversation_id: ACTIVE_DM?.id || null,
     type: $("cType").value, topic: $("cTopic").value.trim().replace(/^#/, ""), body: $("cBody").value,
+    mention_bindings:Object.fromEntries(Object.entries(MENTION_BINDINGS).filter(([label,id])=>ME.users.some(u=>u.id===id)&&(!ACTIVE_DM||id===ACTIVE_DM.peer_id)&&$('cBody').value.includes('@'+label))),
     priority: $("cUrgent").checked ? "urgent" : "normal", needs_approval: $("cApproval").checked,
     approver: $("cApproval").checked && $("cApprover").value ? $("cApprover").value : null,
     to: $("cTo").value ? [$("cTo").value] : [], attachments: [],
@@ -3322,9 +3402,7 @@ async function loadPresence(snapshot=null) {
     const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент"),secretary:tr("секретарь")};
     MEMBER_ACTS = {};
     $("presence").innerHTML = me.users.map(u => {
-      const txt = u.kind === "agent" && u.working ? tr("работает") : u.listening ? (u.kind === "agent" ? tr("слушает") : tr("в сети"))
-        : u.last_check && u.last_check > (u.last_listen || "") ? ui`проверял входящие ${shortTime(u.last_check)}`
-        : u.last_listen ? ui`был ${shortTime(u.last_listen)}` : tr("ещё не подключался");
+      const txt = presenceText(u);
       const acts = [];
       if (owner && u.name !== ME.name && u.kind === "human")
         acts.push(u.role === "owner" ? {label: tr("Снять владельца"), act: "mrole", data: {name: u.name, role: "member"}}
@@ -3340,7 +3418,7 @@ async function loadPresence(snapshot=null) {
       if(ME.kind!==u.kind) acts.unshift({label:tr("Написать лично"),act:"dmnew",data:{account:u.id}});
       MEMBER_ACTS[u.name] = acts;
       return `<div class="member"><div class="mav ${u.kind === "agent" ? "agent" : ""} small" style="background:hsl(${hue(u.name)} 45% 42%)">` +
-        `${esc(initials(u.name))}<span class="pres ${u.listening||u.working ? "on" : ""}"></span></div>` +
+        `${esc(initials(u.name))}<span class="pres ${u.listening||u.working||u.online ? "on" : ""}"></span></div>` +
         `<div class="minfo participant-card" data-ux="member" data-account="${esc(u.id)}" role="button" tabindex="0"><b>${esc(u.name)}</b>${u.name === ME.name ? tr(' <span class="muted">(ты)</span>') : ""}` +
         `<div class="muted">${ROLE[u.role] || u.kind}${u.kind === "agent" ? ` · ${esc(u.owner)}` : ""} · ${txt}</div></div>` +
         (acts.length ? ui`<button class="more" data-act="memmenu" data-name="${esc(u.name)}" title="действия">⋯</button>` : "") + `</div>`;
@@ -3897,11 +3975,21 @@ async function loadBoard(){
   try {const data=await api("GET","/api/board");if(scope===uiScope())$("boardBox").innerHTML=data.board.filter(b=>ME.users.some(u=>u.id===b.id)).map(boardCard).join("")||tr('<p class="muted">Пока никто не обновил статус.</p>');}
   catch(err){if(scope===uiScope())$("boardBox").innerHTML=ui`<p class="err">${esc(err.message)}</p><button data-ux="board">Повторить</button>`;}
 }
+function presenceText(u){
+  if(u.kind==='agent'&&u.working)return tr('работает');
+  if(u.listening)return u.kind==='agent'?tr('слушает'):tr('в сети');
+  if(u.online)return u.kind==='agent'?tr('недавно активен'):tr('в сети');
+  if(u.last_seen&&u.last_seen>(u.last_check||'')&&u.last_seen>(u.last_listen||''))return tr('был ')+shortTime(u.last_seen);
+  if(u.last_check&&u.last_check>(u.last_listen||''))return tr('проверял входящие ')+shortTime(u.last_check);
+  return u.last_listen?tr('был ')+shortTime(u.last_listen):tr('ещё не подключался');
+}
 async function showMember(id){
   const scope=uiScope(),u=ME.users.find(u=>u.id===id);if(!u)return;
+  await loadPresence();if(scope!==uiScope())return;
+  const current=ME.users.find(member=>member.id===id);if(!current)return;Object.assign(u,current);
   const [board,claims,open]=await Promise.all([api("GET","/api/board"),api("GET","/api/claims?active=1"),api("GET","/api/messages?open=1&conversation=all&limit=1000")]);if(scope!==uiScope())return;
   const b=board.board.find(b=>b.id===id),tasks=open.messages.filter(m=>m.status?.state==="taken"&&m.status.by_id===id),cs=claims.claims.filter(c=>c.owner_id===id||c.owner===u.name);
-  showInfo(u.name,ui`<p>${u.kind==="agent"?(u.is_secretary?tr("Секретарь · человек-владелец: "):tr("Агент · человек-владелец: "))+esc(u.owner):tr("Человек")}</p><p>Связь: ${u.listening?(u.kind==="agent"?tr("слушает сообщения"):tr("в сети")):u.last_check?tr("проверял входящие ")+esc(shortTime(u.last_check)):tr("нет активного слушателя")}</p>${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
+  showInfo(u.name,ui`<p>${u.kind==="agent"?(u.is_secretary?tr("Секретарь · человек-владелец: "):tr("Агент · человек-владелец: "))+esc(u.owner):tr("Человек")}</p><p>Связь: ${esc(presenceText(u))}</p>${u.kind==='agent'&&!u.listening?'<p class="ux-muted">'+esc(tr('нет активного слушателя'))+(u.last_check?' · '+esc(tr('проверял входящие ')+shortTime(u.last_check)):'')+'</p>':''}${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
 }
 const INLINE_IMAGES=new Map();let IMAGE_OBSERVER=null;
 function clearInlineImages(){
