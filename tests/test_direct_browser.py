@@ -219,7 +219,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
  const pause=ms=>new Promise(r=>setTimeout(r,ms));let checks=0;
  const check=(ok,label)=>{if(!ok)throw Error(label);checks++};
  try {
-  for(let i=0;i<160&&(!ME?.project||COMPOSE_SCOPE!==draftKey());i++)await pause(40);
+  for(let i=0;i<160&&(!ME?.project||COMPOSE_SCOPE!==draftKey()||!NAV_READY);i++)await pause(40);
   check($('cBody').value==='reload public '+VIEWPORT,'public draft survives browser restart');
   check($('cTo').value==='alice-agent','recipient survives browser restart');
   const recipient=ME.users.find(u=>u.name==='alice-agent'), oldName=recipient.name;

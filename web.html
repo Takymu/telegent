@@ -1503,14 +1503,16 @@ const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
 const draftStoragePrefix = () => "tg_draft_v1:"+encodeURIComponent(ME.id)+":";
 const draftStorageKey = () => draftStoragePrefix()+encodeURIComponent(PROJECT)+":"+(ACTIVE_DM?.id || "general");
 const RECIPIENTS = new Map();
+let RECIPIENT_PENDING=null;
 const recipientStoragePrefix = () => "tg_recipient_v1:"+encodeURIComponent(ME.id)+":";
 const recipientStorageKey = () => recipientStoragePrefix()+encodeURIComponent(PROJECT);
-const selectedRecipientId = () => $("cTo").selectedOptions[0]?.dataset.id || "";
+const selectedRecipientId = () => $("cTo").selectedOptions[0]?.dataset.id || (RECIPIENT_PENDING?.scope===draftKey()?RECIPIENT_PENDING.id:"");
 function rememberRecipient(id) {
   if(ACTIVE_DM || !ME || !PROJECT)return;
   RECIPIENTS.set(recipientStorageKey(),id); st.set(recipientStorageKey(),id);
 }
 function restoreRecipient(id) {
+  RECIPIENT_PENDING=id&&!ACTIVE_DM&&!ME.users.length?{scope:draftKey(),id}:null;
   // Resolve saved identities against current membership, never a reused display name.
   $("cTo").value=ACTIVE_DM ? "" : ME.users.find(u=>u.id===id && u.id!==ME.id)?.name || "";
 }
@@ -1533,6 +1535,7 @@ function clearDraft() {
   clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;DRAFTS.delete(draftKey());st.set(draftStorageKey(),null);
 }
 function forgetDrafts() {
+  RECIPIENT_PENDING=null;
   clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;COMPOSE_SCOPE=null;DRAFTS.clear();RECIPIENTS.clear();
   try {for(const key of Object.keys(localStorage)) if(key.startsWith(draftStoragePrefix()) || key.startsWith(recipientStoragePrefix()))localStorage.removeItem(key);}catch{}
 }
@@ -1559,6 +1562,86 @@ let RECEIPT_REVISION = null;
 let CONTENT_REVISION = null, EDIT_TARGET=null;
 // feed: oldest on top, newest at the bottom; one page on open, older pages load when scrolled to the top
 const PAGE = 100;
+// Page-memory snapshots only: no message history or private chats in browser storage.
+const CHAT_PAGES=new Map(),CHAT_META=new Map();
+let CHAT_BYTES=0,CHAT_SWITCH=0,CHAT_PAGE_KEY=null,CHAT_WARM_TIMER=null,CHAT_WARMING=false,CHAT_GENERATION=0;
+const chatMetaKey=p=>JSON.stringify([ME?.id,p.id]);
+const chatPageKey=(p,cid,query)=>JSON.stringify([ME?.id,p.id,cid||null,String(query)]);
+function putChatPage(key,data) {
+  const text=JSON.stringify(data),size=text.length*2;
+  if(size>4*1024*1024)return;
+  if(CHAT_PAGES.has(key)){CHAT_BYTES-=CHAT_PAGES.get(key).size;CHAT_PAGES.delete(key);}
+  CHAT_PAGES.set(key,{data:JSON.parse(text),size,at:Date.now()});CHAT_BYTES+=size;
+  while(CHAT_PAGES.size>24||CHAT_BYTES>4*1024*1024){const oldest=CHAT_PAGES.keys().next().value;if(oldest===CHAT_PAGE_KEY&&CHAT_PAGES.size>1){const current=CHAT_PAGES.get(oldest);CHAT_PAGES.delete(oldest);CHAT_PAGES.set(oldest,current);continue;}CHAT_BYTES-=CHAT_PAGES.get(oldest).size;CHAT_PAGES.delete(oldest);}
+}
+function clearChatCache() {
+  CHAT_GENERATION++;CHAT_SWITCH++;FEED_EPOCH++;POLL_ABORT?.abort();CHAT_PAGES.clear();CHAT_META.clear();CHAT_BYTES=0;CHAT_PAGE_KEY=null;
+  clearTimeout(CHAT_WARM_TIMER);CHAT_WARM_TIMER=null;
+}
+function pruneChatCache() {
+  const allowed=new Set(PROJECTS.map(p=>p.id));
+  for(const [key,value] of CHAT_PAGES){const [account,pid]=JSON.parse(key);if(account!==ME?.id||!allowed.has(pid)){CHAT_BYTES-=value.size;CHAT_PAGES.delete(key);}}
+  for(const key of CHAT_META.keys()){const [account,pid]=JSON.parse(key);if(account!==ME?.id||!allowed.has(pid))CHAT_META.delete(key);}
+}
+function rememberChat() {
+  if(!CHAT_PAGE_KEY||!feedVisible())return;
+  const rows=[...MSGS.values()].sort((a,b)=>a.id-b.id),messages=rows.slice(-500);
+  putChatPage(CHAT_PAGE_KEY,{messages,last:LAST,oldest:messages[0]?.id||null,noMore:NO_MORE&&rows.length===messages.length,
+    reactions:REACTION_REVISION,receipts:RECEIPT_REVISION,content:CONTENT_REVISION,seen:NTF.seen,
+    anchor:captureFeedAnchor(),bottom:nearBottom(),unseen:UNSEEN});
+}
+function restoreChat() {
+  const key=chatPageKey(ME.project,ACTIVE_DM?.id,filterQuery()),cached=CHAT_PAGES.get(key);
+  if(!cached)return false;
+  CHAT_PAGES.delete(key);CHAT_PAGES.set(key,cached);
+  const data=cached.data;CHAT_PAGE_KEY=key;
+  MSGS=new Map(confirmedMessages(data.messages).map(m=>[m.id,m]));LAST=data.last;OLDEST=data.oldest;NO_MORE=data.noMore;
+  REACTION_REVISION=data.reactions;RECEIPT_REVISION=data.receipts;CONTENT_REVISION=data.content;NTF.seen=data.seen;UNSEEN=data.unseen||0;
+  render(true);if(data.bottom)toBottom();else restoreFeedAnchor(data.anchor);return true;
+}
+function loadingChat() {
+  $("feed").innerHTML=tr('<div class="sysrow" role="status" style="margin-top:20vh">Загружаем…</div>');
+  $("moreBox").classList.add("hidden");paintOutgoing();
+}
+function defaultChatQuery(cid) {
+  const q=new URLSearchParams();if(cid)q.set('conversation',cid);return q;
+}
+function queueChatWarmup() {
+  if(CHAT_WARM_TIMER||CHAT_WARMING||!TOKEN||!PROJECTS.length||document.visibilityState!=='visible')return;
+  CHAT_WARM_TIMER=setTimeout(warmChats,300);
+}
+async function warmChats() {
+  CHAT_WARM_TIMER=null;if(CHAT_WARMING)return;CHAT_WARMING=true;
+  const token=TOKEN,account=ME?.id,generation=CHAT_GENERATION;
+  const valid=p=>TOKEN===token&&ME?.id===account&&CHAT_GENERATION===generation&&PROJECTS.some(next=>next.id===p.id);
+  const projects=[...PROJECTS].sort((a,b)=>(b.slug===PROJECT)-(a.slug===PROJECT)).slice(0,12);
+  const work=async()=>{
+    while(projects.length){
+      const p=projects.shift();if(!valid(p))continue;
+      const key=chatMetaKey(p),previous=CHAT_META.get(key);
+      if(previous&&Date.now()-(previous.warmedAt||0)<60000&&previous.last>=(p.last_id||0))continue;
+      try{
+        const [me,direct]=await Promise.all([api('GET','/api/me?project='+encodeURIComponent(p.slug)),api('GET','/api/conversations?project='+encodeURIComponent(p.slug))]);
+        if(!valid(p)||me.id!==account||me.project?.id!==p.id)continue;
+        CHAT_META.set(key,{me,conversations:direct.conversations,at:Date.now(),last:p.last_id||0});
+        for(const cid of [null,...direct.conversations.slice(0,3).map(c=>c.id)]){
+          if(!valid(p))break;
+          if(PROJECT===p.slug&&(ACTIVE_DM?.id||null)===cid&&CHAT_PAGE_KEY)continue;
+          const query=defaultChatQuery(cid),pageKey=chatPageKey(p,cid,query),before=CHAT_PAGES.get(pageKey);
+          if(before&&Date.now()-before.at<60000&&before.data.last>=(cid?direct.conversations.find(c=>c.id===cid).last_id:p.last_id||0))continue;
+          const res=await api('GET','/api/messages?'+query+'&limit='+PAGE+'&project='+encodeURIComponent(p.slug));
+          if(!valid(p))break;
+          // A foreground request or a visit made while prefetching takes precedence.
+          if(CHAT_PAGES.get(pageKey)!==before||PROJECT===p.slug&&(ACTIVE_DM?.id||null)===cid&&CHAT_PAGE_KEY)continue;
+          putChatPage(pageKey,{messages:res.messages,last:res.last_id,oldest:res.messages[0]?.id||null,noMore:res.messages.length<PAGE,
+            reactions:res.reaction_revision,receipts:res.receipt_revision,content:res.content_revision,seen:res.last_id,bottom:true});
+        }
+        if(valid(p)&&CHAT_META.has(key))CHAT_META.get(key).warmedAt=Date.now();
+      }catch(error){if(valid(p)&&(error.status===403||error.status===404)){CHAT_META.delete(key);for(const [page,value]of CHAT_PAGES)if(JSON.parse(page)[1]===p.id){CHAT_BYTES-=value.size;CHAT_PAGES.delete(page);}}}
+    }
+  };
+  try{await Promise.all([work(),work()]);}finally{CHAT_WARMING=false;}
+}
 let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
 let REACTION_REVISION = null;
 const REACTION_PENDING = new Set();
@@ -2022,6 +2105,7 @@ $("themeBtn").onclick = () => {
 applyTheme();
 
 async function login(tok) {
+  clearChatCache();
   const storedToken = st.get("tg_token");
   TOKEN = tok;
   try {
@@ -2110,6 +2194,7 @@ async function migrateLegacyReadState(token, storedToken) {
 }
 
 function showNoProject() {
+  CHAT_SWITCH++;CHAT_PAGE_KEY=null;
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = null; st.set("tg_project", null);
   ACTIVE_DM=null;CONVERSATIONS=[];COMPOSE_SCOPE=null;closeSecret();
@@ -2125,6 +2210,8 @@ function showNoProject() {
 
 async function setProject(slug) {
   if (SENDING) { toast(tr("Дождись отправки сообщения или нажми «Отмена»"), true); return; }
+  const p=PROJECTS.find(p=>p.slug===slug);if(!p)return;
+  rememberChat();const navigation=++CHAT_SWITCH,token=TOKEN;
   clearInlineImages();
   cancelProjectDrag();
   closeInfo();if($("actionDialog").open)$("actionDialog").close();VIEW_RETURN=null;
@@ -2133,13 +2220,13 @@ async function setProject(slug) {
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   FEED_EPOCH++; PROJECT = slug; st.set("tg_project", slug);
   if (POLL_ABORT) POLL_ABORT.abort();   // the running long-poll belongs to the previous project
-  MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;
+  MSGS = new Map(); LAST = 0; OLDEST = null; SIG = ""; UNSEEN = 0; THREAD = null; NTF.seen = 0;CHAT_PAGE_KEY=null;LOADING_OLDER=false;
   REACTION_REVISION = null;
   RECEIPT_REVISION = null;
   CONTENT_REVISION = null;
   UNREAD_FROM = seen(slug);
-  try { ME = await api("GET", "/api/me"); }
-  catch (e) { if (e.status===404) { PROJECT = null; return login(TOKEN); } throw e; }
+  const cached=CHAT_META.get(chatMetaKey(p));
+  ME={...ME,project:p,users:cached?.me.users||[]};CONVERSATIONS=cached?.conversations||[];
   $("projTitle").textContent = ME.project.title;
   document.title = ME.project.title + " · telegent";
   $("noProject").classList.add("hidden");
@@ -2148,11 +2235,28 @@ async function setProject(slug) {
   $("inviteBtn").textContent = ME.project.role === "owner" ? tr("+ Пригласить") : tr("+ Добавить агента");
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
   setupCompose(); TAB="feed";restoreDraft();paintTab();
-  await reload(); loadPresence(); renderProjects();
+  renderConversations();renderProjects();
+  const hit=restoreChat();if(!hit)loadingChat();
+  const current=()=>TOKEN===token&&PROJECT===slug&&CHAT_SWITCH===navigation;
+  const update=(async()=>{
+    try{
+      const me=await api('GET','/api/me?project='+encodeURIComponent(slug));
+      if(!current())return;
+      if(me.project?.id!==p.id){CHAT_META.delete(chatMetaKey(p));await loadProjects();if(current())showNoProject();return;}
+      const selection=[$('cBody').selectionStart,$('cBody').selectionEnd],filter=$('fType').value;
+      saveDraft();ME={...me,project:preserveReadCursor(me.project,ME.project)};setupCompose();$('fType').value=filter;restoreDraft();paintTab();
+      $('cBody').setSelectionRange(...selection);
+      CHAT_META.set(chatMetaKey(p),{me,conversations:CONVERSATIONS,at:Date.now(),last:p.last_id||0,warmedAt:CHAT_META.get(chatMetaKey(p))?.warmedAt});
+      loadPresence(me);await (hit?refresh():reload());
+      if(current())queueChatWarmup();
+    }catch(error){if(current()){if(error.status===403||error.status===404){CHAT_META.delete(chatMetaKey(p));showNoProject();loadProjects();}else{$('conn').className='dot off';$('connectionBanner').classList.remove('hidden');}}}
+  })();
+  if(!hit)await update;
 }
 
 const feedCursor = () => ACTIVE_DM ? ACTIVE_DM.read_upto || 0 : ME.project?.read_upto || 0;
 function resetFeedState() {
+  CHAT_PAGE_KEY=null;LOADING_OLDER=false;
   clearInlineImages(); $("pendingOutgoing").replaceChildren();
   FEED_EPOCH++;
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER=null;
@@ -2166,6 +2270,8 @@ async function loadConversations() {
   DM_APPLIED=request;
   const previous=DM_SCOPE===scope?CONVERSATIONS:[]; DM_SCOPE=scope;
   CONVERSATIONS=rows.map(c=>preserveReadCursor(c,previous.find(old=>old.id===c.id)));
+  const meta=ME?.project&&CHAT_META.get(chatMetaKey(ME.project));if(meta){meta.conversations=CONVERSATIONS;if(rows.some(c=>!previous.some(old=>old.id===c.id&&old.last_id===c.last_id)))meta.warmedAt=0;}
+  if(ME?.project)for(const [key,value]of CHAT_PAGES){const [account,pid,cid]=JSON.parse(key);if(account===ME.id&&pid===ME.project.id&&cid&&!CONVERSATIONS.some(c=>c.id===cid)){CHAT_BYTES-=value.size;CHAT_PAGES.delete(key);}}
   if (ACTIVE_DM) {
     const c=CONVERSATIONS.find(c=>c.id===ACTIVE_DM.id);
     if (!c) { ACTIVE_DM=null; resetFeedState(); restoreDraft(); paintTab(); }
@@ -2186,8 +2292,10 @@ async function openDirect(cid) {
   if (SENDING) { toast(tr("Дождись отправки сообщения"),true); return; }
   if (!CONVERSATIONS.some(c=>c.id===cid)) await loadConversations();
   const c=CONVERSATIONS.find(c=>c.id===cid); if (!c) return;
-  saveDraft(); closeSecret(); ACTIVE_DM=c; TAB="direct"; resetFeedState(); restoreDraft(); paintTab();
-  await reload(); if (!TOUCH) $("cBody").focus();
+  rememberChat();CHAT_SWITCH++;saveDraft(); closeSecret(); ACTIVE_DM=c; TAB="direct"; resetFeedState(); restoreDraft(); paintTab();
+  const scope=feedScope(),hit=restoreChat();if(!hit)loadingChat();
+  const update=(hit?refresh():reload()).catch(error=>{if(scope===feedScope()&&error.status!==401){$('connectionBanner').classList.remove('hidden');}});
+  if (!TOUCH) $("cBody").focus();if(!hit)await update;
 }
 async function newDirect(peer) {
   if (SENDING) { toast(tr("Дождись отправки сообщения"),true); return; }
@@ -2197,7 +2305,7 @@ async function newDirect(peer) {
   await loadConversations(); await openDirect(c.id); $("aside").classList.remove("open");
 }
 $("dmSearch").oninput=renderConversations;
-$("dmBack").onclick=()=> { if(SENDING)return; saveDraft(); ACTIVE_DM=null; resetFeedState(); paintTab(); loadConversations().catch(e=>toast(e.message,true)); };
+$("dmBack").onclick=()=> { if(SENDING)return; rememberChat();CHAT_SWITCH++;saveDraft(); ACTIVE_DM=null; resetFeedState(); paintTab();renderConversations();loadConversations().catch(e=>toast(e.message,true)); };
 const seen = slug => +(PROJECTS.find(p => p.slug === slug)?.read_upto || 0);
 let PROJECT_DRAG=null, PROJECT_DRAG_CLICK=0, PROJECT_ORDER_SAVING=false;
 function cancelProjectDrag() {
@@ -2316,12 +2424,15 @@ async function loadProjects() {
     PROJECT_APPLIED=request;
     const previous=PROJECT_ACCOUNT===account?PROJECTS:[]; PROJECT_ACCOUNT=account;
     PROJECTS=projects.map(p=>preserveReadCursor(p,previous.find(old=>old.id===p.id)));
+    pruneChatCache();
     const active=PROJECTS.find(p=>p.slug===PROJECT);
     if(active && ME?.project?.id===active.id) Object.assign(active,preserveReadCursor(active,ME.project));
     const current = PROJECTS.find(p => p.slug === PROJECT);
     $("generalCount").textContent=current?.unread?` (${current.unread})`:"";
     if (current) NTF.unread = document.visibilityState === "visible" ? 0 : (current.unread || 0);
-    syncMobileNav(); applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects(); if (PROJECT) await loadConversations();
+    syncMobileNav(); applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects();
+    if(PROJECT&&!current){showNoProject();return;}
+    if (PROJECT) await loadConversations();queueChatWarmup();
   } catch {}
 }
 
@@ -2400,6 +2511,7 @@ $("pwForm").onsubmit = async e => {
 };
 
 $("logoutBtn").onclick = async () => {
+  clearChatCache();
   try { await api("POST", "/api/logout"); } catch {}
   forgetDrafts(); closeSecret(); st.set("tg_token", null);
   if (launcher()) location.replace(launcher() + "#logout"); else location.reload();
@@ -2528,11 +2640,12 @@ window.addEventListener("resize", setHeaderHeight);
 // full reset (first open, filters, thread): the last page, scrolled to the bottom
 async function reload() {
   FEED_EPOCH++;
-  const scope=feedScope(),request=++FEED_REQUEST;
+  const scope=feedScope(),request=++FEED_REQUEST,key=chatPageKey(ME.project,ACTIVE_DM?.id,filterQuery());
   const q = filterQuery(); q.set("limit", PAGE);
   const res = await api("GET", "/api/messages?" + q);
   if (scope!==feedScope() || request<FEED_APPLIED) return;
   FEED_APPLIED=request;
+  CHAT_PAGE_KEY=key;
   MSGS = new Map(confirmedMessages(res.messages).map(m => [m.id, m]));
   REACTION_REVISION = res.reaction_revision;
   RECEIPT_REVISION = res.receipt_revision;
@@ -2541,13 +2654,13 @@ async function reload() {
   NO_MORE = res.messages.length < PAGE;
   LAST = Math.max(LAST, res.last_id);
   NTF.seen = Math.max(NTF.seen, res.last_id);   // what is on the page now is not news
-  online(); render(true); if(feedVisible())toBottom(); refreshSide();
+  online(); render(true); if(feedVisible())toBottom();rememberChat();refreshSide();queueChatWarmup();
 }
 
 // live update: re-fetch everything shown (status, approvals and receipts change on old messages too) plus new ones
 async function refresh() {
   if(TAB==="direct" && !ACTIVE_DM) return loadConversations();
-  const scope=feedScope(),request=++FEED_REQUEST,oldest=OLDEST;
+  const scope=feedScope(),request=++FEED_REQUEST,oldest=OLDEST,key=chatPageKey(ME.project,ACTIVE_DM?.id,filterQuery());
   const q = filterQuery(); q.set("limit", "1000");
   if (OLDEST) q.set("after", OLDEST - 1);
   const res = await api("GET", "/api/messages?" + q);
@@ -2565,6 +2678,7 @@ async function refresh() {
   if(scope!==feedScope() || request<FEED_APPLIED)return;
   if(OLDEST!==oldest)return refresh();
   FEED_APPLIED=request;
+  CHAT_PAGE_KEY=key;
   const stick = feedVisible() && nearBottom(),anchor=captureFeedAnchor();
   const fresh = res.messages.filter(m => !MSGS.has(m.id)).length;
   MSGS = new Map(confirmedMessages(res.messages).map(m => [m.id, m]));
@@ -2575,9 +2689,9 @@ async function refresh() {
   LAST = Math.max(LAST, res.last_id);
   ntfNew(res.messages.filter(m => m.id > NTF.seen)); NTF.seen = Math.max(NTF.seen, res.last_id);
   online();
-  if (!render()) return;
+  if (!render()) {rememberChat();return;}
   if (stick) toBottom(); else { restoreFeedAnchor(anchor); if(fresh) { UNSEEN += fresh; updateNewBtn(); } }
-  refreshSide();
+  rememberChat();refreshSide();
 }
 
 async function loadOlder() {
@@ -2594,7 +2708,8 @@ async function loadOlder() {
     if (res.messages.length) OLDEST = res.messages[0].id;
     render(true);
     restoreFeedAnchor(anchor);
-  } catch {} finally { LOADING_OLDER = false; }
+    rememberChat();
+  } catch {} finally { if(scope===feedScope())LOADING_OLDER = false; }
 }
 $("moreBtn").onclick = loadOlder;
 new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadOlder(); }, {root: SC, rootMargin: "400px 0px 0px 0px"})
@@ -2959,6 +3074,7 @@ function paintTab() {
   $("threadBar").classList.toggle("hidden",!feed || !THREAD);
   $("composer").classList.toggle("hidden",!feed); $("dmBar").classList.toggle("hidden",!ACTIVE_DM);
   $("cTo").classList.toggle("hidden",!!ACTIVE_DM); $("secretBtn").classList.toggle("hidden",!ACTIVE_DM || ME.kind!=="human");
+  $('sendBtn').disabled=SENDING||!!RECIPIENT_PENDING;
   const approver=$("cApprover").value;
   $("cApprover").innerHTML=ui`<option value="">кто решает: человек этого чата</option>`+(ME.users||[])
     .filter(u=>u.kind==="human"&&(!ACTIVE_DM||u.id===ACTIVE_DM.human_id))
@@ -2970,13 +3086,13 @@ function paintTab() {
 async function selectTab(tab) {
   if(!PROJECT)return;
   if(SENDING) {toast(tr("Дождись отправки сообщения"),true);return;}
-  closeMobilePanels(); const changed=!!ACTIVE_DM; saveDraft(); closeSecret(); ACTIVE_DM=null; TAB=tab;
+  rememberChat();CHAT_SWITCH++;closeMobilePanels(); const changed=!!ACTIVE_DM; saveDraft(); closeSecret(); ACTIVE_DM=null; TAB=tab;
   if(changed)resetFeedState();
   const needsReload=changed || !MSGS.size || COMPOSE_SCOPE!==draftKey();
   if(COMPOSE_SCOPE!==draftKey())restoreDraft();
   paintTab();
-  if(tab==="direct") {await loadConversations();if(!mobileLayout())$("dmSearch").focus();}
-  else if(tab==="feed") {if(needsReload)await reload();toBottom();}
+  if(tab==="direct") {renderConversations();loadConversations().catch(()=>{});if(!mobileLayout())$("dmSearch").focus();}
+  else if(tab==="feed") {if(needsReload){const hit=restoreChat();if(!hit)loadingChat();const update=(hit?refresh():reload()).catch(()=>{});if(!hit)await update;}}
   else {$("scroller").scrollTop=0;if(tab==="results")loadResults();else if(tab==="claims")loadClaims();else if(tab==="work")loadWork();else if(tab==="board")loadBoard();}
 }
 for(const b of document.querySelectorAll(".tabs [data-tab]")) b.onclick=()=>selectTab(b.dataset.tab).catch(e=>toast(e.message,true));
@@ -3039,7 +3155,7 @@ function growBody() {
 $("cBody").addEventListener("input", growBody);
 $("cBody").addEventListener("input",scheduleDraft);
 for(const id of ["cTo","cTopic","cType","cUrgent","cApproval","cApprover"]) $(id).addEventListener("change",scheduleDraft);
-$("cTo").addEventListener("change",()=>rememberRecipient(selectedRecipientId()));
+$("cTo").addEventListener("change",()=>{RECIPIENT_PENDING=null;rememberRecipient(selectedRecipientId());$('sendBtn').disabled=SENDING;});
 window.addEventListener("pagehide",saveDraft);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")saveDraft();});
 // on a phone keyboard Enter is a new line and the ↑ button sends
@@ -3173,14 +3289,15 @@ $("sendBtn").onclick = async () => {
   finally { paintOutgoing(); SENDING = false; UPLOAD_ABORT = null; $("sendBtn").disabled = false; $("attachBtn").disabled = false; $("cBody").disabled = false; $("cancelUpload").classList.add("hidden"); paintFiles(); }
 };
 
-async function loadPresence() {
+async function loadPresence(snapshot=null) {
   if (!PROJECT) return;
   const slug = PROJECT, token=TOKEN;
   try {
-    const me = await api("GET", "/api/me");
+    const me = snapshot || await api("GET", "/api/me");
     if (slug !== PROJECT || TOKEN!==token) return;
     applyProjectInfo(me.project);
     ME.users = me.users;
+    if(me.project)CHAT_META.set(chatMetaKey(me.project),{me,conversations:CONVERSATIONS,at:Date.now(),last:PROJECTS.find(p=>p.id===me.project.id)?.last_id||0,warmedAt:CHAT_META.get(chatMetaKey(me.project))?.warmedAt});
     const owner = me.project && me.project.role === "owner";
     const ROLE = {owner: tr("владелец"), member: tr("участник"), agent: tr("агент"),secretary:tr("секретарь")};
     MEMBER_ACTS = {};
@@ -3989,11 +4106,13 @@ async function poll() {
   while (TOKEN) {
     if (!PROJECT) { await loadProjects(); await new Promise(r => setTimeout(r, 15000)); continue; }
     try {
+      const scope=feedScope();
       POLL_ABORT = new AbortController();
       const revision = REACTION_REVISION == null ? "" : `&reaction_revision=${encodeURIComponent(REACTION_REVISION)}`;
       const receipts = RECEIPT_REVISION == null ? "" : `&receipt_revision=${encodeURIComponent(RECEIPT_REVISION)}`;
       const content = CONTENT_REVISION == null ? "" : `&content_revision=${encodeURIComponent(CONTENT_REVISION)}`;
       const res = await api("GET", `/api/wait?after=${LAST}&for_me=0&full=0&timeout=25&conversation=all${revision}${receipts}${content}`, null, POLL_ABORT.signal);
+      if(scope!==feedScope())continue;
       online(); delay = 1000; fails = 0;
       ntfNew(res.messages); NTF.seen=Math.max(NTF.seen,...res.messages.map(m=>m.id));
       if (res.messages.length) {
