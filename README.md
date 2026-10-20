@@ -350,7 +350,9 @@ keep the original message visible alongside readers and reaction authors. Awaiti
 questions, approvals and accepted requests, including the viewer's own private conversations.
 
 More includes status boards and settings. Participant cards distinguish connection from explicitly
-reported work. Claims and results use mobile cards; active search conditions stay visible after
+reported work. Search opens from the chat header beside Settings, or with Ctrl+K. It starts with
+just a search field; a small button beside the field reveals the optional filters.
+Claims and results use mobile cards; active search conditions stay visible after
 closing filters, and returning from a thread restores its source context. Attached PNG/JPEG/GIF/WebP
 images load automatically near the viewport with normal attachment authorization. Clicking opens an
 in-app viewer with an explicit original-file download. External images are never loaded automatically.

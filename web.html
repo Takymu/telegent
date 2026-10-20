@@ -147,8 +147,13 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .pitem.reordering { opacity:.3; }
 .project-ghost { position:fixed; z-index:120; pointer-events:none; background:var(--panel); box-shadow:0 6px 22px #0006; opacity:.95; }
 .project-insert { position:fixed; z-index:121; height:3px; border-radius:2px; background:var(--accent); pointer-events:none; }
-.filter-heading { flex-basis:100%;display:flex;align-items:center;justify-content:space-between; }
-#closeFilters { min-height:44px; }
+.search-row { display:flex;align-items:center;gap:6px;width:100%;min-width:0; }
+.search-row input[type=search] { flex:1;min-width:0;font-size:16px; }
+.search-icon-button { display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;padding:0;position:relative; }
+.search-icon-button svg { width:20px;height:20px; }
+.search-icon-button[aria-expanded=true], #advancedFiltersBtn.active { background:var(--chip);color:var(--accent); }
+.filter-options { display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%;min-width:0; }
+.filter-options select { flex:1 1 140px;min-width:0;max-width:100%; }
 .pitem .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 #projTitle { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -413,11 +418,11 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
   .member .minfo .muted { font-size: 15px; white-space: normal; }
   .member .more { font-size: 24px; padding: 6px 12px; }
 }
-/* ---- filters behind a button on every screen */
-#filtersBtn { display: inline-block !important; margin-left: auto; }
+/* Search opens from the chat header; advanced filters are a separate disclosure. */
+#filtersBtn { display:inline-flex;margin-left:0; }
 .filters:not(.open) { display: none; }
-#filtersBtn .fcount { display: inline-block; min-width: 16px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
-  font-size: 11px; padding: 0 4px; margin-left: 4px; }
+#filtersBtn .fcount { position:absolute;top:1px;right:1px;min-width:16px;border-radius:8px;background:var(--accent);color:var(--accent-ink);
+  font-size:11px;padding:0 4px; }
 .sm { display: none; }
 @media (max-width: 900px) { .sm { display: inline; } }
 .hidden { display: none !important; }
@@ -700,6 +705,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     <button id="themeBtn" title="тема">◐</button>
     <button id="pwBtn" class="hidden" title="задать или сменить пароль для входа">Пароль</button>
     <button id="logoutBtn">Выйти</button>
+    <button id="filtersBtn" class="search-icon-button" type="button" title="Поиск (Ctrl+K)" aria-label="Поиск" aria-expanded="false" aria-controls="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span id="searchCount" class="fcount hidden"></span></button>
     <button id="settingsBtn" title="Настройки" aria-label="Настройки" data-ux="settings">⚙</button>
   </header>
   <div id="connectionBanner" class="connection-banner hidden" role="status">Переподключаемся. Черновик сохранён. <button data-ux="reconnect">Повторить</button></div>
@@ -720,17 +726,21 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
           <button data-tab="direct">Личные<span id="directCount"></span></button>
           <button data-tab="results"><span class="lg">Журнал результатов</span><span class="sm">Журнал</span></button>
           <button data-tab="claims">Занято</button>
-          <button id="filtersBtn" title="поиск и фильтры (Ctrl+K)"><span class="sm">🔍</span><span class="lg">Поиск и фильтры</span></button>
         </div>
-        <div class="filters" id="filters">
-          <div class="filter-heading"><strong>Поиск и фильтры</strong><button id="closeFilters" type="button" aria-label="Закрыть поиск и фильтры">Закрыть ✕</button></div>
-          <input type="search" id="q" placeholder="поиск по истории">
+        <div class="filters" id="filters" role="search">
+          <div class="search-row">
+            <input type="search" id="q" placeholder="поиск по истории" aria-label="Поиск по истории">
+            <button id="advancedFiltersBtn" class="search-icon-button" type="button" title="Фильтры" aria-label="Фильтры" aria-expanded="false" aria-controls="filterOptions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--panel)"/><circle cx="15" cy="17" r="2" fill="var(--panel)"/></svg></button>
+            <button id="closeFilters" class="search-icon-button" type="button" title="Закрыть поиск" aria-label="Закрыть поиск">✕</button>
+          </div>
+          <div id="filterOptions" class="filter-options hidden">
           <select id="fTopic"><option value="">все топики</option></select>
           <select id="fType"><option value="">все типы</option></select>
           <label><input type="checkbox" id="fOpen"> открытые</label>
           <label><input type="checkbox" id="fPending"> ждут одобрения</label>
           <label><input type="checkbox" id="fWaiting"> ждут моего ответа</label>
           <label><input type="checkbox" id="fSystem" checked> статусы</label>
+          </div>
         </div>
         <div id="dmBar" class="hidden"><button id="dmBack" type="button" aria-label="К списку личных чатов">←</button><strong id="dmTitle"></strong><span class="muted" style="font-size:12px">Личный чат</span></div>
         <div id="threadBar" class="panel hidden" style="margin-bottom:10px"></div>
@@ -758,7 +768,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         </div>
         <div id="moreView" class="column hidden">
           <h2>Ещё</h2>
-          <button class="dm-item" type="button" data-act="mobilesearch">Поиск и фильтры</button>
+          <button class="dm-item" type="button" data-act="mobilesearch">Поиск</button>
           <button class="dm-item" type="button" data-act="mobiletab" data-tab="results">Журнал результатов</button>
           <button class="dm-item" type="button" data-act="mobiletab" data-tab="claims">Занято</button>
           <button class="dm-item" type="button" data-act="mobilenotifications">Уведомления</button>
@@ -927,6 +937,11 @@ const UI_EN={
   "Журнал": "Log",
   "Занято": "Claimed",
   "поиск и фильтры (Ctrl+K)": "search and filters (Ctrl+K)",
+  "Поиск (Ctrl+K)": "Search (Ctrl+K)",
+  "Поиск": "Search",
+  "Поиск по истории": "Search history",
+  "Фильтры": "Filters",
+  "Закрыть поиск": "Close search",
   "Поиск и фильтры": "Search and filters",
   "Закрыть поиск и фильтры": "Close search and filters",
   "Закрыть ✕": "Close ✕",
@@ -1974,7 +1989,7 @@ document.addEventListener("keydown", e => {
     if (REPLY && document.activeElement === $("cBody")) $("cancelReply").click();
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && PROJECT) {
-    e.preventDefault(); $("filters").classList.add("open"); $("q").focus();
+    e.preventDefault(); openSearch();
   }
 });
 
@@ -2585,17 +2600,31 @@ $("q").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(rel
 for (const id of ["fTopic", "fType", "fOpen", "fPending", "fWaiting", "fSystem"]) $(id).onchange = reload;
 $("waitChip").onclick = () => {
   $("fWaiting").checked = true; $("fType").value = "";
-  $("filters").classList.add("open"); updateFilterCount(); reload();
+  setSearchOpen(true);setAdvancedFilters(true);updateFilterCount();reload();
 };
-$("filtersBtn").onclick = () => { $("filters").classList.toggle("open"); if ($("filters").classList.contains("open")) $("q").focus(); };
-$("closeFilters").onclick = () => {
-  if($("filters").contains(document.activeElement))document.activeElement.blur();
-  $("filters").classList.remove("open");
-};
+function setAdvancedFilters(open){
+  $("filterOptions").classList.toggle("hidden",!open);
+  $("advancedFiltersBtn").setAttribute("aria-expanded",String(open));
+}
+function setSearchOpen(open){
+  if(!open){if($("filters").contains(document.activeElement))document.activeElement.blur();setAdvancedFilters(false);}
+  $("filters").classList.toggle("open",open);
+  $("filtersBtn").setAttribute("aria-expanded",String(open));
+  if(open)$("q").focus();
+}
+async function openSearch(){
+  if(TAB==="direct"&&!ACTIVE_DM){$("dmSearch").focus();return;}
+  if(TAB!=="feed"&&TAB!=="direct")await selectTab("feed");
+  setSearchOpen(true);
+}
+$("filtersBtn").onclick = () => setSearchOpen(!$("filters").classList.contains("open"));
+$("advancedFiltersBtn").onclick = () => setAdvancedFilters($("filterOptions").classList.contains("hidden"));
+$("closeFilters").onclick = () => {setSearchOpen(false);$("filtersBtn").focus({preventScroll:true});};
 function updateFilterCount() {
   const n = [$("q").value.trim(), $("fTopic").value, $("fType").value, $("fOpen").checked, $("fPending").checked, $("fWaiting").checked, !$("fSystem").checked]
     .filter(Boolean).length;
-  $("filtersBtn").innerHTML = ui`<span class="sm">🔍</span><span class="lg">Поиск и фильтры</span>` + (n ? `<span class="fcount">${n}</span>` : "");
+  $("searchCount").textContent=n;$("searchCount").classList.toggle("hidden",!n);
+  $("advancedFiltersBtn").classList.toggle("active",n>($('q').value.trim()?1:0));
   const names=[[$("q").value.trim(),tr("Поиск: ")+$("q").value.trim()],[$("fTopic").value,"#"+$("fTopic").value],[$("fType").value,TYPES[$("fType").value]],[$("fOpen").checked,tr("Открытые")],[$("fPending").checked,tr("Ждут одобрения")],[$("fWaiting").checked,tr("Ждут ответа")],[!$("fSystem").checked,tr("Без служебных")]];
   $("filterSummary").innerHTML=names.filter(x=>x[0]).map(x=>`<span class="chip">${esc(x[1])}</span>`).join("")+(n?tr('<button data-ux="reset-filters">Сбросить всё</button>'):"");
 }
@@ -2849,8 +2878,7 @@ document.addEventListener("click", async e => {
         await api("POST",`/api/messages/${id}/delete`,{revision:m.revision});await refresh();await loadProjects();break;
       }
       case "mobilesearch":
-        if(TAB==="direct"&&!ACTIVE_DM) $("dmSearch").focus();
-        else { if(TAB!=="feed"&&TAB!=="direct")await selectTab("feed");$("filters").classList.add("open");$("q").focus(); }
+        await openSearch();
         break;
       case "mobilenotifications": showSettings();break;
       case "dmnew": await newDirect(el.dataset.account); break;
