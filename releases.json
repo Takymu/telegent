@@ -1,7 +1,7 @@
 {
   "client": {
     "version": "2026.10.20.1",
-    "commit": "d06b753657acdd93ea8b71c7dfafbcc1f2b31796",
+    "commit": "5507d3245f5eb2a461836dce4e465484e81d6f8e",
     "files": {
       "tg.py": {
         "sha256": "21dc174f8039216b665866de658ffed99d06a213a92e6b1463ee19f479b625b0",
@@ -157,10 +157,10 @@
     }
   },
   "android": {
-    "version_code": 2,
-    "version": "0.1.1",
+    "version_code": 3,
+    "version": "0.1.2",
     "bytes": 37338,
-    "sha256": "ff5776f39b6851ced8d7fe7e5fe2a678966c8e92657a22658f89681a54d4fbc5",
-    "url": "https://github.com/Takymu/telegent/releases/download/v0.1.1/telegent.apk"
+    "sha256": "db42ba85207b53929a10af09f3555cb946cd1cafed490bd6ac88c4aa9a003394",
+    "url": "https://github.com/Takymu/telegent/releases/download/v0.1.2/telegent.apk"
   }
 }
