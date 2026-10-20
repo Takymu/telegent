@@ -54,7 +54,7 @@ class UIAPITest(unittest.TestCase):
         self.assertTrue(all(r['read'] for r in message['receipts'] if r['is_recipient']))
         self.assertFalse(all(r['read'] for r in message['receipts']))
 
-    def test_broadcast_receipts_still_wait_for_every_addressed_agent(self):
+    def test_broadcast_receipts_keep_each_addressed_agent_state(self):
         mid=self.fx.api('POST','/api/messages',{'body':'broadcast receipt fixture'},who='alice')['id']
         self.fx.api('GET',f'/api/messages?after={mid-1}',who='bob')
         self.fx.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who='alice-agent')

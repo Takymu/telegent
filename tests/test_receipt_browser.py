@@ -35,10 +35,15 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
    check($('infoBody').textContent.includes(name),'observer receipt remains available in message details');closeInfo();
    const broadcast=(await api('POST','/api/messages',{body:'broadcast receipt fixture '+VIEWPORT})).id;
    await as(observer.token,'GET','/api/messages?after='+(broadcast-1));
+   await refresh();
+   check(ticks(broadcast)===1,'broadcast has one tick before its first reader');
    await as(FIXTURE.agent_token,'POST','/api/receipts',{kind:'ack',ids:[broadcast]});
    await refresh();
    check(MSGS.get(broadcast).receipts.filter(r=>r.is_recipient).length===2,'broadcast addresses both agents');
-   check(ticks(broadcast)===1,'broadcast still waits for its second addressed agent');
+   check(ticks(broadcast)===2,'the first addressed reader gives two ticks');
+   check($('m'+broadcast).querySelector('.receipt-button').title===tr('Прочитано'),'read label does not claim everyone has read');
+   check(receiptButton(MSGS.get(broadcast)).includes(UI_LANG==='en'?'Read':'Прочитано'),'localized read label follows the same rule');
+   localStorage.setItem('tg_language','en');
    await fetch('/debug/result',{method:'POST',body:JSON.stringify({ok:true,viewport:VIEWPORT,checks})});
  }catch(e){await fetch('/debug/result',{method:'POST',body:JSON.stringify({error:e.message,stack:e.stack,viewport:VIEWPORT,checks})})}
 })();

@@ -119,7 +119,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   const probe=document.createElement('div');probe.innerHTML=receiptButton(unread);
   check(probe.querySelectorAll('path').length===1,'delivered but unread gives one tick');
   probe.innerHTML=receiptButton({...unread,receipts:[{user:'alice-agent',delivered:1,read:1}]});
-  check(probe.querySelectorAll('path').length===2,'all recipients read gives two ticks');
+  check(probe.querySelectorAll('path').length===2,'a read recipient gives two ticks');
   for(const emoji of ['❤️','👍','👎','🤡','😁','😭'])await actor('POST','/api/messages/'+mid+'/reaction',{emoji,active:true});
   await refresh();
   const crowded=document.querySelector('#m'+mid+' .message-footer');crowded.style.width='120px';

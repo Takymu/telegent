@@ -1120,7 +1120,7 @@ const UI_EN={
   "кем / по какому сообщению": "by / from which message",
   "результат ": "result ",
   "Пока нет.": "Nothing yet.",
-  "Прочитано всеми адресатами": "Read by all recipients",
+  "Прочитано": "Read",
   "Есть получившие сообщение": "Received by one or more recipients",
   "Отправлено на сервер": "Sent to server",
   "Доставлено на сервер": "Delivered to server",
@@ -3644,8 +3644,8 @@ function messageMeta(m,inline=false){
 }
 function receiptButton(m){
   if(m.sending)return ui`<span class="receipt-button pending-receipt" role="status" aria-label="Отправляется…"><span class="receipt-spinner" aria-hidden="true"></span></span>`;
-  const rs=(m.receipts || []).filter(r=>r.is_recipient!==false),read=rs.length>0&&rs.every(r=>r.read);
-  const label=read?tr("Прочитано всеми адресатами"):tr("Доставлено на сервер");
+  const rs=(m.receipts || []).filter(r=>r.is_recipient!==false),read=rs.some(r=>r.read);
+  const label=read?tr("Прочитано"):tr("Доставлено на сервер");
   const ticks=`<svg viewBox="0 0 25 18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m2 9 4 4L17 3"/>${read?'<path d="m11 12 2 2L24 4"/>':""}</svg>`;
   if(m.optimistic)return `<span class="receipt-button pending-receipt" role="status" aria-label="${label}">${ticks}</span>`;
   return ui`<button class="receipt-button ${read?"read":""}" data-act="receipt" data-id="${m.id}" aria-label="${label}. Информация о сообщении" title="${label}">${ticks}</button>`;
