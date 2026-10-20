@@ -929,6 +929,7 @@ const UI_EN={
   "Задать пароль": "Set password",
   "Выйти": "Sign out",
   "Настройки": "Settings",
+  "Поделиться": "Share",
   "Скачать приложение для Android": "Download the Android app",
   "Приложение для Android": "Android app",
   "Текущий интерфейс в отдельном приложении. Новые версии скачиваются автоматически; установку подтверждает Android.": "The current interface in a separate app. New versions download automatically; Android confirms installation.",
@@ -2920,6 +2921,7 @@ function actionsFor(m) {
   if (!m.acked && !isMine(m)) a.push({label: tr("✓ Обработано (ack)"), act: "ack", data: {id: m.id}});
   a.push({label:tr("Информация о сообщении"),act:"receipt",data:{id:m.id}});
   a.push({label: tr("Скопировать текст"), act: "copytext", data: {id: m.id}});
+  if(nativeSharing()&&!m.secret&&(m.body||m.subject))a.push({label:tr("Поделиться"),act:"sharetext",data:{id:m.id}});
   return a;
 }
 
@@ -3029,6 +3031,11 @@ document.addEventListener("click", async e => {
         const m = MSGS.get(id);
         try { await navigator.clipboard.writeText(m.body || m.subject); toast(tr("Текст скопирован")); } catch { toast(tr("Не удалось скопировать"), true); }
         break;
+      }
+      case "sharetext":requestNativeShare('message',id);break;
+      case "sharefile":{
+        const scope=feedScope();await api('POST',`/api/attachments/${el.dataset.att}/download`,{});
+        if(scope===feedScope())requestNativeShare('attachment',+el.dataset.att);break;
       }
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
       case "secretaries":await showSecretaries();break;
@@ -3166,11 +3173,24 @@ $("cBody").addEventListener("keydown", e => {
 });
 const fileSize = n => n == null ? "" : n >= 1048576 ? (n/1048576).toLocaleString("ru", {maximumFractionDigits: 1})+tr(" МБ") : n >= 1024 ? Math.ceil(n/1024)+tr(" КБ") : n+tr(" Б");
 const fileExt = name => (name.includes(".") ? name.split(".").pop() : "FILE").slice(0, 5).toUpperCase();
+function nativeSharing(){const v=navigator.userAgent.match(/ telegent-android\/(\d+)\.(\d+)\.(\d+)/);return !!v&&(+v[1]>0||+v[2]>1||+v[2]===1&&+v[3]>=3);}
+function nativeSharePayload(kind,id){
+  if(!feedVisible())return null;
+  const rows=[...MSGS.values()].filter(m=>!m.deleted&&!m.secret&&!m.optimistic);
+  if(kind==='message'){const m=rows.find(m=>m.id===id);return m?{text:m.body||m.subject||''}:null;}
+  if(kind==='attachment'){const a=rows.flatMap(m=>m.attachments||[]).find(a=>a.inline&&a.id===id);return a?{id:String(a.id),name:a.name}:null;}
+  return null;
+}
+function requestNativeShare(kind,id){
+  if(!nativeSharing()||!Number.isSafeInteger(id)||!nativeSharePayload(kind,id))return;
+  const link=document.createElement('a');link.href=`telegent-share://${kind}/${id}`;link.dataset.nativeShare='';document.body.append(link);link.click();link.remove();
+}
+const fileShareButton=a=>nativeSharing()&&a.inline&&!a.optimistic?ui`<button type="button" data-act="sharefile" data-att="${a.id}" style="min-height:40px;margin-top:4px">Поделиться</button>`:'';
 function fileCard(a) {
-  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name))return ui`<div><button type="button" class="inline-image" ${a.optimistic?"":`data-ux="preview" data-image="${a.id}"`} data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button></div>`;
+  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name))return ui`<div><button type="button" class="inline-image" ${a.optimistic?"":`data-ux="preview" data-image="${a.id}"`} data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button>${fileShareButton(a)}</div>`;
   const content = `<span class="file-symbol" aria-hidden="true">${esc(fileExt(a.name))}</span><span class="file-info"><span class="file-name">${esc(a.name)}</span>` +
     `<span class="file-detail">${fileSize(a.size)}${a.inline ? tr(" · Скачать") : tr(" · Внешняя ссылка: ") + esc(a.link || "")}</span></span>`;
-  return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button></div>`
+  return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>${fileShareButton(a)}</div>`
     : `<div class="file-card">${content}</div>`;
 }
 const FILE_PREVIEWS=new Map();

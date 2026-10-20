@@ -9,7 +9,7 @@
     <string name="cancel">Отмена</string>
     <string name="open_browser">Открыть в браузере</string>
     <string name="about">О приложении</string>
-    <string name="about_text">telegent 0.1.2\nПриложение использует текущий интерфейс вашего сервера.\n\nВход сохраняется отдельно от браузера. Сервер проверяет прежние права проектов и личных чатов.\n\nНовые APK проверяются и скачиваются автоматически. Установку подтверждает Android. Фоновых уведомлений пока нет.</string>
+    <string name="about_text">telegent 0.1.3\nПриложение использует текущий интерфейс вашего сервера.\n\nВход сохраняется отдельно от браузера. Сервер проверяет прежние права проектов и личных чатов.\n\nНовые APK проверяются и скачиваются автоматически. Установку подтверждает Android. Фоновых уведомлений пока нет.</string>
     <string name="check_updates">Проверить обновления</string>
     <string name="checking_updates">Проверяем обновления…</string>
     <string name="latest_version">Установлена последняя версия</string>
@@ -30,6 +30,8 @@
     <string name="download_error">Не удалось скачать файл. Повторите скачивание из сообщения.</string>
     <string name="save_error">Не удалось сохранить файл. Повторите скачивание.</string>
     <string name="file_saved">Файл сохранён</string>
+    <string name="share">Поделиться</string>
+    <string name="share_error">Не удалось поделиться. Откройте сообщение и попробуйте ещё раз.</string>
     <string name="not_enough_space">На устройстве недостаточно места для этого файла</string>
     <string name="unsupported_link">Не удалось открыть ссылку</string>
     <string name="external_link">Открыть эту ссылку в браузере?</string>

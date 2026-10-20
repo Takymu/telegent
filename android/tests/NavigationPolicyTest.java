@@ -43,6 +43,12 @@ public final class NavigationPolicyTest {
         check(UpdatePolicy.transport("https://release-assets.githubusercontent.com/asset?signature=fixture"),"official HTTPS asset redirect");
         check(!UpdatePolicy.transport("https://release-assets.githubusercontent.com.evil.test/asset"),"fake asset host rejected");
         check(!UpdatePolicy.transport("http://release-assets.githubusercontent.com/asset"),"cleartext release rejected");
+        check("message".equals(NavigationPolicy.shareRequest("telegent-share://message/42")[0]),"share a selected message ID");
+        check("42".equals(NavigationPolicy.shareRequest("telegent-share://attachment/42")[1]),"share a selected attachment ID");
+        for(String uri:new String[]{"telegent-share://message/0","telegent-share://message/-1","telegent-share://other/42",
+                "telegent-share://message/42?text=private","telegent-share://message/42#private","telegent-share://message/../42",
+                "telegent-share://message:443/42","telegent-share://user@message/42","https://message/42","telegent-share://attachment/%34%32"})
+            check(NavigationPolicy.shareRequest(uri)==null,"share route cannot carry text, credentials or arbitrary paths");
         System.out.println("Navigation checks passed: " + checks);
     }
 }

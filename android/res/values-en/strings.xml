@@ -8,7 +8,7 @@
     <string name="cancel">Cancel</string>
     <string name="open_browser">Open in browser</string>
     <string name="about">About</string>
-    <string name="about_text">telegent 0.1.2\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nNew APKs are checked and downloaded automatically. Android confirms installation. Background notifications are not available yet.</string>
+    <string name="about_text">telegent 0.1.3\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nNew APKs are checked and downloaded automatically. Android confirms installation. Background notifications are not available yet.</string>
     <string name="check_updates">Check for updates</string>
     <string name="checking_updates">Checking for updates…</string>
     <string name="latest_version">The latest version is installed</string>
@@ -29,6 +29,8 @@
     <string name="download_error">Could not download the file. Try downloading it again from the message.</string>
     <string name="save_error">Could not save the file. Try downloading it again.</string>
     <string name="file_saved">File saved</string>
+    <string name="share">Share</string>
+    <string name="share_error">Could not share. Open the message and try again.</string>
     <string name="not_enough_space">There is not enough space on this device</string>
     <string name="unsupported_link">Could not open this link</string>
     <string name="external_link">Open this link in your browser?</string>

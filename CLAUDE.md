@@ -171,6 +171,7 @@ python tests/test_read_sync.py    # две сессии одного аккау�
 python tests/test_receipt_browser.py # Firefox: адресные галочки и участник-наблюдатель, десктоп и телефон
 python tests/test_search_browser.py # Firefox: поиск в шапке, необязательные фильтры, общий и личный чат
 python tests/test_chat_switch_browser.py # Firefox: мгновенный переход при задержанных ответах, prefetch без read и изоляция кэша
+python tests/test_sharing_browser.py # Firefox RU/EN: кнопки Android, исходный текст, файл, границы личек и секретов
 python android/test.py --java-home <JDK> # JVM: адреса навигации/скачивания и имена файлов; сборка APK — android/README.md
 python tests/test_client_updates.py # обновление файлов и настоящих Git-историй, сохранение локальных правок
 python tests/test_app_download_browser.py # Firefox RU/EN: скачивание APK на входе и в настройках, десктоп/телефон

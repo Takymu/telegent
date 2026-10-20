@@ -3,6 +3,7 @@ package io.github.takymu.telegent;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -45,6 +46,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLConnection;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -71,6 +73,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        SharedFilesProvider.cleanup(this);
         File[] stale = getCacheDir().listFiles((directory, name) -> name.startsWith("telegent-download-") && name.endsWith(".part"));
         if (stale != null) for (File file : stale) file.delete();
         preferences = getSharedPreferences("connection", MODE_PRIVATE);
@@ -138,12 +141,14 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true); settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.2");
+        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.3");
         CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
+                String[] share=NavigationPolicy.shareRequest(url);
+                if(share!=null){if(request.isForMainFrame()&&NavigationPolicy.sameOrigin(view.getUrl(),serverOrigin))share(share[0],share[1]);return true;}
                 if (!request.isForMainFrame()) return !NavigationPolicy.sameOrigin(url, serverOrigin);
                 if (allowedNavigation(url, !request.hasGesture())) return false;
                 if (request.hasGesture()) openExternal(url); else connectionError();
@@ -247,6 +252,33 @@ public final class MainActivity extends Activity {
     }
 
     private void download(String url, String disposition, String mime) {
+        download(url,disposition,mime,false);
+    }
+
+    private void share(String kind,String id) {
+        String origin=serverOrigin;
+        String script="typeof nativeSharePayload==='function'?nativeSharePayload('"+kind+"',"+id+"):null";
+        web.evaluateJavascript(script,value->{
+            if(destroyed||!NavigationPolicy.sameOrigin(web.getUrl(),origin)||!origin.equals(serverOrigin))return;
+            try{
+                Object decoded=new org.json.JSONTokener(value).nextValue();
+                if(decoded instanceof String)decoded=new org.json.JSONObject((String)decoded);
+                if(!(decoded instanceof org.json.JSONObject))throw new IllegalArgumentException();
+                org.json.JSONObject payload=(org.json.JSONObject)decoded;
+                if("message".equals(kind)){
+                    String text=payload.getString("text");if(text.isEmpty()||text.length()>200000)throw new IllegalArgumentException();
+                    startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,text),getString(R.string.share)));
+                }else{
+                    if(!id.equals(payload.getString("id")))throw new IllegalArgumentException();
+                    String name=NavigationPolicy.downloadName(null,payload.getString("name"));
+                    String type=URLConnection.guessContentTypeFromName(name);
+                    download(origin+"/api/attachments/"+id,"attachment; filename*=UTF-8''"+Uri.encode(name),type,true);
+                }
+            }catch(Exception error){toast(R.string.share_error);}
+        });
+    }
+
+    private void download(String url, String disposition, String mime,boolean sharing) {
         if (!NavigationPolicy.attachment(url, serverOrigin)) { toast(R.string.download_error); return; }
         if (downloadBusy) { toast(R.string.download_busy); return; }
         String cookie = CookieManager.getInstance().getCookie(url);
@@ -287,6 +319,16 @@ public final class MainActivity extends Activity {
                 main.post(() -> {
                     if (destroyed || downloadCancelled) { complete.delete(); finishDownload(); return; }
                     if (downloadDialog != null) downloadDialog.dismiss();
+                    if(sharing){
+                        try{
+                            Uri uri=SharedFilesProvider.prepare(this,complete,name);
+                            Intent send=new Intent(Intent.ACTION_SEND).setType(type).putExtra(Intent.EXTRA_STREAM,uri)
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            send.setClipData(ClipData.newUri(getContentResolver(),name,uri));
+                            startActivity(Intent.createChooser(send,getString(R.string.share)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+                        }catch(IOException|ActivityNotFoundException error){complete.delete();toast(R.string.share_error);}
+                        finishDownload();return;
+                    }
                     downloadedFile = complete;
                     Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type).putExtra(Intent.EXTRA_TITLE, name);
                     try { startActivityForResult(save, SAVE_FILE); }

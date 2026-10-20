@@ -105,4 +105,14 @@ public final class NavigationPolicy {
             result = result.substring(0, result.offsetByCodePoints(result.length(), -1));
         return result;
     }
+
+    public static String[] shareRequest(String value) {
+        try {
+            URI uri=new URI(value);String kind=uri.getHost();
+            if(!"telegent-share".equals(uri.getScheme())||uri.getRawUserInfo()!=null||uri.getPort()!=-1
+                    ||!("message".equals(kind)||"attachment".equals(kind))||uri.getRawQuery()!=null||uri.getRawFragment()!=null
+                    ||!uri.getRawPath().matches("/[1-9][0-9]{0,17}"))return null;
+            return new String[]{kind,uri.getRawPath().substring(1)};
+        }catch(Exception error){return null;}
+    }
 }
