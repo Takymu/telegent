@@ -3644,7 +3644,7 @@ function messageMeta(m,inline=false){
 }
 function receiptButton(m){
   if(m.sending)return ui`<span class="receipt-button pending-receipt" role="status" aria-label="Отправляется…"><span class="receipt-spinner" aria-hidden="true"></span></span>`;
-  const rs=m.receipts || [],read=rs.length>0&&rs.every(r=>r.read);
+  const rs=(m.receipts || []).filter(r=>r.is_recipient!==false),read=rs.length>0&&rs.every(r=>r.read);
   const label=read?tr("Прочитано всеми адресатами"):tr("Доставлено на сервер");
   const ticks=`<svg viewBox="0 0 25 18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m2 9 4 4L17 3"/>${read?'<path d="m11 12 2 2L24 4"/>':""}</svg>`;
   if(m.optimistic)return `<span class="receipt-button pending-receipt" role="status" aria-label="${label}">${ticks}</span>`;

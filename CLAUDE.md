@@ -167,6 +167,7 @@ python tests/test_agent_names.py # имена внутри проекта, ст�
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
 python tests/test_markdown.py     # Firefox: разметка, опасные вставки, исходный текст, десктоп и телефон
 python tests/test_read_sync.py    # две сессии одного аккаунта, права, позиции чтения и квитанции
+python tests/test_receipt_browser.py # Firefox: адресные галочки и участник-наблюдатель, десктоп и телефон
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
 python tests/test_direct_browser.py  # Firefox: лички, черновики, секреты, десктоп и телефон

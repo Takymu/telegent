@@ -1413,7 +1413,7 @@ def msg_dicts(rows, me=None, full=True):
         # per-recipient delivery: delivered (their watch/inbox got it) -> read -> acked
         by_user = {x["user"]: x for x in rc if x["user"] != r["author"]}
         to = d["to_ids"] or [a for a in agents[r["project_id"]] if a != r["author"]]
-        d["receipts"] = [{"user": account_name(u), "user_id": u,
+        d["receipts"] = [{"user": account_name(u), "user_id": u, "is_recipient": u in to,
                           "delivered": iso(by_user[u]["delivered_ts"] or by_user[u]["read_ts"]) if u in by_user else None,
                           "read": iso(by_user[u]["read_ts"]) if u in by_user else None,
                           "acked": iso(by_user[u]["ack_ts"]) if u in by_user else None}

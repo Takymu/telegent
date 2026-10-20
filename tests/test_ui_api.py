@@ -41,6 +41,31 @@ class UIAPITest(unittest.TestCase):
         row=self.fx.s.db().execute("SELECT * FROM users WHERE name='alice-agent'").fetchone()
         self.assertIsNone(self.fx.s.presence(row,self.fx.s.time.time()+self.fx.s.ACTIVITY_WINDOW+1)['working'])
 
+    def test_addressed_receipts_distinguish_chat_observers_from_recipients(self):
+        mid=self.fx.api('POST','/api/messages',{'body':'addressed receipt fixture','to_ids':['alice-agent']},who='alice')['id']
+        self.fx.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who='alice-agent')
+        # A human's open page fetches the message, but that person is not its addressee.
+        self.fx.api('GET',f'/api/messages?after={mid-1}',who='bob')
+        message=self.fx.api('GET',f'/api/messages/{mid}',who='alice')['message']
+        receipts={r['user_id']:r for r in message['receipts']}
+        self.assertTrue(receipts['alice-agent']['is_recipient'])
+        self.assertTrue(receipts['alice-agent']['read']);self.assertTrue(receipts['alice-agent']['acked'])
+        self.assertFalse(receipts['bob']['is_recipient']);self.assertFalse(receipts['bob']['read'])
+        self.assertTrue(all(r['read'] for r in message['receipts'] if r['is_recipient']))
+        self.assertFalse(all(r['read'] for r in message['receipts']))
+
+    def test_broadcast_receipts_still_wait_for_every_addressed_agent(self):
+        mid=self.fx.api('POST','/api/messages',{'body':'broadcast receipt fixture'},who='alice')['id']
+        self.fx.api('GET',f'/api/messages?after={mid-1}',who='bob')
+        self.fx.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who='alice-agent')
+        message=self.fx.api('GET',f'/api/messages/{mid}',who='alice')['message']
+        addressed=[r for r in message['receipts'] if r['is_recipient']]
+        self.assertEqual({r['user_id'] for r in addressed},{'alice-agent','bob-agent'})
+        self.assertFalse(all(r['read'] for r in addressed))
+        self.fx.api('POST','/api/receipts',{'kind':'read','ids':[mid]},who='bob-agent')
+        message=self.fx.api('GET',f'/api/messages/{mid}',who='alice')['message']
+        self.assertTrue(all(r['read'] for r in message['receipts'] if r['is_recipient']))
+
     def test_language_is_request_local_and_does_not_change_access(self):
         for language,english in [('en',True),('ru',False),('invalid',False),('en',True),('ru',False)]:
             with self.assertRaises(urllib.error.HTTPError) as raised:
