@@ -1,7 +1,7 @@
 {
   "client": {
     "version": "2026.10.20.1",
-    "commit": "5507d3245f5eb2a461836dce4e465484e81d6f8e",
+    "commit": "b53105bf84e614d31b861549478a038a65bf7e16",
     "files": {
       "tg.py": {
         "sha256": "21dc174f8039216b665866de658ffed99d06a213a92e6b1463ee19f479b625b0",
@@ -102,11 +102,12 @@
         ]
       },
       "MANIFEST.md": {
-        "sha256": "d4af0757f67c54a6bbc66f19964bac878ee230552c5a70f5eb744bec1750f84c",
+        "sha256": "29b00de0df2ef3062253a93af4844e13d5b50830435cb57b8395c9ae9a993d03",
         "previous_sha256": [
           "00e03874b5aec7793a91652a56b184a80d8093f5598a35d36a11aca2f241b6d7",
           "0314b5656706f67a8ebe7cbbe676a5c593b8a69f16a923de0cb1051954e3e404",
           "0751da52097ff621f9105852b2fcc6c5734972bdec6dd5868fac8dd0d94899e7",
+          "08b4548054b9268909984ff4718d1caa38f57a679cfe8c368a3a2b8975e4ff8e",
           "09a28928bd5f1703f95d2ace85af3cc33026c80d0a8395cfc42ee3bf2e704e37",
           "0cb36a1fbec41dbc70f59898c927e8099eda03f05708df3019ffe9e5e136d28b",
           "0f0a1426cad457e1c698591e03e4f0501812495d7dd6ff513beb4b655e554c62",
@@ -114,6 +115,7 @@
           "2218420002aff454261d08cb190843c085a8015e47574b0620fce0de3ee31e77",
           "22fd85ab0de4429dd368fc8d06764e88f192b1fa382c5407f633fdaf3380e6dd",
           "291640ebe237c62367c73929533ca2183191a8c6682dd85202f2088c0d3da7c5",
+          "29b00de0df2ef3062253a93af4844e13d5b50830435cb57b8395c9ae9a993d03",
           "2c1d805d6f58aaa5c92e0b501fffc1d3f0491cc7e389c83c5642e72033e93365",
           "337e1b7029e0f09097216f99831055a5b59ad9442fb2f8fb55a992251c850c73",
           "404263e8778067a92f8a9957d723b9b9641a92eeedebdb940308dfd8a49b0893",
@@ -125,6 +127,7 @@
           "67c0915defc8c73872ec2c255d73ceb4f011f96377039d6de3384be1f93bf68f",
           "683d787fc2be5f2a90b26eb305e3b8a91fd0ac6d41d0871a2f5709a1c25f36cf",
           "74c57fa7f9d61405032cb980ef775a7c8292f49fbe8e8542675092f7d4e3be51",
+          "78fb875cf8488795f549a90978b68760a3e001aea8488fdd95717a6c48fd2b56",
           "790ae917334f3aacb392164eec601392dad28d0f6a0f853880106c8aa83c7a01",
           "7b667d58f9e8e8636f0596821c7921fee179b9268a4d5eec20ff7afde4b2c4d7",
           "85c89e41bd2226af059766c849803e4cc23bb161a63f5b7748be8c417185032f",
@@ -148,6 +151,7 @@
           "d4af0757f67c54a6bbc66f19964bac878ee230552c5a70f5eb744bec1750f84c",
           "d6c22070f937825aa52b6f4040e531ac93a328ba54a17dcabb5c74a48ff2ad93",
           "dc6a57476d9e85a49169f25d62ca3f9f892214017c9557fdebf9d47e9c80b1e8",
+          "e03c0534ad687e83287955dc7eb48169eca456b849a31a9716e7747ef846e50b",
           "e4f36c8b7d5c7348b2cc721eb71bae9c045f0d91b693b7efef78b81870605a47",
           "ec91b78d5a1794f86c762b12318dfcdeb49c189beff1b0e50050c9ae5a6be0db",
           "f1cb847f3b71139bcdca5a025b7fbdf6a1978c5e9a4e1ac3705e0aca5eccc3eb",
@@ -157,10 +161,10 @@
     }
   },
   "android": {
-    "version_code": 3,
-    "version": "0.1.2",
-    "bytes": 37338,
-    "sha256": "db42ba85207b53929a10af09f3555cb946cd1cafed490bd6ac88c4aa9a003394",
-    "url": "https://github.com/Takymu/telegent/releases/download/v0.1.2/telegent.apk"
+    "version_code": 4,
+    "version": "0.1.3",
+    "bytes": 41434,
+    "sha256": "5cabde95fe5c27a7789b322978fe948c2a64df812ba97344d4d695d55e790128",
+    "url": "https://github.com/Takymu/telegent/releases/download/v0.1.3/telegent.apk"
   }
 }
