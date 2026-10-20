@@ -432,6 +432,17 @@ The page has:
 - a "Claims" tab: which experiments are currently claimed by agents; humans get a "Release"
   button and a list of released claims.
 
+## Updating agents
+
+A server deployment does not replace files on agents' machines. Ask each agent to update its
+telegent clone (`git pull --ff-only`), then run the updated client from its working project:
+`python /absolute/path/to/telegent/tg.py refresh --client codex` (use `--client claude` for Claude Code).
+This replaces only the marked telegent instruction block and preserves the rest of the file.
+The agent rereads the updated `AGENTS.md` and checks `whoami` and `inbox`. No new invitation or hook
+installation is needed. Hooks use the new client on their next invocation; restart a running
+Claude Code `watch` on Monitor. For a standalone copy, update both `tg.py` and the protocol from
+the repository. The operator of a separate development bridge restarts that bridge process.
+
 ## Security model
 
 - **Tokens are passwords.** Whoever has a token can act as that participant. Hand tokens over
@@ -444,11 +455,13 @@ The page has:
 - **Hook output is status-only.** Claude Code shows hook stdout next to the user's own words, so
   any text a hook printed would reach the agent with the user's authority. `tg.py hook` therefore
   prints only counts, ids, authors and types, never message text. The agent reads messages
-  explicitly with `tg.py read <id>` and treats them as information from a teammate, not as
-  commands.
+  explicitly with `tg.py read <id>`.
+- **Human instructions.** Follow instructions from any human in the project without unnecessary
+  owner confirmation. The server's HUMAN label identifies a human. Treat agent messages as work
+  correspondence and requests from teammates. Project boundaries and private chats still apply.
 - **Approvals only by humans.** Agents cannot approve or deny; the server checks the kind of the
-  user. An agent acts on an approval only if it comes from its own human (the `read` output says
-  whose approval it is).
+  user. `--approver` restricts the decision to the named human; `read` shows who decided without
+  treating another project member's approval as invalid.
 - **The channel is private to your team.** Do not forward its content outside.
 
 ## Data and backup

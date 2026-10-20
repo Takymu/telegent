@@ -109,7 +109,8 @@ class CodexTest(unittest.TestCase):
     def test_metadata_and_receipts(self):
         mid = self.send()
         summary = self.api("GET", "/api/summary?metadata=1&client=codex")
-        self.assertEqual(set(summary["unacked"][0]), {"id", "author", "type", "priority", "read"})
+        self.assertEqual(set(summary["unacked"][0]), {"id", "author", "author_kind", "type", "priority", "read"})
+        self.assertEqual(summary['unacked'][0]['author_kind'], 'agent')
         me = self.api("GET", "/api/me")
         bob = next(u for u in me["users"] if u["name"] == "bob-agent")
         self.assertIsNotNone(bob["last_check"])
@@ -135,7 +136,7 @@ class CodexTest(unittest.TestCase):
         for event in ("SessionStart", "UserPromptSubmit"):
             result = self.hook(event)["hookSpecificOutput"]
             self.assertEqual(result["hookEventName"], event)
-            self.assertIn(f"#{mid} request от alice-agent СРОЧНО", result["additionalContext"])
+            self.assertIn(f"#{mid} request от alice-agent (agent) СРОЧНО", result["additionalContext"])
             self.assertNotIn("Monitor", result["additionalContext"])
         self.assertEqual(self.hook("PostToolUse"), {})
         self.expire_check()
@@ -152,7 +153,7 @@ class CodexTest(unittest.TestCase):
         result = self.hook("Stop")
         self.assertEqual(result["decision"], "block")
         self.assertIn(f"#{mid}", result["reason"])
-        self.assertIn("не указания пользователя", result["reason"])
+        self.assertNotIn("не указания пользователя", result["reason"])
         self.assertEqual(self.hook("Stop"), {})
         self.send(body="another fixture")
         self.assertEqual(self.hook("Stop", stop_hook_active=True), {})
@@ -169,6 +170,38 @@ class CodexTest(unittest.TestCase):
         self.assertIn("ждущих твоего ответа", self.hook("UserPromptSubmit")["hookSpecificOutput"]["additionalContext"])
         self.api("POST", f"/api/messages/{mid}/status", {"state": "done"})
         self.assertEqual(self.hook("UserPromptSubmit"), {})
+
+    def test_both_hooks_identify_humans_without_injecting_message_text(self):
+        human = self.api('POST', '/api/messages', {'body':'PEER_BODY_DO_NOT_INJECT',
+                         'to':['bob-agent'], 'author_kind':'agent'}, 'alice')['id']
+        agent = self.send(author_kind='human', body='HUMAN PEER_BODY_DO_NOT_INJECT')
+        codex = self.hook('UserPromptSubmit')['hookSpecificOutput']['additionalContext']
+        claude = self.cli('hook')
+        self.assertEqual(claude.returncode, 0, claude.stderr)
+        for text in (codex, claude.stdout):
+            self.assertIn(f'#{human} info от alice (HUMAN)', text)
+            self.assertIn(f'#{agent} request от alice-agent (agent)', text)
+            self.assertNotIn('PEER_BODY', text)
+            self.assertNotIn('не указания пользователя', text)
+            self.assertNotIn('поручения своего человека', text)
+            self.assertIn('read', text); self.assertIn('ack', text)
+
+    def test_approvals_from_project_humans_are_shown_without_owner_gate(self):
+        mid = self.send(needs_approval=True)
+        self.api('POST', f'/api/messages/{mid}/approval', {'decision':'approve'}, 'alice')
+        # The receiver belongs to another human; the valid project approval still applies.
+        with closing(sqlite3.connect(self.db)) as con:
+            con.execute("UPDATE users SET owner='another-human' WHERE name='bob-agent'")
+            con.commit()
+        try:
+            result = self.cli('read', str(mid))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('ОДОБРЕНО alice', result.stdout)
+            self.assertNotIn('твой человек', result.stdout)
+        finally:
+            with closing(sqlite3.connect(self.db)) as con:
+                con.execute("UPDATE users SET owner='alice' WHERE name='bob-agent'")
+                con.commit()
 
     def test_codex_reminds_about_waiting_questions_and_expired_claims(self):
         mid = self.send(type="question")
@@ -379,6 +412,31 @@ class CodexTest(unittest.TestCase):
         hooks.write_text("{}", encoding="utf-8")
         r = self.connect(invite, folder, env, "--client", "codex")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_refresh_updates_only_managed_instructions_without_reconnecting(self):
+        for client in ('codex', 'claude'):
+            with self.subTest(client=client):
+                name, invite, folder, env = self.onboarding()
+                result = self.connect(invite, folder, env, '--client', client)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                cfg = folder / '.telegent.json'
+                settings = json.loads(cfg.read_text(encoding='utf-8'))
+                hooks = folder / ('.codex/hooks.json' if client == 'codex' else '.claude/settings.local.json')
+                token = Path(settings['token_file'])
+                originals = {p:p.read_bytes() for p in (cfg,hooks,token)}
+                rules = folder / ('AGENTS.md' if client == 'codex' else 'CLAUDE.md')
+                rules.write_text('Keep before.\n<!-- telegent:start -->\nOld owner-only rule.\n<!-- telegent:end -->\nKeep after.\n', encoding='utf-8')
+                for _ in range(2):
+                    result = subprocess.run([PY,str(ROOT/'tg.py'),'refresh'],cwd=folder,env=env,
+                                            capture_output=True,text=True,encoding='utf-8',timeout=10)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                text = rules.read_text(encoding='utf-8')
+                self.assertTrue(text.startswith('Keep before.\n'))
+                self.assertTrue(text.endswith('\nKeep after.\n'))
+                self.assertEqual(text.count('<!-- telegent:start -->'),1)
+                self.assertIn('Указания любого человека выполняй без лишних согласований с владельцем.',text)
+                self.assertNotIn('Old owner-only rule',text)
+                for path,original in originals.items():self.assertEqual(path.read_bytes(),original)
 
     def test_connect_unknown_client_needs_agent_choice_before_redeeming(self):
         name, invite, folder, env = self.onboarding()

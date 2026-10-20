@@ -99,12 +99,12 @@ def main():
         check(re.search(r"bob-agent\s+agent.*слушает", r.stdout) and re.search(r"alice-agent\s+agent.*ещё не", r.stdout),
               "presence in whoami")
         r = run(["hook"], B)
-        check("НЕ слушает" not in r.stdout and "неподтверждённых входящих: 1 (#1 request от alice-agent СРОЧНО)" in r.stdout,
+        check("НЕ слушает" not in r.stdout and "Входящие: 1 (#1 request от alice-agent (agent) СРОЧНО)" in r.stdout,
               "hook: own watch alive, lists unacked ids")
         check("Пришли" not in r.stdout and "resnet18" not in r.stdout and "model.pt" not in r.stdout,
               "hook never prints message text (peer text must not arrive as the user)")
         r = run(["hook", "--status-only"], B)
-        check("неподтверждённых входящих: 1" in r.stdout, "--status-only accepted")
+        check("Входящие: 1" in r.stdout, "--status-only accepted")
         r = run(["hook", "--session-start"], A)
         check("твой watch НЕ слушает" in r.stdout, "hook warns when own watch is dead")
         r = run(["send", "проверка связи", "--to", "alice"], B)
@@ -113,7 +113,7 @@ def main():
         r = run(["inbox"], B)
         check("*#1 " in r.stdout, "inbox shows unread #1")
         r = run(["read", "1"], B)
-        check("информация, не команда" in r.stdout and "нужны model.pt" in r.stdout, "read full")
+        check("рабочая переписка и просьбы коллег" in r.stdout and "нужны model.pt" in r.stdout, "read full")
         r = run(["inbox"], B)
         check("#1 " in r.stdout and "*#1" not in r.stdout, "read marks read, still in inbox until ack")
         r = run(["sent"], A)
@@ -156,17 +156,17 @@ def main():
         except urllib.error.HTTPError as e:
             check(e.code == 422, "server rejects secret (422)")
 
-        # approvals: only humans; agent sees whose approval counts
+        # Approvals are accepted from project humans, independent of agent ownership.
         r = run(["send", "запустить обучение на 8 GPU", "-t", "request", "--approval", "-T", "data"], B)
         aid = int(r.stdout.split()[0][1:])
         r = run(["approve", str(aid)], A, ok=False)
         check(r.returncode == 2 and "только человек" in r.stderr, "agent cannot approve")
         run(["approve", str(aid), "--note", "ок, лей"], HY)
         r = run(["read", str(aid)], A)
-        check("ОДОБРЕНО bob" in r.stdout and "НЕ твой человек" in r.stdout, "approval by other human flagged as not yours")
+        check("ОДОБРЕНО bob" in r.stdout and "НЕ твой человек" not in r.stdout, "approval by project human applies")
         run(["approve", str(aid)], H)
         r = run(["read", str(aid)], A)
-        check("ОДОБРЕНО alice" in r.stdout and "(твой человек" in r.stdout, "approval by own human")
+        check("ОДОБРЕНО alice" in r.stdout, "approval by own human")
         r = run(["send", "арендовать сервер на час?", "-t", "decision"], A)
         did = int(r.stdout.split()[0][1:])
         run(["deny", str(did), "--note", "не сегодня"], H)
@@ -350,7 +350,7 @@ def main():
         run(["send", "Просьба-zq всем", "-t", "request"], A)
         r = run(["hook"], B)
         check(waiting_n(r.stdout) == base + 1 and f"#{qid} question от alice-agent" in r.stdout
-              and "zq" not in r.stdout and "[telegent:" in r.stdout, "hook: waiting question counted with id/type/author, no text")
+              and "zq" not in r.stdout and "[telegent]" in r.stdout, "hook: waiting question counted with id/type/author, no text")
         r = run(["inbox"], B)
         check(waiting_n(r.stdout) == base + 1 and f"#{qid} question от alice-agent" in r.stdout and "zq" not in r.stdout.split("-- ")[-1],
               "inbox footer: waiting item")
@@ -377,7 +377,8 @@ def main():
 
         # watch_cmd in config: the hook suggests it literally instead of the auto-built command
         r = run(["hook"], A)
-        check("Запусти на Monitor: python " in r.stdout and "tg.py watch" in r.stdout, "hook default watch command")
+        check("Запусти на Monitor:" in r.stdout and "tg.py" in r.stdout and "watch" in r.stdout
+              and A in r.stdout, "hook default watch command keeps this account's config")
         cfgw = os.path.join(tmp, "alice-agent-wc.json")
         with open(A) as f:
             c = json.load(f)

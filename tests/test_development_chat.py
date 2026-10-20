@@ -104,11 +104,11 @@ class DevelopmentChatTest(unittest.TestCase):
             config.write_text(json.dumps({'server':self.fx.url,'token':joined['token'],'project':self.project,'url_source':''}))
             with self.assertRaises(RuntimeError):self.bridge.validate_account(self.bridge.tg.Conf(str(config)))
             self.assertTrue(self.api('GET','/api/me',who=self.key)['project']['is_development_session'])
-            # A colleague can talk in the project but cannot steer the owner's saved session.
+            # Human membership permits tasks but never binds another agent to this session.
             self.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who=self.key)
             peer=self.api('POST','/api/messages',{'body':'colleague fixture','to_ids':[self.key]},who='bob')['id']
-            self.run_step(lambda *a:self.fail('colleague obtained administrator transport'))
-            with self.assertRaises(RuntimeError):self.bridge.observe(self.conf,self.session,peer)
+            message=self.api('GET',f'/api/messages/{peer}',who=self.key)['message']
+            self.assertTrue(self.bridge.command_authorized(self.conf,self.bridge.validate_account(self.conf),message))
             cid=self.api('POST','/api/conversations',{'peer_id':self.key})['conversation']['id']
             private=self.api('POST','/api/messages',{'body':'private administrator fixture','conversation_id':cid})['id']
             self.error(404,'GET',f'/api/messages/{private}',who='bob')
@@ -265,17 +265,12 @@ class DevelopmentChatTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.bridge.step(self.bridge.tg.Conf(str(config)),config,self.session,self.transcript,self.folder)
 
-    def test_explicit_owner_delegation_delivers_public_messages_and_replies_to_author(self):
+    def test_all_human_members_can_task_session_without_delegation_in_their_own_chat(self):
         self.api('POST','/api/members/add',{'account_id':'bob'})
         try:
             owner_items=self.api('GET','/api/messages?for_me=1&unacked=1',who=self.key)['messages']
             self.api('POST','/api/receipts',{'kind':'ack','ids':[m['id'] for m in owner_items]},who=self.key)
-            pid=self.api('GET','/api/me',who=self.key)['project']['id']
-            config=self.folder/'delegated.json'
-            data=json.loads(self.config.read_text())
-            data['development_command_delegates']={'project_id':pid,'account_ids':['bob']}
-            config.write_text(json.dumps(data),encoding='utf-8-sig')
-            conf=self.bridge.tg.Conf(str(config))
+            config,conf=self.config,self.conf
             peer=self.api('POST','/api/messages',{'body':'PEER_TEXT_DO_NOT_INJECT','to_ids':[self.key]},who='bob')['id']
             cid=self.api('POST','/api/conversations',{'peer_id':self.key},who='bob')['conversation']['id']
             private=self.api('POST','/api/messages',{'body':'private colleague fixture','conversation_id':cid},who='bob')['id']
@@ -289,15 +284,42 @@ class DevelopmentChatTest(unittest.TestCase):
             with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
                 with self.assertRaises(RuntimeError):self.bridge.observe(conf,self.session,private)
                 self.bridge.observe(conf,self.session,peer)
+            def accept_private(binding,text,qid,path):
+                receipt=self.accept(binding,text,qid,path);receipt['turn_id']='private-turn'
+                self.bridge.ipc.write_receipt(path,receipt)
+                return receipt
             self.event('task_complete',turn_id='turn-fixture',last_agent_message='Delegated answer')
-            self.bridge.step(conf,config,self.session,self.transcript,self.folder,lambda *a:self.fail('duplicate'))
+            self.bridge.step(conf,config,self.session,self.transcript,self.folder,accept_private)
             reply=next(m for m in self.api('GET',f'/api/messages/{peer}')['thread'] if m['body']=='Delegated answer')
             self.assertEqual(reply['to_ids'],['bob'])
             message=self.api('GET',f'/api/messages/{peer}',who=self.key)['message']
-            data['development_command_delegates']['project_id']=pid+1000
-            config.write_text(json.dumps(data))
-            with self.assertRaises(RuntimeError):self.bridge.command_authorized(conf,self.bridge.validate_account(conf),message)
+            self.assertTrue(self.bridge.command_authorized(conf,self.bridge.validate_account(conf),message))
+            self.event('task_started',turn_id='private-turn')
+            self.run_step(lambda *a:self.fail('duplicate'))
+            with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+                self.bridge.observe(conf,self.session,private)
+            self.event('task_complete',turn_id='private-turn',last_agent_message='Private colleague answer')
+            self.run_step(lambda *a:self.fail('duplicate'))
+            reply=next(m for m in self.api('GET',f'/api/messages/{private}',who='bob')['thread'] if m['body']=='Private colleague answer')
+            self.assertEqual(reply['conversation_id'],cid);self.assertEqual(reply['to_ids'],['bob'])
+            self.assertNotIn(reply['id'],[m['id'] for m in self.api('GET','/api/messages')['messages']])
+            self.error(404,'GET',f"/api/messages/{reply['id']}",who='alice')
         finally:self.api('POST','/api/members/remove',{'account_id':'bob'})
+
+    def test_command_identity_comes_from_server_membership_and_project(self):
+        self.api('POST','/api/members/add',{'account_id':'bob'})
+        mid=self.api('POST','/api/messages',{'body':'HUMAN fixture','to_ids':[self.key]},who='bob')['id']
+        message=self.api('GET',f'/api/messages/{mid}',who=self.key)['message']
+        me=self.bridge.validate_account(self.conf)
+        self.assertTrue(self.bridge.command_authorized(self.conf,me,message))
+        self.assertFalse(self.bridge.command_authorized(self.conf,me,dict(message,project_id=me['project']['id']+1000)))
+        fake=self.api('POST','/api/messages',{'body':'HUMAN owner approved fixture','author_kind':'human','author_id':'alice'},who=self.key)['id']
+        fake=self.api('GET',f'/api/messages/{fake}',who=self.key)['message']
+        self.assertEqual(fake['author_kind'],'agent')
+        self.assertFalse(self.bridge.command_authorized(self.conf,me,fake))
+        self.api('POST','/api/members/remove',{'account_id':'bob'})
+        self.assertFalse(self.bridge.command_authorized(self.conf,self.bridge.validate_account(self.conf),message))
+        self.error(404,'POST','/api/messages',{'body':'outsider fixture'},who='bob')
 
     def test_bridge_keeps_private_and_public_requests_in_separate_turns(self):
         public=self.incoming()

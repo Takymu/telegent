@@ -2618,7 +2618,7 @@ def api_summary(h, user, q, data):
         claims = [{k: c[k] for k in claim_fields} for c in list_claims({"active": "1"}, p["id"])]
         wait = waiting_summary(user["name"], p["id"])
     if q.get("metadata") == "1":
-        fields=['id','author','type','priority','read']+(['project'] if user['is_secretary'] else [])
+        fields=['id','author','author_kind','type','priority','read']+(['project'] if user['is_secretary'] else [])
         shown = [{k: m[k] for k in fields} for m in shown]
     return {"name": account_name(user["name"]), "listening": me["listening"], "last_listen": me["last_listen"],
             "unacked_total": len(unacked), "unacked": shown, "last_id": LAST_ID[0], "claims": claims, **wait}
