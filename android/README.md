@@ -2,7 +2,7 @@
 
 Первый APK открывает существующий веб-интерфейс сервера в Android WebView.
 Сверху находится строка `Telegent - for agents and humans`. Нужны Android 8.0+
-и актуальный Android System WebView. Фоновых уведомлений в версии 0.1.1 нет.
+и актуальный Android System WebView. Фоновых уведомлений в версии 0.1.2 нет.
 
 ## Установка и использование
 
@@ -30,8 +30,11 @@ HTTP и ошибочные TLS-сертификаты запрещены; вне
 Для скачивания передаётся только cookie своего HTTPS-сервера, без перехода по редиректам.
 Резервное копирование данных приложения средствами Android отключено.
 
-Начиная с 0.1.1 приложение проверяет официальный выпуск при открытии, не чаще раза
-в шесть часов, и скачивает обновление в закрытый каталог. Перед установкой проверяются
+Приложение проверяет официальный выпуск в фоне при каждом открытии и возвращении
+из фона, без шестичасового ожидания. Новая версия скачивается в закрытый каталог,
+затем появляется предложение обновиться. Отложенное обновление предлагается при
+следующем входе; готовый APK повторно не скачивается. Пока приложение скрыто, диалог
+не открывается. Перед установкой проверяются
 SHA-256, имя пакета, более новая версия и прежний ключ подписи. Новую версию устанавливает
 штатный установщик Android с подтверждением человека. При первом обновлении Android может
 попросить разрешить установку из telegent. Через меню можно проверить обновления сразу
@@ -75,11 +78,14 @@ The first APK embeds the existing server UI, with a native
 System WebView are required. Log in using your existing account; the app has its
 own login storage. The header menu reconnects through the permanent launcher or
 selects a custom HTTPS server. Files use Android's picker and save dialog. Version
-0.1.1 has no background notifications. Server authorization is unchanged.
+0.1.2 has no background notifications. Server authorization is unchanged.
 The login page and Settings link to the latest official APK. Starting with 0.1.1,
 the app checks and downloads updates automatically, verifying the checksum, package,
 version and signing key. Android confirms installation. Version 0.1.0 needs one manual
 update to acquire this feature. Login and settings survive updates.
+Version 0.1.2 checks on every opening and return to the foreground, without a six-hour
+delay. Once downloaded, the update is offered while the app is visible. Deferred
+updates are offered on the next visit without downloading the same APK again.
 
 Build from the repository root using the commands above, JDK 21, Android SDK
 platform 36 and Build Tools 36.0.0. The APK and checksum are in `android/build/`.
@@ -93,7 +99,7 @@ on an Android device.
 ключом, затем подготовьте публичные файлы:
 
 ```text
-python tools/prepare_release.py --commit HEAD --apk android/build/telegent-0.1.1.apk --out android/build/release
+python tools/prepare_release.py --commit HEAD --apk android/build/telegent-0.1.2.apk --out android/build/release
 ```
 
 1. Создайте GitHub Release с тегом `v<versionName>` на выбранном коммите; загрузите

@@ -138,7 +138,7 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true); settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.2");
         CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {
@@ -346,7 +346,7 @@ public final class MainActivity extends Activity {
 
     private void backInPage() { if (web != null && web.canGoBack()) web.goBack(); else moveTaskToBack(true); }
     private void toast(int message) { if (!destroyed) Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
-    @Override protected void onPause() { web.onPause(); web.pauseTimers(); CookieManager.getInstance().flush(); super.onPause(); }
+    @Override protected void onPause() { if(updates!=null)updates.pause(); web.onPause(); web.pauseTimers(); CookieManager.getInstance().flush(); super.onPause(); }
     @Override protected void onResume() { super.onResume(); if (web != null) { web.resumeTimers(); web.onResume(); } if(updates!=null)updates.resume(); }
     @Override public void onConfigurationChanged(Configuration configuration) { super.onConfigurationChanged(configuration); colors(); }
     @Override protected void onDestroy() {

@@ -3,7 +3,6 @@ package io.github.takymu.telegent;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
@@ -29,16 +28,17 @@ import org.json.JSONObject;
 /** Download in the foreground lifecycle; installation always uses Android's confirmation. */
 final class AppUpdates {
     private final Activity activity;
-    private final SharedPreferences state;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private boolean busy, destroyed, waitingPermission;
+    private boolean busy, destroyed, waitingPermission, foreground;
+    private AlertDialog prompt;
     private long offered;
     private File ready;
 
-    AppUpdates(Activity owner) { activity=owner; state=owner.getSharedPreferences("updates", Activity.MODE_PRIVATE); }
+    AppUpdates(Activity owner) { activity=owner; }
 
     void resume() {
+        foreground=true;
         if (waitingPermission) {
             waitingPermission=false;
             if (activity.getPackageManager().canRequestPackageInstalls()) install();
@@ -49,10 +49,8 @@ final class AppUpdates {
 
     void check(boolean manual) {
         if (destroyed || busy) return;
-        if (ready != null) { if(manual)install(); return; }
-        long now=System.currentTimeMillis();
-        if (!manual && now-state.getLong("checked",0)<6*3600*1000L) return;
-        state.edit().putLong("checked",now).apply(); busy=true;
+        if (ready != null && manual) { install(); return; }
+        busy=true;
         if (manual) message(R.string.checking_updates);
         worker.execute(() -> {
             File temporary=null;
@@ -79,19 +77,24 @@ final class AppUpdates {
                 main.post(() -> {
                     if (destroyed) return;
                     ready=apk; offered=code;
-                    if(manual||state.getLong("offered",0)!=code) {
-                        state.edit().putLong("offered",code).apply();
-                        new AlertDialog.Builder(activity).setTitle(R.string.update_ready).setMessage(R.string.update_help)
-                            .setPositiveButton(R.string.install_update,(dialog,which)->install())
-                            .setNegativeButton(R.string.later,null).show();
-                    }
+                    offer();
                 });
-            } catch (Exception error) { if(manual) main.post(()->message(R.string.update_error)); }
+            } catch (Exception error) { main.post(()->{if(manual)message(R.string.update_error);else offer();}); }
             finally {
                 if(temporary!=null)temporary.delete();
                 main.post(()->busy=false);
             }
         });
+    }
+
+    void pause() { foreground=false; }
+
+    private void offer() {
+        if(destroyed||!foreground||ready==null||prompt!=null)return;
+        prompt=new AlertDialog.Builder(activity).setTitle(R.string.update_ready).setMessage(R.string.update_help)
+            .setPositiveButton(R.string.install_update,(dialog,which)->install())
+            .setNegativeButton(R.string.later,null).create();
+        prompt.setOnDismissListener(dialog->prompt=null);prompt.show();
     }
 
     private HttpURLConnection connect(String value) throws IOException {
@@ -157,5 +160,5 @@ final class AppUpdates {
         }catch(Exception error){message(R.string.update_error);}
     }
     private void message(int resource){if(!destroyed)Toast.makeText(activity,resource,Toast.LENGTH_LONG).show();}
-    void destroy(){destroyed=true;worker.shutdownNow();}
+    void destroy(){destroyed=true;worker.shutdownNow();if(prompt!=null)prompt.dismiss();}
 }
