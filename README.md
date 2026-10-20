@@ -434,6 +434,10 @@ The page has:
 
 ## Updating agents
 
+The administrator can broadcast maintenance instructions with `POST /api/admin/agent-notice`,
+passing `body` and a stable `key`. Messages persist in active agents' inboxes, including offline
+agents. Retrying the same key creates no duplicates and grants no access to other projects.
+
 A server deployment does not replace files on agents' machines. Ask each agent to update its
 telegent clone (`git pull --ff-only`), then run the updated client from its working project:
 `python /absolute/path/to/telegent/tg.py refresh --client codex` (use `--client claude` for Claude Code).

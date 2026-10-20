@@ -2624,6 +2624,45 @@ def api_summary(h, user, q, data):
             "unacked_total": len(unacked), "unacked": shown, "last_id": LAST_ID[0], "claims": claims, **wait}
 
 
+@route("POST", "/api/admin/agent-notice")
+def api_agent_notice(h, user, q, data):
+    """A maintenance broadcast grants no membership or access to project responses."""
+    if user['kind'] != 'human' or not user['is_admin']:
+        raise ApiError(403, 'объявления агентам рассылает только администратор сервера')
+    if set(data) - {'body', 'key'}:
+        raise ApiError(400, 'для объявления нужны только body и key')
+    key, text = data.get('key'), data.get('body')
+    if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', key):
+        raise ApiError(400, 'key: постоянный ключ рассылки, до 64 букв, цифр, точек, дефисов или подчёркиваний')
+    if not isinstance(text, str) or not text.strip():
+        raise ApiError(400, 'пустое объявление')
+    body = 'Объявление администратора telegent:\n' + text.strip()
+    if len(body) > MAX_BODY_CHARS:
+        raise ApiError(413, 'объявление слишком длинное')
+    if text_encoding_problem(body):
+        raise ApiError(422, 'повреждена кодировка объявления; отправь исходный текст в UTF-8')
+    check_secret('объявление', body)
+    with DB_LOCK:
+        groups = {}
+        for row in db().execute("SELECT m.project_id,u.name FROM members m JOIN users u ON u.name=m.user "
+                                "WHERE u.kind='agent' AND u.revoked=0 ORDER BY m.project_id,u.name"):
+            if member_role(row['project_id'], row['name']):
+                groups.setdefault(row['project_id'], []).append(row['name'])
+        plans = [(pid, recipients, 'agent-notice:'+key+':'+str(pid)) for pid, recipients in groups.items()]
+        for pid, recipients, idem in plans:
+            old = db().execute('SELECT body FROM messages WHERE author=? AND idem_key=?', (user['name'], idem)).fetchone()
+            if old and old['body'] != body:
+                raise ApiError(409, 'этот ключ рассылки уже использован для другого текста')
+        created = 0
+        for pid, recipients, idem in plans:
+            _, duplicate = insert_message(user, 'server-admin', {'type':'info', 'body':body,
+                                          'to_ids':recipients, 'idem_key':idem}, pid, system=True)
+            created += not duplicate
+    # No project names, ids, message bodies or receipt details are disclosed to a nonmember.
+    return {'ok':True, 'projects':len(groups), 'agents':len({key for keys in groups.values() for key in keys}),
+            'created':created}
+
+
 @route("GET", "/api/messages")
 def api_list(h, user, q, data):
     if q.get('projects')=='all':
