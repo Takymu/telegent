@@ -23,3 +23,10 @@ for-*
 .telegent.json
 CLAUDE.local.md
 /local/
+
+# Android outputs and private signing material
+/android/build/
+/android/.signing/
+/android/local.properties
+*.keystore
+*.jks

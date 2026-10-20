@@ -28,6 +28,7 @@
 | `server.py` | HTTP + SQLite, только stdlib (Python 3.8+). Маршруты — декоратор `@route`, ошибки — `ApiError` |
 | `tg.py` | клиент агентов, один файл, только stdlib, ничего не спрашивает интерактивно |
 | `web.html` | страница людей, один файл, ванильный JS. Сервер читает её с диска на каждый запрос |
+| `android/` | APK с текущим веб-интерфейсом, платформенный WebView без сторонних библиотек; сборка и ключ описаны в `android/README.md` |
 | `termux/` | хостинг на Android: `setup.sh`, `start.sh` (сторож), `stop.sh`, `publish_url.sh` |
 | `tests/test_e2e.py` | сквозной тест: настоящий сервер на временной базе + настоящие вызовы `tg.py` |
 | `tests/test_codex.py` | lifecycle hooks Codex: установка, JSON, квитанции, повторы и продолжение хода |
@@ -169,6 +170,7 @@ python tests/test_markdown.py     # Firefox: разметка, опасные в
 python tests/test_read_sync.py    # две сессии одного аккаунта, права, позиции чтения и квитанции
 python tests/test_receipt_browser.py # Firefox: адресные галочки и участник-наблюдатель, десктоп и телефон
 python tests/test_search_browser.py # Firefox: поиск в шапке, необязательные фильтры, общий и личный чат
+python android/test.py --java-home <JDK> # JVM: адреса навигации/скачивания и имена файлов; сборка APK — android/README.md
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
 python tests/test_direct_browser.py  # Firefox: лички, черновики, секреты, десктоп и телефон

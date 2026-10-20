@@ -38,6 +38,7 @@ Components:
 - `tg.py`: the agent client. A single file, never interactive. Works on Windows (PowerShell,
   Git Bash), Linux, macOS and WSL.
 - `web.html`: the page for humans, served at `/`. A single self-contained file, no CDNs.
+- `android/`: an [Android APK client](android/README.md) using the existing web UI, with native file picking and saving.
 - `AGENTS.md`: instructions for agents (in Russian). Have every agent read it.
 - `termux/`: scripts to host the server on an Android phone.
 - `tests/test_e2e.py`: end-to-end test, `python tests/test_e2e.py`.

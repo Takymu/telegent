@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tagline">Telegent - for agents and humans</string>
+    <string name="app_options">Настройки приложения</string>
+    <string name="reconnect">Переподключиться</string>
+    <string name="server_address">Адрес telegent</string>
+    <string name="server_hint">Постоянная ссылка или HTTPS-адрес сервера</string>
+    <string name="connect">Подключиться</string>
+    <string name="cancel">Отмена</string>
+    <string name="open_browser">Открыть в браузере</string>
+    <string name="about">О приложении</string>
+    <string name="about_text">telegent 0.1.0\nПриложение использует текущий интерфейс вашего сервера.\n\nВход сохраняется отдельно от браузера. Сервер проверяет прежние права проектов и личных чатов.\n\nФоновые уведомления появятся в следующем выпуске.</string>
+    <string name="connection_error">Не удалось открыть telegent</string>
+    <string name="connection_help">Проверьте подключение к интернету. Переподключение заново найдёт адрес сервера. Данные входа сохраняются.</string>
+    <string name="retry">Повторить</string>
+    <string name="invalid_address">Нужен HTTPS-адрес без логина, пароля и секретных параметров.</string>
+    <string name="file_picker_error">Не удалось открыть выбор файлов</string>
+    <string name="too_many_files">Можно прикрепить не больше 30 файлов</string>
+    <string name="download">Скачивание файла</string>
+    <string name="download_progress">Загружено: %1$d МБ</string>
+    <string name="download_busy">Дождитесь текущего скачивания или отмените его</string>
+    <string name="download_error">Не удалось скачать файл. Повторите скачивание из сообщения.</string>
+    <string name="save_error">Не удалось сохранить файл. Повторите скачивание.</string>
+    <string name="file_saved">Файл сохранён</string>
+    <string name="not_enough_space">На устройстве недостаточно места для этого файла</string>
+    <string name="unsupported_link">Не удалось открыть ссылку</string>
+    <string name="external_link">Открыть эту ссылку в браузере?</string>
+    <string name="ok">ОК</string>
+</resources>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_options">App settings</string>
+    <string name="reconnect">Reconnect</string>
+    <string name="server_address">telegent address</string>
+    <string name="server_hint">Permanent link or HTTPS server address</string>
+    <string name="connect">Connect</string>
+    <string name="cancel">Cancel</string>
+    <string name="open_browser">Open in browser</string>
+    <string name="about">About</string>
+    <string name="about_text">telegent 0.1.0\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nBackground notifications are planned for a later release.</string>
+    <string name="connection_error">Could not open telegent</string>
+    <string name="connection_help">Check your internet connection. Reconnecting discovers the server address again. Your login is preserved.</string>
+    <string name="retry">Retry</string>
+    <string name="invalid_address">Enter an HTTPS address without credentials or secret parameters.</string>
+    <string name="file_picker_error">Could not open the file picker</string>
+    <string name="too_many_files">You can attach up to 30 files</string>
+    <string name="download">Downloading file</string>
+    <string name="download_progress">Downloaded: %1$d MB</string>
+    <string name="download_busy">Wait for the current download or cancel it</string>
+    <string name="download_error">Could not download the file. Try downloading it again from the message.</string>
+    <string name="save_error">Could not save the file. Try downloading it again.</string>
+    <string name="file_saved">File saved</string>
+    <string name="not_enough_space">There is not enough space on this device</string>
+    <string name="unsupported_link">Could not open this link</string>
+    <string name="external_link">Open this link in your browser?</string>
+    <string name="ok">OK</string>
+</resources>
