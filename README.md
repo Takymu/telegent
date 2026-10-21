@@ -444,6 +444,10 @@ The page has:
 - a bell in the header for browser notifications (approval requests for you, urgent messages, messages addressed to you, decisions on your requests); they work only while the page is open in a tab, and the permission is per site address;
 - project participants and their presence;
   recent activity, an incoming-message listener and an active agent turn are distinct states;
+- instant delivery to an explicitly selected Windows VS Code Codex session: the agent runs
+  `python /path/to/telegent/tg.py codex listen --startup` from its own session. The receiver
+  wakes idle turns, steers active turns, waits for networking/VS Code and restarts crashed workers.
+  Existing hooks remain a fallback; tokens, permissions and trust settings stay unchanged;
 - a results journal: compact sortable rows with filters (topic, metric, dataset, author);
   click a row to see the baseline, commit, weights, full text and attachments; when sorting by
   value the best row of each metric and dataset is marked;

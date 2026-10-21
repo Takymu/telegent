@@ -1075,6 +1075,8 @@ const UI_EN={
   "в сети": "online",
   "недавно активен": "recently active",
   "Тебя упомянули": "You were mentioned",
+  "Сервер не ответил вовремя. Повторим подключение.": "The server did not respond in time. Reconnecting.",
+  "Сервер вернул неполный ответ. Повтори запрос.": "The server returned an incomplete response. Try again.",
   "Только @упоминания": "Only @mentions",
   "Уведомления только об @упоминаниях; нажми, чтобы включить остальные": "Only @mention notifications; click to enable the others",
   "Уведомлять об @упоминаниях при выключенном колокольчике": "Notify about @mentions when the bell is off",
@@ -2103,11 +2105,20 @@ document.addEventListener("keydown", e => {
 async function api(method, path, body, signal) {
   const headers = {"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json", "X-Telegent-Host": "web"};
   if (PROJECT) headers["X-Telegent-Project"] = PROJECT;
-  const r = await appFetch(path, {method, headers, body: body ? JSON.stringify(body) : undefined, signal});
-  let data = null;
-  try { data = await r.json(); } catch {}
-  if (!r.ok) {const error=new Error((data && data.error) || `HTTP ${r.status}`);error.status=r.status;throw error;}
-  return data;
+  const controller=new AbortController();let timedOut=false;
+  const cancel=()=>controller.abort();if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
+  const deadline=setTimeout(()=>{timedOut=true;controller.abort();},path.startsWith('/api/uploads')?120000:45000);
+  try{
+    const r = await appFetch(path, {method, headers, body: body ? JSON.stringify(body) : undefined, signal:controller.signal});
+    let data=null;
+    try{data=await r.json();}catch(error){if(controller.signal.aborted)throw error;}
+    if (!r.ok) {const error=new Error((data && data.error) || `HTTP ${r.status}`);error.status=r.status;throw error;}
+    if(!data||typeof data!=='object')throw new Error(tr('Сервер вернул неполный ответ. Повтори запрос.'));
+    return data;
+  }catch(error){
+    if(timedOut){const error=new Error(tr('Сервер не ответил вовремя. Повторим подключение.'));error.name='TimeoutError';throw error;}
+    throw error;
+  }finally{clearTimeout(deadline);signal?.removeEventListener('abort',cancel);}
 }
 
 function applyTheme() {

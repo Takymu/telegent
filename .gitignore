@@ -9,6 +9,8 @@ tg.config.json
 tg.state.json
 tg.state.json.tmp
 tg.state.json.codex-*
+*.receiver/
+*.session-bridge/
 server.config.json
 deny.txt
 *.token

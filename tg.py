@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.20.1"
+CLIENT_VERSION = "2026.10.21.1"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -353,6 +353,12 @@ class NetError(Exception):
     pass
 
 
+class NoApiRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward an account credential to a proxy's login/redirect target.
+        return None
+
+
 class Conflict(Exception):
     """HTTP 409 that carries a claim holder (claim refused)."""
     def __init__(self, msg, holder):
@@ -371,7 +377,7 @@ def api(conf, method, path, data=None, timeout=30, raw=False, sink=None):
         "Content-Type": "application/octet-stream" if isinstance(data, bytes) else "application/json", "User-Agent": "telegent-tg/1.0",
         **({"X-Telegent-Project": conf.project} if conf.project else {})})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with urllib.request.build_opener(NoApiRedirect).open(req, timeout=timeout) as r:
             if sink is not None:
                 digest, size = hashlib.md5(), 0
                 with open(sink, "wb") as f:
@@ -384,7 +390,9 @@ def api(conf, method, path, data=None, timeout=30, raw=False, sink=None):
                     raise NetError("файл получен не полностью")
                 return {"size": size, "md5": digest.hexdigest()}
             payload = r.read()
-            return (payload, dict(r.headers)) if raw else json.loads(payload.decode("utf-8"))
+            if raw:return payload,dict(r.headers)
+            try:return json.loads(payload.decode('utf-8'))
+            except (ValueError,UnicodeError):raise NetError('сервер вернул неполный или неверный JSON')
     except urllib.error.HTTPError as e:
         try:
             err = json.loads(e.read().decode("utf-8"))
@@ -444,10 +452,15 @@ def discover_server(conf, min_interval=30, timeout=10):
         return False
     _last_discovery[0] = time.time()
     url = None
-    for found in published_candidates(conf.url_source, timeout=timeout):   # the first different address wins
+    for found in published_candidates(conf.url_source, timeout=timeout):
         if found and found != conf.server:
-            url = found
-            break
+            try:
+                # Publication can lag or return a dead old tunnel. Probe without credentials.
+                with urllib.request.urlopen(found+'/api/info',timeout=timeout) as response:
+                    info=json.loads(response.read(65536).decode('utf-8'))
+                if not isinstance(info,dict) or not info.get('version') or not isinstance(info.get('types'),list):continue
+            except (OSError,ValueError,UnicodeError,http.client.HTTPException):continue
+            url = found;break
     if not url:
         return False
     old, conf.server = conf.server, url
@@ -463,17 +476,22 @@ def discover_server(conf, min_interval=30, timeout=10):
 def api_retry(conf, method, path, data=None, tries=4, **kw):
     """Retry on network errors only. Sends are safe to retry: they carry an idempotency key.
     If the server is gone, look up its new published address first."""
-    delay = 1.0
-    for i in range(tries):
+    delay,attempt,extra = 1.0,0,False
+    tries=max(1,tries)
+    while attempt<tries:
+        attempt+=1
         try:
             return api(conf, method, path, data, **kw)
         except NetError as e:
-            if discover_server(conf):
-                continue
-            if i == tries - 1:
+            moved=discover_server(conf)
+            # A relocation on the final attempt still needs an actual request to the new host.
+            if moved and attempt==tries and not extra:
+                tries+=1;extra=True
+            if attempt==tries:
                 die(f"нет связи с {conf.server}: {e}", 3)
-            time.sleep(delay)
-            delay *= 2
+            if not moved:
+                time.sleep(delay)
+                delay *= 2
 
 
 # ---------------------------------------------------------------- formatting
@@ -1056,7 +1074,7 @@ def cmd_watch(conf, args):
                 arguments = [value for value in arguments if not value.startswith('--since=')]
                 os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *arguments])
             delay = 1.0
-        except NetError as e:
+        except (NetError,OSError) as e:
             if not announced_down:
                 print(f"tg watch: нет связи ({e}), переподключаюсь", file=sys.stderr, flush=True)
                 announced_down = True
@@ -1069,6 +1087,12 @@ def cmd_watch(conf, args):
                 continue
             time.sleep(delay)
             delay = min(delay * 2, 30)
+        except SystemExit as error:
+            # A proxy/auth refusal must not silently kill a long-lived receiver.
+            if error.code not in (2,3):raise
+            print('tg watch: сервер отказал, повторю подключение; сообщения не подтверждены',file=sys.stderr,flush=True)
+            me=None
+            time.sleep(30)
         except KeyboardInterrupt:
             return
 
@@ -1510,6 +1534,23 @@ def cmd_codex_hook(args):
     print(json.dumps(result, ensure_ascii=False))
 
 
+def cmd_codex_receiver(conf,args):
+    if not conf.path:die('сначала сохрани конфиг подключения в файл')
+    helper=os.path.join(HERE,'tools','codex_listener.py')
+    if not os.path.isfile(helper):
+        die('для мгновенного пробуждения нужен полный клон: git clone https://github.com/Takymu/telegent; затем запусти telegent/tg.py codex listen из рабочего проекта')
+    base=[sys.executable,'-X','utf8',helper,'--config',conf.path]
+    if args.codex_action=='listen':
+        session=args.session or os.environ.get('CODEX_THREAD_ID') or os.environ.get('CODEX_SESSION_ID')
+        if not session:die('нужна явно выбранная сессия: запусти команду внутри неё или укажи --session UUID')
+        try:session=str(uuid.UUID(session))
+        except ValueError:die('session: нужен UUID выбранной сессии Codex')
+        result=subprocess.run(base+['bind','--session',session,'--cwd',os.path.abspath(args.dir)])
+        if result.returncode:raise SystemExit(result.returncode)
+        raise SystemExit(subprocess.call(base+['start']+(['--startup'] if args.startup else [])))
+    raise SystemExit(subprocess.call(base+['status' if args.codex_action=='listener-status' else 'stop']))
+
+
 # ---------------------------------------------------------------- self-service connection
 CONNECTION_NOTE = """<!-- telegent:start -->
 ## telegent
@@ -1888,6 +1929,12 @@ def main():
     ci = cs.add_parser("install", help="добавить хуки в .codex/hooks.json, сохранив существующие")
     ci.add_argument("--dir", default=".", help="папка проекта Codex (по умолчанию текущая)")
     cs.add_parser("hook", help="обработчик событий Codex: JSON stdin → JSON stdout")
+    ci=cs.add_parser('listen',help='мгновенная доставка в выбранную сессию VS Code, включая пробуждение в простое')
+    ci.add_argument('--session',help='UUID; по умолчанию текущая сессия из окружения Codex')
+    ci.add_argument('--dir',default='.',help='рабочая папка выбранной сессии')
+    ci.add_argument('--startup',action='store_true',help='автозапуск при входе в Windows')
+    cs.add_parser('listener-status',help='состояние постоянного слушателя')
+    cs.add_parser('listener-stop',help='остановить постоянный слушатель')
     s = sub.add_parser("refresh", help="обновить блок инструкции telegent без переустановки хуков")
     s.add_argument("--dir", default=".", help="папка рабочего проекта")
     s.add_argument("--client", choices=("auto", "codex", "claude"), default="auto")
@@ -1922,6 +1969,8 @@ def main():
     if args.cmd == "codex":
         if args.codex_action == "hook":
             return cmd_codex_hook(args)
+        if args.codex_action in ('listen','listener-status','listener-stop'):
+            return cmd_codex_receiver(Conf(args.config),args)
         return cmd_codex_install(Conf(args.config), args)
     conf = Conf(args.config)
     if args.cmd != 'update': schedule_update(conf)

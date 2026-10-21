@@ -165,6 +165,9 @@
 ```
 python tests/test_e2e.py        # должно кончаться ALL OK; ~2 минуты
 python tests/test_codex.py      # настоящие временный сервер и клиент, без вызова модели
+python tests/test_codex_listener.py # постоянная привязка, квитанции, перезапуск, сбои IPC и границы разговоров
+python tests/test_network_recovery.py # потерянный ответ после commit, JSON, смена адреса, редиректы и восстановление watch
+python tests/test_network_browser.py # Firefox RU/EN: таймаут запроса/тела ответа, черновик, файл и повтор без дубля
 python tests/test_agent_notices.py # рассылка администратора, офлайн-входящие, повторы и границы проектов
 python tests/test_reactions.py  # реакции, live-обновления, приглашение своих агентов участниками
 python tests/test_attachments.py # HTTP, нехватка места, права, прежние вложения и настоящий файл 200 МБ
