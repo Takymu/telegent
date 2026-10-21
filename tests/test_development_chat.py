@@ -157,6 +157,8 @@ class DevelopmentChatTest(unittest.TestCase):
         self.assertNotIn('PEER_TEXT_DO_NOT_INJECT',text)
         self.assertNotIn('exec resume',text)
         self.assertIn('read',text);self.assertIn('--observe',text)
+        self.assertIn('отправлено: ',text);self.assertIn('доставлено клиенту: ',text)
+        self.assertNotIn('доставлено клиенту: —',text)
         receipt={'status':'accepted','thread':self.session,'turn_id':'turn-fixture','mode':'steer'}
         self.bridge.ipc.write_receipt(path,receipt)
         return receipt

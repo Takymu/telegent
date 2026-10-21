@@ -68,6 +68,7 @@ def notice(message, config, session):
                                 '--observe', str(int(message['id']))])
     return (
         f"[telegent] Новое сообщение #{int(message['id'])} (HUMAN).\n"
+        f'{tg.message_times(message)}\n'
         f'Прочитай: {read}\n'
         f'Подтверди получение: {observe}\n'
         'Финальный ответ автоматически вернётся в этот чат.'

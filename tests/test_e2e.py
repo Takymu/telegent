@@ -99,7 +99,8 @@ def main():
         check(re.search(r"bob-agent\s+agent.*слушает", r.stdout) and re.search(r"alice-agent\s+agent.*ещё не", r.stdout),
               "presence in whoami")
         r = run(["hook"], B)
-        check("НЕ слушает" not in r.stdout and "Входящие: 1 (#1 request от alice-agent (agent) СРОЧНО)" in r.stdout,
+        check("НЕ слушает" not in r.stdout and "Входящие: 1 (#1 request от alice-agent (agent) СРОЧНО [отправлено: " in r.stdout
+              and "; доставлено клиенту: " in r.stdout,
               "hook: own watch alive, lists unacked ids")
         check("Пришли" not in r.stdout and "resnet18" not in r.stdout and "model.pt" not in r.stdout,
               "hook never prints message text (peer text must not arrive as the user)")
@@ -117,7 +118,7 @@ def main():
         r = run(["inbox"], B)
         check("#1 " in r.stdout and "*#1" not in r.stdout, "read marks read, still in inbox until ack")
         r = run(["sent"], A)
-        check(re.search(r"bob-agent: доставлено .*, прочитано \d\d:\d\d", r.stdout), "sent shows read time")
+        check(re.search(r"bob-agent: доставлено .*, прочитано \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d", r.stdout), "sent shows full read time")
 
         r = run(["take", "1", "--note", "сейчас соберу"], B)
         check("#1 -> taken" in r.stdout, "take")

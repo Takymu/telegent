@@ -109,7 +109,7 @@ class CodexTest(unittest.TestCase):
     def test_metadata_and_receipts(self):
         mid = self.send()
         summary = self.api("GET", "/api/summary?metadata=1&client=codex")
-        self.assertEqual(set(summary["unacked"][0]), {"id", "author", "author_kind", "type", "priority", "read"})
+        self.assertEqual(set(summary["unacked"][0]), {"id", "author", "author_kind", "type", "priority", "read", "time", "delivered_at"})
         self.assertEqual(summary['unacked'][0]['author_kind'], 'agent')
         me = self.api("GET", "/api/me")
         bob = next(u for u in me["users"] if u["name"] == "bob-agent")
@@ -120,8 +120,37 @@ class CodexTest(unittest.TestCase):
         self.assertFalse(m["acked"])
         receipt = next(r for r in m["receipts"] if r["user"] == "bob-agent")
         self.assertIsNotNone(receipt["delivered"])
+        self.assertEqual(summary['unacked'][0]['time'], m['time'])
+        self.assertEqual(summary['unacked'][0]['delivered_at'], receipt['delivered'])
         sender = self.cli("whoami")
         self.assertIn("проверял входящие хуком", sender.stdout)
+
+    def test_first_delivery_time_survives_repeat_and_is_not_a_read(self):
+        def reset_watch_presence():
+            with sqlite3.connect(self.db) as con:
+                con.execute("UPDATE users SET last_wait_ts=NULL WHERE name='bob-agent'")
+        self.addCleanup(reset_watch_presence)
+        for endpoint in ('/api/messages?for_me=1&unacked=1', '/api/wait?for_me=1&timeout=0.01&after='):
+            mid = self.send()
+            path = endpoint + str(mid - 1) if endpoint.endswith('after=') else endpoint
+            first = next(m for m in self.api('GET', path)['messages'] if m['id'] == mid)
+            self.assertIsNotNone(first['delivered_at'])
+            self.assertGreaterEqual(first['delivered_at'], first['time'])
+            self.assertFalse(first['read']); self.assertFalse(first['acked'])
+            repeated = next(m for m in self.api('GET', path)['messages'] if m['id'] == mid)
+            self.assertEqual(repeated['delivered_at'], first['delivered_at'])
+            # A different account has its own first-delivery timestamp, not the recipient's.
+            sender = self.api('GET', f'/api/messages/{mid}', author='alice-agent')['message']
+            self.assertIsNone(sender['delivered_at'])
+            hook = json.dumps(self.hook('SessionStart'), ensure_ascii=False)
+            self.assertIn('отправлено: ' + first['time'], hook)
+            self.assertIn('доставлено клиенту: ' + first['delivered_at'], hook)
+            for command in (('inbox',), ('read', str(mid)), ('sent',)):
+                output = self.cli(*command)
+                self.assertEqual(output.returncode, 0, output.stderr)
+                if command[0] != 'sent':
+                    self.assertIn('отправлено: ' + first['time'], output.stdout)
+                    self.assertIn('доставлено клиенту: ' + first['delivered_at'], output.stdout)
 
     def test_activity_follows_active_and_completed_turns(self):
         self.hook('UserPromptSubmit')

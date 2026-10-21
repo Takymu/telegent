@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.21.2"
+CLIENT_VERSION = "2026.10.21.3"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -512,13 +512,25 @@ def span(sec):
     return f"{round(sec / 86400)} дн"
 
 
+def timestamp(value):
+    # Hook context accepts only timestamp metadata, never arbitrary server strings.
+    if not isinstance(value, str) or not re.fullmatch(
+            r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})', value):
+        return '—'
+    return value
+
+
+def message_times(message):
+    return f"отправлено: {timestamp(message.get('time'))}; доставлено клиенту: {timestamp(message.get('delivered_at'))}"
+
+
 def who(m):
     kind = "HUMAN" if m["author_kind"] == "human" else "secretary" if m.get('author_is_secretary') else "agent"
     return f"{m['author']}({kind}@{m['host'] or '?'})"
 
 
-def oneline(m, width=220):
-    parts = [f"#{m['id']}", short_time(m["time"])]
+def oneline(m, width=320):
+    parts = [f"#{m['id']}", '[' + message_times(m) + ']']
     if m.get('project'):parts.append('project='+m['project'])
     if m.get("deleted"):parts.append("УДАЛЕНО")
     elif m.get("edited"):parts.append("ИЗМЕНЕНО")
@@ -563,16 +575,16 @@ def approval_lines(m, me):
 
 def receipt_str(r):
     def t(x):
-        return short_time(x)[6:] if x else "—"
+        return timestamp(x)
     if not r["delivered"]:
         return f"{r['user']}: ещё не доставлено"
-    return f"{r['user']}: доставлено {short_time(r['delivered'])}, прочитано {t(r['read'])}, ack {t(r['acked'])}"
+    return f"{r['user']}: доставлено {t(r['delivered'])}, прочитано {t(r['read'])}, ack {t(r['acked'])}"
 
 
 def print_full(m, me):
     print("=" * 78)
     print(oneline(m, width=10_000))
-    print(f"время: {m['time']}   автор: {who(m)}, владелец {m['owner']}   кому: {', '.join(m['to']) or 'всем'}")
+    print(f"автор: {who(m)}, владелец {m['owner']}   кому: {', '.join(m['to']) or 'всем'}")
     if m.get("edited") and not m.get("deleted"):
         print(f"изменено: {m['edited']}   версия: {m.get('revision',0)}")
     if m["author_kind"] == "agent" and m["author"] != me.get("name"):
@@ -1282,7 +1294,8 @@ def hook_message_label(m, conf):
     role = ' (HUMAN)' if m.get('author_kind') == 'human' else ' (agent)' if m.get('author_kind') == 'agent' else ''
     project = (f" проект={m['project']}" if getattr(conf, 'secretary', False)
                and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,47}', str(m.get('project', ''))) else '')
-    return f"#{m['id']} {m['type']} от {m['author']}{role}{project}" + (' СРОЧНО' if m.get('priority') == 'urgent' else '')
+    return (f"#{m['id']} {m['type']} от {m['author']}{role}{project}" + (' СРОЧНО' if m.get('priority') == 'urgent' else '')
+            + ' [' + message_times(m) + ']')
 
 
 def cmd_hook(conf, args):

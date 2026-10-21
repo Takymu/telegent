@@ -53,6 +53,7 @@ def notice(messages,binding,config):
     for message in messages:
         kind='HUMAN' if message['author_kind']=='human' else 'AGENT'
         lines.append('#'+str(message['id'])+' ('+kind+')')
+        lines.append(tg.message_times(message))
         lines.append('Прочитай: '+tg.shell_command([sys.executable,'-X','utf8',str(Path(tg.__file__).resolve()),
                      '--config',str(config),'read',str(message['id'])]))
         lines.append('После чтения подтверди получение моделью: '+tg.shell_command([sys.executable,'-X','utf8',str(Path(__file__).resolve()),

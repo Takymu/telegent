@@ -46,6 +46,8 @@ class ReceiverTest(unittest.TestCase):
     def accept(self,binding,text,qid,path):
         self.assertEqual(binding,self.binding);self.assertNotIn('PEER_TEXT_DO_NOT_INJECT',text)
         self.assertNotIn(self.fx.tokens['bob-agent'],text);self.assertIn('read',text);self.assertIn('observe',text)
+        self.assertIn('отправлено: ',text);self.assertIn('доставлено клиенту: ',text)
+        self.assertNotIn('доставлено клиенту: —',text)
         self.calls.append((qid,path,text))
         receipt={'status':'accepted','thread':self.session,'turn_id':'turn-'+str(len(self.calls)),'mode':'steer'}
         receiver.ipc.write_receipt(path,receipt);return receipt
@@ -64,6 +66,19 @@ class ReceiverTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):receiver.bind(self.conf,self.config,self.session,self.root/'other')
         for changed in ({'account_id':'alice-agent'},{'project_id':-1}):
             with self.assertRaises(RuntimeError):receiver.validate(self.conf,dict(self.binding,**changed))
+
+    def test_notice_times_are_metadata_and_old_servers_do_not_invent_delivery(self):
+        sent='2026-10-07T23:59:58+05:30'; received='2026-10-08T00:01:02+05:30'
+        message={'id':42,'author_kind':'human','time':sent,'delivered_at':received}
+        for render in (lambda m:receiver.notice([m],self.binding,self.config),
+                       lambda m:receiver.bridge.notice(m,self.config,self.session),
+                       receiver.tg.message_times):
+            text=render(message);self.assertIn(sent,text);self.assertIn(received,text)
+            self.assertIn('доставлено клиенту: —',render(dict(message,delivered_at=None)))
+            injected=render(dict(message,time=sent+'\nPEER_TEXT_DO_NOT_INJECT',delivered_at='PEER_TEXT_DO_NOT_INJECT'))
+            self.assertNotIn('PEER_TEXT_DO_NOT_INJECT',injected)
+        receipt=receiver.tg.receipt_str({'user':'bob','delivered':sent,'read':received,'acked':None})
+        self.assertIn('прочитано '+received,receipt)
 
     def test_restart_does_not_repeat_an_accepted_active_dispatch_or_ack_for_model(self):
         mid=self.incoming();self.step();self.assertEqual(len(self.calls),1)

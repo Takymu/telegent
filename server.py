@@ -1414,6 +1414,7 @@ def msg_dicts(rows, me=None, full=True):
         mine = next((x for x in rc if x["user"] == me), None)
         d = {
             "id": r["id"], "time": iso(r["ts"]), "ts": r["ts"],
+            "delivered_at": iso(mine["delivered_ts"] or mine["read_ts"]) if mine else None,
             "author": account_name(r["author"]), "author_id": r["author"], "author_kind": r["author_kind"],
             "author_is_secretary":r['author'] in secretaries, "project":project_slugs[r['project_id']], "project_id":r['project_id'],
             "owner": account_name(r["owner"]), "owner_id": r["owner"], "host": r["host"],
@@ -1800,6 +1801,20 @@ def mark(me, ids, kind):
                     pid = message["project_id"]
                     RECEIPT_REVISIONS[pid] = RECEIPT_REVISIONS.get(pid, 0) + 1
                     NEW_MSG.notify_all()
+
+
+def deliver_messages(me, messages):
+    # Lists were serialized before marking. Return the first delivery even on that first response.
+    mark(me, [m['id'] for m in messages], 'delivered')
+    ids = [m['id'] for m in messages]
+    times = {}
+    for offset in range(0, len(ids), 500):
+        batch = ids[offset:offset + 500]
+        rows = db().execute('SELECT message_id,delivered_ts,read_ts FROM receipts WHERE user=? AND message_id IN ('
+                            + ','.join('?' for _ in batch) + ')', [me['name']] + batch)
+        times.update({r['message_id']: iso(r['delivered_ts'] or r['read_ts']) for r in rows})
+    for message in messages:
+        message['delivered_at'] = times.get(message['id'])
 
 
 def set_status(me, host, mid, data):
@@ -2657,13 +2672,13 @@ def api_summary(h, user, q, data):
         unacked = list_messages(user, {"for_me": "1", "unacked": "1", "full": "0", "limit": "1000"}, p["id"])
         shown = unacked[-max(1, min(int(q.get("limit") or 10), 50)):]
         if shown:
-            mark(user, [m["id"] for m in shown], "delivered")
+            deliver_messages(user, shown)
         claim_fields = ("id", "owner", "created", "expired", "expires_in") if q.get("metadata") == "1" else \
                        ("id", "key", "owner", "topic", "until", "created", "expired", "expires_in")
         claims = [{k: c[k] for k in claim_fields} for c in list_claims({"active": "1"}, p["id"])]
         wait = waiting_summary(user["name"], p["id"])
     if q.get("metadata") == "1":
-        fields=['id','author','author_kind','type','priority','read']+(['project'] if user['is_secretary'] else [])
+        fields=['id','author','author_kind','type','priority','read','time','delivered_at']+(['project'] if user['is_secretary'] else [])
         shown = [{k: m[k] for k in fields} for m in shown]
     return {"name": account_name(user["name"]), "listening": me["listening"], "last_listen": me["last_listen"],
             "unacked_total": len(unacked), "unacked": shown, "last_id": LAST_ID[0], "claims": claims, **wait}
@@ -2713,13 +2728,13 @@ def api_list(h, user, q, data):
     if q.get('projects')=='all':
         with DB_LOCK:
             msgs=secretary_messages(user,q)
-            if msgs and q.get('for_me')=='1':mark(user,[m['id'] for m in msgs],'delivered')
+            if msgs and q.get('for_me')=='1':deliver_messages(user,msgs)
             return {'messages':msgs,'last_id':LAST_ID[0]}
     p = project_for(h, user, q)
     with DB_LOCK:
         msgs = list_messages(user, q, p["id"])
         if msgs and (q.get("for_me") == "1" or user["kind"] == "human"):
-            mark(user, [m["id"] for m in msgs], "delivered")
+            deliver_messages(user, msgs)
         return {"messages": msgs, "last_id": LAST_ID[0], "reaction_revision": reaction_revision(p["id"]),
                 "receipt_revision": receipt_revision(p["id"]), "content_revision": content_revision(p["id"],user["name"])}
 
@@ -3137,7 +3152,7 @@ def api_wait(h, user, q, data):
         while True:
             with DB_LOCK:
                 seen=LAST_ID[0];msgs=secretary_messages(user,qq)
-                if msgs and qq['for_me']=='1':mark(user,[m['id'] for m in msgs],'delivered')
+                if msgs and qq['for_me']=='1':deliver_messages(user,msgs)
             remaining=deadline-time.time()
             if msgs or remaining<=0:return {'messages':msgs,'last_id':max(seen,after)}
             with NEW_MSG:
@@ -3153,7 +3168,7 @@ def api_wait(h, user, q, data):
         with DB_LOCK:
             msgs = list_messages(user, qq, p["id"])
             if msgs and (qq["for_me"] == "1" or user["kind"] == "human"):
-                mark(user, [m["id"] for m in msgs], "delivered")
+                deliver_messages(user, msgs)
         if (msgs or ("reaction_revision" in q and q["reaction_revision"] != revision)
                 or ("receipt_revision" in q and q["receipt_revision"] != receipts)
                 or ("content_revision" in q and q["content_revision"] != content)):
