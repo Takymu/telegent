@@ -153,6 +153,7 @@ def service(conf):
     # Logon can precede VS Code, network and the owner process. Wait for them, never retarget.
     while not (folder/'stop').exists():
         try:
+            tg.schedule_update(conf)
             with bridge.session_lock(binding['thread']):
                 transcript=bridge.Transcript(bridge.session_transcript(binding['thread']))
                 while not (folder/'stop').exists():
@@ -164,6 +165,7 @@ def service(conf):
                     else:agent_step(conf,binding,folder,transcript)
                     # The supervisor reloads updated code, preserving all durable receipts.
                     if stamp()!=initial:return
+                    tg.schedule_update(conf)
                     delay=1
         except (Exception,SystemExit) as error:
             try:

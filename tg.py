@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.21.1"
+CLIENT_VERSION = "2026.10.21.2"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -165,7 +165,7 @@ def cmd_update(conf, args):
     try:
         release = validate_client_release(json.loads(release_bytes(RELEASE_FEED, 65536)))
         current = client_digest()
-        if current != release['files']['tg.py']['sha256']:
+        if current != release['files']['tg.py']['sha256'] or os.path.isdir(os.path.join(HERE,'.git')):
             apply_client_release(release, __file__)
         status.update(version=release['version'], status='current')
         if not args.automatic: print('Клиент обновлён: '+release['version']+'. Конфиги, токены и хуки сохранены.')

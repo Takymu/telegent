@@ -110,6 +110,25 @@ class ClientUpdatesTest(unittest.TestCase):
         self.assertEqual(json.loads((self.root/'cache/status.json').read_text())['status'],'deferred')
         self.assertEqual(self.client.read_bytes(),self.old)
 
+    def test_clean_clone_updates_helper_files_even_when_client_hash_is_unchanged(self):
+        self.git('init','-b','main');self.git('config','user.name','alice');self.git('config','user.email','alice@example.test')
+        self.git('add','tg.py');self.git('commit','-m','initial');old=self.git('rev-parse','HEAD')
+        helper=self.root/'helper.py';helper.write_text('print("helper update")\n')
+        self.git('add','helper.py');self.git('commit','-m','helper update');new=self.git('rev-parse','HEAD')
+        self.git('reset','--hard',old);self.git('remote','add','origin','https://github.com/Takymu/telegent.git')
+        self.release['commit']=new;self.release['files']['tg.py']['sha256']=hashlib.sha256(self.old).hexdigest()
+        real_run=subprocess.run
+        def command(args,**kwargs):
+            if 'fetch' in args:return subprocess.CompletedProcess(args,0,'','')
+            return real_run(args,**kwargs)
+        with patch.object(tg,'HERE',str(self.root)),patch.object(tg,'__file__',str(self.client)),\
+             patch.object(tg,'update_cache',return_value=str(self.root/'cache')),\
+             patch.object(tg,'release_bytes',return_value=json.dumps({'client':self.release}).encode()),\
+             patch.object(tg.subprocess,'run',side_effect=command):
+            tg.cmd_update(None,argparse.Namespace(automatic=True))
+        self.assertEqual(self.git('rev-parse','HEAD'),new);self.assertTrue(helper.exists())
+        self.assertEqual(self.client.read_bytes(),self.old)
+
     def test_scheduler_is_background_throttled_and_can_be_disabled(self):
         cfg=self.root/'config.json';cfg.write_text('{}')
         conf=argparse.Namespace(path=str(cfg),url_source=tg.URL_SOURCE)
