@@ -546,6 +546,11 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .inline-image { display:block;width:min(300px,60vw);max-width:100%;height:200px;padding:0;border:0;border-radius:10px;overflow:hidden;background:var(--code);color:var(--muted);cursor:zoom-in; }
 .inline-image img { display:block;width:100%;height:100%;object-fit:contain; }
 .inline-image:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+.gif-card { position:relative;width:fit-content;max-width:100%; }
+.gif-label { position:absolute;bottom:8px;left:8px;padding:3px 7px;border-radius:6px;background:#0009;color:#fff;font-size:11px;font-weight:600;pointer-events:none; }
+.gif-download { position:absolute;top:6px;right:6px;width:44px;height:44px;padding:0;border:0;border-radius:50%;background:#0009;color:#fff;font-size:22px;opacity:0; }
+.gif-card:hover .gif-download,.gif-card:focus-within .gif-download { opacity:1; }
+@media (hover:none),(pointer:coarse) { .gif-download { opacity:1; } }
 .file-thumb { width:56px;height:56px;object-fit:cover;border-radius:6px; }
 .connection-banner { flex:none;padding:10px 16px;background:var(--warn-bg);color:var(--ink);font-size:13px; }
 .invite-choices { display:flex;flex-direction:column;gap:8px;margin:12px 0; }
@@ -3287,7 +3292,10 @@ function requestNativeShare(kind,id){
 }
 const fileShareButton=a=>nativeSharing()&&a.inline&&!a.optimistic?ui`<button type="button" data-act="sharefile" data-att="${a.id}" style="min-height:40px;margin-top:4px">Поделиться</button>`:'';
 function fileCard(a) {
-  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name))return ui`<div><button type="button" class="inline-image" ${a.optimistic?"":`data-ux="preview" data-image="${a.id}"`} data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button>${fileShareButton(a)}</div>`;
+  if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name)){
+    const gif=/\.gif$/i.test(a.name);
+    return ui`<div><div class="${gif?'gif-card':'image-card'}"><button type="button" class="inline-image" ${a.optimistic?"":`data-ux="preview" data-image="${a.id}"`} data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button>${gif?'<span class="gif-label">GIF</span>':''}${gif&&!a.optimistic?ui`<button type="button" class="gif-download" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Скачать ${esc(a.name)}" title="Скачать ${esc(a.name)}">↓</button>`:''}</div>${fileShareButton(a)}</div>`;
+  }
   const content = `<span class="file-symbol" aria-hidden="true">${esc(fileExt(a.name))}</span><span class="file-info"><span class="file-name">${esc(a.name)}</span>` +
     `<span class="file-detail">${fileSize(a.size)}${a.inline ? tr(" · Скачать") : tr(" · Внешняя ссылка: ") + esc(a.link || "")}</span></span>`;
   return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>${fileShareButton(a)}</div>`
@@ -4040,6 +4048,8 @@ function imageEntry(id){
 }
 function displayInlineImage(node,entry){
   if(!node.isConnected || INLINE_IMAGES.get(node.dataset.image)!==entry)return;
+  // Keep a playing GIF alive when observers are refreshed without replacing the message.
+  if(node.querySelector('img')?.src===entry.url)return;
   const stick=feedVisible()&&nearBottom(),anchor=captureFeedAnchor();
   const width=Math.min(300,innerWidth*.6),height=Math.min(360,width*entry.height/entry.width);
   node.style.width=Math.min(width,height*entry.width/entry.height)+"px";node.style.height=height+"px";

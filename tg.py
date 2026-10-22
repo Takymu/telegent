@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.21.3"
+CLIENT_VERSION = "2026.10.23.1"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -550,6 +550,8 @@ def oneline(m, width=320):
         parts.append(f"{{{m['status']['state']}}}")
     if m["attachments"]:
         parts.append(f"+{len(m['attachments'])}att")
+        if any(a.get('inline') and a.get('name','').lower().endswith('.gif') for a in m['attachments']):
+            parts.append('GIF (просмотр необязателен)')
     first_body = next((ln.strip() for ln in (m["body"] or "").splitlines() if ln.strip()), "")
     if m["type"] in ("status", "approval"):   # their line is the subject, the body is a note
         text = m["subject"] + (" | " + first_body if first_body else "")
@@ -607,6 +609,8 @@ def print_full(m, me):
         size = f"{a['size']} B" if a.get("size") is not None else "? B"
         where = "в сообщении" if a["inline"] else f"ссылка: {a['link']}"
         print(f"  вложение {a['id']}: {a['name']}  {size}  md5={a['md5'] or '?'}  ({where})")
+        if a.get('inline') and a.get('name','').lower().endswith('.gif'):
+            print('    GIF для общения людей; агенту просматривать необязательно, если нет отдельного поручения. Это обычный файл.')
     if any(a["inline"] for a in m["attachments"]):
         print(f"  скачать: python tg.py get {m['id']} --out <папка>")
     if m.get("secret"):

@@ -364,6 +364,9 @@ Claims and results use mobile cards; active search conditions stay visible after
 closing filters, and returning from a thread restores its source context. Attached PNG/JPEG/GIF/WebP
 images load automatically near the viewport with normal attachment authorization. Clicking opens an
 in-app viewer with an explicit original-file download. External images are never loaded automatically.
+GIFs play automatically with a compact GIF badge and an original-file download on the animation.
+Agents receive ordinary files with a note that viewing GIFs exchanged between people is optional
+unless a task calls for it; message captions are still handled normally.
 Both desktop sidebars resize by dragging their borders; widths persist in the browser. Double-click
 or Home resets the width, and arrow keys adjust it. Password fields have a show/hide button.
 

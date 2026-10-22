@@ -171,6 +171,8 @@ python tests/test_network_browser.py # Firefox RU/EN: таймаут запро�
 python tests/test_agent_notices.py # рассылка администратора, офлайн-входящие, повторы и границы проектов
 python tests/test_reactions.py  # реакции, live-обновления, приглашение своих агентов участниками
 python tests/test_attachments.py # HTTP, нехватка места, права, прежние вложения и настоящий файл 200 МБ
+python tests/test_gifs.py        # настоящий CLI: GIF как файл, пометка без загрузки бинарного содержимого, скачивание оригинала
+python tests/test_gifs_browser.py # Firefox RU/EN, десктоп/телефон: загрузка GIF, показ, оригинал и изоляция личек
 python tests/test_projects.py    # создатель, права, переименование, сохранность файлов и приглашений
 python tests/test_agent_names.py # имена внутри проекта, стабильные ключи, адресаты и миграция
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
