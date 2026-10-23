@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="push_play_services">Background notifications require up-to-date Google Play services</string>
     <string name="app_options">App settings</string>
     <string name="reconnect">Reconnect</string>
     <string name="server_address">telegent address</string>
@@ -8,7 +9,7 @@
     <string name="cancel">Cancel</string>
     <string name="open_browser">Open in browser</string>
     <string name="about">About</string>
-    <string name="about_text">telegent 0.1.3\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nNew APKs are checked and downloaded automatically. Android confirms installation. Background notifications are not available yet.</string>
+    <string name="about_text">telegent 0.1.4\nThe app uses your server’s current interface.\n\nLogin is saved separately from your browser. The server enforces existing project and private chat permissions.\n\nNew APKs are checked and downloaded automatically. Android confirms installation. Background notifications are not available yet.</string>
     <string name="check_updates">Check for updates</string>
     <string name="checking_updates">Checking for updates…</string>
     <string name="latest_version">The latest version is installed</string>
@@ -35,4 +36,12 @@
     <string name="unsupported_link">Could not open this link</string>
     <string name="external_link">Open this link in your browser?</string>
     <string name="ok">OK</string>
+    <string name="push_notifications">Background notifications</string>
+    <string name="push_messages">Messages</string>
+    <string name="push_new_message">New message in telegent</string>
+    <string name="push_enabled">Background notifications are on</string>
+    <string name="push_disabled">Background notifications are off</string>
+    <string name="push_permission">Allow telegent notifications in Android settings</string>
+    <string name="push_unconfigured">Background notifications are not connected on the server yet. Sign in and try again later.</string>
+    <string name="push_error">Could not enable notifications. Check the connection and try again.</string>
 </resources>

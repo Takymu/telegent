@@ -2557,6 +2557,7 @@ $("pwForm").onsubmit = async e => {
 };
 
 $("logoutBtn").onclick = async () => {
+  if(nativePushSupported())nativePushCommand('logout');
   clearChatCache();
   try { await api("POST", "/api/logout"); } catch {}
   forgetDrafts(); closeSecret(); st.set("tg_token", null);
@@ -4205,8 +4206,47 @@ async function ntfRegister() {
   if (NTF.reg || !("serviceWorker" in navigator)) return;
   try { NTF.reg = await navigator.serviceWorker.register("/sw.js"); await navigator.serviceWorker.ready; } catch { NTF.reg = null; }
 }
+let NATIVE_PUSH_CONFIG=null,NATIVE_PUSH_BUSY=false;
+function nativePushSupported(){return / telegent-android\/(?:0\.1\.(?:[4-9]|\d{2,})|0\.[2-9]\.\d+|[1-9]\d*\.\d+\.\d+)/.test(navigator.userAgent);}
+function nativePushCommand(command){
+  if(!nativePushSupported()||!['sync','toggle','logout'].includes(command))return;
+  const link=document.createElement('a');link.href='telegent-push://'+command;link.click();
+}
+function nativePushConfig(){return ME?.kind==='human'?NATIVE_PUSH_CONFIG:null;}
+async function nativePushSetup(){
+  if(!nativePushSupported()||ME?.kind!=='human')return;
+  const scope=uiScope();
+  try{const settings=await api('GET','/api/push/config');if(scope!==uiScope())return;NATIVE_PUSH_CONFIG=settings;nativePushCommand('sync');await nativePushFlush();}catch{}
+}
+async function nativePushEnroll(token,key,nonce){
+  if(!nativePushSupported()||ME?.kind!=='human'||! /^[0-9a-f]{32}$/.test(nonce))return;
+  let result='error';
+  try{await api('POST','/api/push/devices',{fcm_token:token,device_key:key,binding:nonce});result='ok';}
+  catch(error){toast(error.message,true);}
+  const link=document.createElement('a');link.href='telegent-push://result/'+nonce+'/'+result;link.click();
+}
+async function nativePushFlush(){
+  const id=Number(window.NATIVE_PUSH_OPEN);
+  if(NATIVE_PUSH_BUSY||!Number.isSafeInteger(id)||id<=0||!TOKEN||ME?.kind!=='human')return;
+  NATIVE_PUSH_BUSY=true;
+  try{
+    const message=(await api('GET','/api/messages/'+id)).message;
+    if(message.project!==PROJECT)await setProject(message.project);
+    if(message.conversation_id)await openDirect(message.conversation_id);else await selectTab('feed');
+    resetFilters();THREAD=message.thread_id;await reload();
+    $('m'+id)?.scrollIntoView({block:'center'});
+    const link=document.createElement('a');link.href='telegent-push://opened/'+id;link.click();window.NATIVE_PUSH_OPEN=null;
+  }catch(error){
+    toast(error.message,true);
+    if(error.status===403||error.status===404){
+      const link=document.createElement('a');link.href='telegent-push://opened/'+id;link.click();window.NATIVE_PUSH_OPEN=null;
+    }
+  }
+  finally{NATIVE_PUSH_BUSY=false;}
+}
 function ntfInit() {
   ntfPaint();
+  nativePushSetup();
   if (ntfOK() && (ntfState() === "on" || ntfMentionsOn()&&Notification.permission==='granted')) ntfRegister();
 }
 $("bellBtn").onclick = async () => {

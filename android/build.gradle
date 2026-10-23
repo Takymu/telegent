@@ -1,0 +1,29 @@
+plugins { id 'com.android.application' version '8.13.2' }
+
+android {
+    namespace 'io.github.takymu.telegent'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'io.github.takymu.telegent'
+        minSdk 26
+        targetSdk 36
+        versionCode providers.gradleProperty('telegentVersionCode').get().toInteger()
+        versionName providers.gradleProperty('telegentVersionName').get()
+    }
+    sourceSets { main { manifest.srcFile 'AndroidManifest.xml'; java.srcDirs = ['src']; res.srcDirs = ['res'] } }
+    signingConfigs {
+        release {
+            storeFile file('.signing/telegent.p12')
+            storePassword file('.signing/password').text.trim()
+            keyAlias 'telegent'
+            keyPassword file('.signing/password').text.trim()
+            storeType 'PKCS12'
+        }
+    }
+    buildTypes { release { signingConfig signingConfigs.release; minifyEnabled false } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+
+// Messaging only: no Analytics or advertising SDK. Firebase options come from the selected server.
+dependencies { implementation 'com.google.firebase:firebase-messaging:25.0.1' }

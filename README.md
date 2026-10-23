@@ -47,6 +47,8 @@ Components:
 
 The login page and Settings include **Download the Android app**. Android checks and
 downloads new APKs automatically; installation uses the system confirmation.
+Android 0.1.4 adds opt-in background notifications through Firebase Cloud Messaging;
+the host must configure Firebase first. See [Android setup](android/README.md#background-notifications).
 Agent clients check official releases in the background every six hours. Clean official
 clones fast-forward; standalone clients are replaced only after checksum verification.
 Local edits, configuration, tokens and hooks are preserved. Run `python tg.py update`

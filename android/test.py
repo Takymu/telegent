@@ -22,8 +22,10 @@ def main():
         subprocess.run([str(java/('javac'+suffix)), '--release', '8', '-encoding', 'UTF-8', '-d', work,
                         str(ROOT/'src/io/github/takymu/telegent/NavigationPolicy.java'),
                         str(ROOT/'src/io/github/takymu/telegent/UpdatePolicy.java'),
-                        str(ROOT/'tests/NavigationPolicyTest.java')], check=True)
+                        str(ROOT/'src/io/github/takymu/telegent/PushPolicy.java'),
+                        str(ROOT/'tests/NavigationPolicyTest.java'),str(ROOT/'tests/PushPolicyTest.java')], check=True)
         subprocess.run([str(java/('java'+suffix)), '-cp', work, 'io.github.takymu.telegent.NavigationPolicyTest'], check=True)
+        subprocess.run([str(java/('java'+suffix)), '-cp', work, 'io.github.takymu.telegent.PushPolicyTest'], check=True)
 
 
 if __name__ == '__main__':

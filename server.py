@@ -22,7 +22,9 @@ import re
 import secrets
 import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -93,6 +95,7 @@ class Cfg:
     db = os.path.join(HERE, "telegent.db")
     tz = timezone(timedelta(hours=7))
     deny_literals = []
+    push = None
     max_inline = 2 * 1024 * 1024
     telegram = None   # {"bot_token": ..., "chat_id": ...}
     launcher_url = ""  # permanent entry page that remembers the login across tunnel addresses
@@ -119,6 +122,10 @@ def load_config(path):
     if tg and tg.get("bot_token") and tg.get("chat_id"):
         Cfg.telegram = tg
     Cfg.launcher_url = c.get("launcher_url") or ""
+    Cfg.push = c.get('push') or None
+    if Cfg.push and Cfg.push.get('service_account_file'):
+        Cfg.push = dict(Cfg.push, service_account_file=os.path.abspath(os.path.join(
+            os.path.dirname(path), Cfg.push['service_account_file'])))
     if isinstance(c.get("default_project"), dict) and c["default_project"].get("slug"):
         Cfg.default_project = {"slug": c["default_project"]["slug"],
                                "title": c["default_project"].get("title") or c["default_project"]["slug"]}
@@ -198,6 +205,14 @@ CREATE TABLE IF NOT EXISTS claims(
   owner TEXT NOT NULL, owner_kind TEXT NOT NULL, host TEXT, note TEXT, until TEXT, created REAL NOT NULL,
   released REAL, release_note TEXT, release_msg INTEGER);
 CREATE INDEX IF NOT EXISTS ix_claims_key ON claims(key);
+CREATE TABLE IF NOT EXISTS push_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS push_devices(
+  id TEXT PRIMARY KEY, user TEXT NOT NULL, auth_hash TEXT NOT NULL, fcm_token TEXT UNIQUE NOT NULL, binding TEXT NOT NULL,
+  created REAL NOT NULL, updated REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS push_outbox(
+  device_id TEXT NOT NULL,message_id INTEGER NOT NULL,created REAL NOT NULL,next_try REAL NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(device_id,message_id));
+CREATE INDEX IF NOT EXISTS ix_push_due ON push_outbox(next_try);
 """
 
 DB_LOCK = threading.RLock()
@@ -1089,6 +1104,11 @@ _UI_EN = {'упоминание недоступно в этом чате': 'Men
  ': битый base64': ': invalid base64',
  'у ': 'For '}
 _UI_EN.update({
+    'Некорректный ключ устройства':'Invalid device key',
+    'Некорректный адрес уведомлений устройства':'Invalid device notification address',
+    'Фоновые уведомления на сервере ещё не настроены':'Background notifications are not configured on the server yet',
+    'Устройство уже подключено к уведомлениям':'The device is already enrolled for notifications',
+    'Подключите уведомления заново в приложении':'Enable notifications again in the app',
     'секретаря можно подключить только себе новым аккаунтом':'A secretary must be a new account owned by you',
     'секретарь не найден':'Secretary not found',
     'общие входящие проектов доступны только секретарю':'Combined project inbox is available only to a secretary',
@@ -1680,6 +1700,7 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
                                   (mid, name, size, md5, link, raw, upload_id)).lastrowid
                 if upload_id:
                     con.execute("UPDATE file_uploads SET attachment_id=? WHERE id=?", (aid, upload_id))
+            enqueue_push(mid)
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")
@@ -1698,6 +1719,199 @@ def get_message_row(mid, user=None):
     if not r or (user is not None and not can_read_message(r, user)):
         raise ApiError(404, f"{_ui_text('сообщения #')}{mid}{_ui_text(' нет')}")
     return r
+
+
+# ---------------------------------------------------------------- native background notifications
+def push_configuration():
+    settings=Cfg.push or {}
+    android=settings.get('android') or {}
+    if (not settings.get('service_account_file') or not os.path.isfile(settings['service_account_file'])
+            or any(not isinstance(android.get(k),str) or not android[k] for k in ('app_id','api_key','project_id','sender_id'))):
+        return None
+    return android
+
+
+def push_server_id():
+    with DB_LOCK:
+        con=db()
+        con.execute("INSERT OR IGNORE INTO push_meta(key,value) VALUES ('server_id',?)",(secrets.token_hex(16),))
+        return con.execute("SELECT value FROM push_meta WHERE key='server_id'").fetchone()[0]
+
+
+def push_user(device):
+    user=db().execute("SELECT * FROM users WHERE name=? AND kind='human' AND revoked=0",(device['user'],)).fetchone()
+    if user and (user['token_hash']==device['auth_hash'] or db().execute(
+            'SELECT 1 FROM sessions WHERE user=? AND token_hash=?',(user['name'],device['auth_hash'])).fetchone()):
+        return user
+    return None
+
+
+def push_wanted(message,user):
+    if (message['author']==user['name'] or message['deleted_ts'] or message['type']=='status'
+            or not can_read_message(message,user)):
+        return False
+    receipt=db().execute('SELECT read_ts,ack_ts FROM receipts WHERE user=? AND message_id=?',
+                         (user['name'],message['id'])).fetchone()
+    if receipt and (receipt['read_ts'] or receipt['ack_ts']):return False
+    if message['conversation_id']:
+        c=db().execute('SELECT * FROM conversations WHERE id=?',(message['conversation_id'],)).fetchone()
+        cursor=c['human_read_upto'] if c else 0
+    else:
+        row=db().execute('SELECT read_upto FROM members WHERE user=? AND project_id=?',
+                          (user['name'],message['project_id'])).fetchone()
+        cursor=row[0] if row else 0
+    if message['id']<=cursor:return False
+    if message['type']=='approval':
+        parent=db().execute('SELECT author FROM messages WHERE id=?',(message['reply_to'],)).fetchone()
+        return bool(parent and parent['author']==user['name'])
+    return bool(message['conversation_id'] or message['priority']=='urgent'
+                or message['needs_approval'] and message['approver'] in (None,user['name'])
+                or user['name'] in recipients_list(message['recipients'])
+                or any(m['id']==user['name'] for m in json.loads(message['mentions_json'])))
+
+
+def enqueue_push(mid):
+    # The outbox commits with the message. New enrollments never replay old unread history.
+    con=db();message=con.execute('SELECT * FROM messages WHERE id=?',(mid,)).fetchone()
+    now=time.time()
+    for device in con.execute('SELECT * FROM push_devices').fetchall():
+        user=push_user(device)
+        if user and push_wanted(message,user):
+            con.execute('INSERT OR IGNORE INTO push_outbox(device_id,message_id,created,next_try) VALUES (?,?,?,?)',
+                         (device['id'],mid,now,now+3))
+
+
+def push_device_id(data):
+    key=data.get('device_key') if isinstance(data,dict) else None
+    if not isinstance(key,str) or not re.fullmatch('[0-9a-f]{64}',key):
+        raise ApiError(400,_ui_text('Некорректный ключ устройства'))
+    return token_hash(key)
+
+
+def push_registration_token(data):
+    token=data.get('fcm_token') if isinstance(data,dict) else None
+    if not isinstance(token,str) or not re.fullmatch(r'[A-Za-z0-9_:.-]{32,4096}',token):
+        raise ApiError(400,_ui_text('Некорректный адрес уведомлений устройства'))
+    return token
+
+
+def push_binding(data):
+    value=data.get('binding') if isinstance(data,dict) else None
+    if not isinstance(value,str) or not re.fullmatch('[0-9a-f]{32}',value):
+        raise ApiError(400,_ui_text('Некорректный ключ устройства'))
+    return value
+
+
+class PushFailure(Exception):
+    def __init__(self,permanent=False,unregistered=False,retry_after=0):
+        self.permanent,self.unregistered=permanent,unregistered
+        self.retry_after=retry_after
+
+
+class PushNoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,*args,**kwargs):return None
+
+
+class FcmSender:
+    def __init__(self):self.access=None;self.expires=0
+
+    def post(self,url,data,headers):
+        req=urllib.request.Request(url,data=data,headers=headers,method='POST')
+        try:
+            with urllib.request.build_opener(PushNoRedirect).open(req,timeout=15) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            try:
+                details=json.loads(error.read(16384)).get('error',{}).get('details',[])
+                invalid=any(item.get('errorCode')=='UNREGISTERED' for item in details)
+            except (ValueError,AttributeError,TypeError):invalid=False
+            try:retry_after=max(0,min(86400,int(error.headers.get('Retry-After','60' if error.code==429 else '0'))))
+            except (ValueError,TypeError):retry_after=60 if error.code==429 else 0
+            raise PushFailure(permanent=error.code in (400,403,404),unregistered=invalid,retry_after=retry_after) from None
+        except (OSError,ValueError):raise PushFailure() from None
+
+    def authorization(self):
+        if self.access and self.expires>time.time()+90:return self.access
+        try:
+            with open(Cfg.push['service_account_file'],encoding='utf-8') as stream:account=json.load(stream)
+            if account['project_id']!=push_configuration()['project_id']:raise ValueError()
+            encode=lambda value:base64.urlsafe_b64encode(value).decode().rstrip('=')
+            now=int(time.time())
+            jwt=encode(b'{"alg":"RS256","typ":"JWT"}')+'.'+encode(json.dumps({
+                'iss':account['client_email'],'scope':'https://www.googleapis.com/auth/firebase.messaging',
+                'aud':'https://oauth2.googleapis.com/token','iat':now,'exp':now+3600},separators=(',',':')).encode())
+            executable=shutil.which('openssl')
+            if not executable:raise ValueError()
+            with tempfile.TemporaryDirectory(prefix='telegent-push-') as folder:
+                key=os.path.join(folder,'key.pem')
+                with open(key,'x',encoding='ascii') as stream:stream.write(account['private_key'])
+                os.chmod(key,0o600)
+                signed=subprocess.run([executable,'dgst','-sha256','-sign',key],input=jwt.encode(),
+                                      capture_output=True,timeout=10,check=True).stdout
+            try:
+                result=self.post('https://oauth2.googleapis.com/token',urllib.parse.urlencode({
+                    'grant_type':'urn:ietf:params:oauth:grant-type:jwt-bearer','assertion':jwt+'.'+encode(signed)}).encode(),
+                    {'Content-Type':'application/x-www-form-urlencoded'})
+            except PushFailure:raise PushFailure() from None
+            self.access=result['access_token'];self.expires=now+min(3600,int(result['expires_in']))
+            return self.access
+        except (KeyError,TypeError,ValueError,OSError,subprocess.SubprocessError):raise PushFailure() from None
+
+    def __call__(self,token,mid,instance):
+        project=push_configuration()['project_id']
+        if not re.fullmatch('[a-z][a-z0-9-]{4,62}',project):raise PushFailure(permanent=True)
+        # No message text, names, project labels, secrets or login credentials reach the push provider.
+        payload={'message':{'token':token,'data':{'message_id':str(mid),'server_id':instance},
+                            'android':{'priority':'high','ttl':'86400s'}}}
+        try:
+            self.post('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send',json.dumps(payload).encode(),
+                      {'Content-Type':'application/json','Authorization':'Bearer '+self.authorization()})
+        except PushFailure:
+            self.access=None
+            raise
+
+
+def dispatch_push(sender,now=None):
+    now=now or time.time()
+    with DB_LOCK:
+        jobs=db().execute('SELECT * FROM push_outbox WHERE next_try<=? ORDER BY created LIMIT 20',(now,)).fetchall()
+    for job in jobs:
+        with DB_LOCK:
+            con=db();device=con.execute('SELECT * FROM push_devices WHERE id=?',(job['device_id'],)).fetchone()
+            message=con.execute('SELECT * FROM messages WHERE id=?',(job['message_id'],)).fetchone()
+            user=push_user(device) if device else None
+            wanted=bool(user and message and push_wanted(message,user) and now-job['created']<86400)
+            instance=push_server_id() if wanted else None
+        failure=None
+        if wanted:
+            try:sender(device['fcm_token'],message['id'],instance)
+            except PushFailure as error:failure=error
+            except Exception:failure=PushFailure()
+        with DB_LOCK:
+            current=con.execute('SELECT fcm_token FROM push_devices WHERE id=?',(job['device_id'],)).fetchone()
+            if failure and current and current['fcm_token']!=device['fcm_token']:
+                con.execute('UPDATE push_outbox SET next_try=? WHERE device_id=? AND message_id=?',
+                             (now+1,job['device_id'],job['message_id']))
+                continue
+            if failure and not failure.permanent and job['attempts']<15:
+                delay=max(failure.retry_after,min(3600,10*2**job['attempts']))
+                delay+=secrets.randbelow(max(1,int(delay/5)))
+                con.execute('UPDATE push_outbox SET attempts=attempts+1,next_try=? WHERE device_id=? AND message_id=?',
+                             (now+delay,job['device_id'],job['message_id']))
+            else:
+                con.execute('DELETE FROM push_outbox WHERE device_id=? AND message_id=?',(job['device_id'],job['message_id']))
+            if failure and failure.unregistered:
+                con.execute('DELETE FROM push_devices WHERE id=? AND fcm_token=?',(device['id'],device['fcm_token']))
+            con.execute('DELETE FROM push_outbox WHERE NOT EXISTS (SELECT 1 FROM push_devices d WHERE d.id=device_id)')
+
+
+def push_worker():
+    sender=FcmSender()
+    while True:
+        if push_configuration():
+            try:dispatch_push(sender)
+            except Exception:pass  # Durable jobs survive a temporary network/storage failure; never log credentials.
+        time.sleep(3)
 
 
 # Placeholders: me (author), "%,me,%" (explicit recipient only: broadcasts do not nag), me (reply author).
@@ -2026,6 +2240,7 @@ class Handler(BaseHTTPRequestHandler):
         if not tok:
             raise ApiError(401, _ui_text('нужен токен (Authorization: Bearer ...)'))
         th = token_hash(tok)
+        self.auth_hash = th
         self.session_hash = None
         with DB_LOCK:
             u = db().execute("SELECT * FROM users WHERE token_hash = ? AND revoked = 0", (th,)).fetchone()
@@ -2175,6 +2390,62 @@ def project_title(data):
         raise ApiError(400, _ui_text('название проекта должно быть одной строкой без управляющих символов'))
     check_secret("название", title)
     return title
+
+
+@route('GET','/api/push/identity',auth=False)
+def api_push_identity(h,user,q,data):
+    with DB_LOCK:return {'server_id':push_server_id()}
+
+
+@route('GET','/api/push/config')
+def api_push_config(h,user,q,data):
+    require_human(user)
+    with DB_LOCK:
+        settings=push_configuration()
+        return {'configured':bool(settings),'firebase':settings,'server_id':push_server_id() if settings else None}
+
+
+@route('POST','/api/push/devices')
+def api_push_register(h,user,q,data):
+    require_human(user)
+    if not push_configuration():raise ApiError(503,_ui_text('Фоновые уведомления на сервере ещё не настроены'))
+    device_id=push_device_id(data);token=push_registration_token(data);binding=push_binding(data);now=time.time()
+    with DB_LOCK:
+        con=db()
+        old=con.execute('SELECT user FROM push_devices WHERE id=?',(device_id,)).fetchone()
+        duplicate=con.execute('SELECT id FROM push_devices WHERE fcm_token=?',(token,)).fetchone()
+        if duplicate and duplicate['id']!=device_id:raise ApiError(409,_ui_text('Устройство уже подключено к уведомлениям'))
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            if old and old['user']!=user['name']:con.execute('DELETE FROM push_outbox WHERE device_id=?',(device_id,))
+            con.execute('INSERT INTO push_devices(id,user,auth_hash,fcm_token,binding,created,updated) VALUES (?,?,?,?,?,?,?) '
+                        'ON CONFLICT(id) DO UPDATE SET user=excluded.user,auth_hash=excluded.auth_hash,'
+                        'fcm_token=excluded.fcm_token,binding=excluded.binding,updated=excluded.updated',
+                        (device_id,user['name'],h.auth_hash,token,binding,now,now))
+            con.execute('COMMIT')
+        except Exception:con.execute('ROLLBACK');raise
+    return {'ok':True,'server_id':push_server_id()}
+
+
+@route('POST','/api/push/devices/refresh',auth=False)
+def api_push_refresh(h,user,q,data):
+    device_id=push_device_id(data);token=push_registration_token(data);binding=push_binding(data)
+    with DB_LOCK:
+        con=db();device=con.execute('SELECT * FROM push_devices WHERE id=?',(device_id,)).fetchone()
+        if not device or device['binding']!=binding or not push_user(device):raise ApiError(410,_ui_text('Подключите уведомления заново в приложении'))
+        duplicate=con.execute('SELECT id FROM push_devices WHERE fcm_token=?',(token,)).fetchone()
+        if duplicate and duplicate['id']!=device_id:raise ApiError(409,_ui_text('Устройство уже подключено к уведомлениям'))
+        con.execute('UPDATE push_devices SET fcm_token=?,updated=? WHERE id=?',(token,time.time(),device_id))
+    return {'ok':True}
+
+
+@route('POST','/api/push/devices/remove',auth=False)
+def api_push_remove(h,user,q,data):
+    device_id=push_device_id(data);binding=push_binding(data)
+    with DB_LOCK:
+        con=db();con.execute('DELETE FROM push_devices WHERE id=? AND binding=?',(device_id,binding))
+        con.execute('DELETE FROM push_outbox WHERE device_id=? AND NOT EXISTS (SELECT 1 FROM push_devices WHERE id=?)',(device_id,device_id))
+    return {'ok':True}
 
 
 @route("GET", "/api/me")
@@ -3761,6 +4032,7 @@ def cmd_clearpassword(a):
 
 def cmd_serve(a):
     db()
+    threading.Thread(target=push_worker,daemon=True,name='push-delivery').start()
     def expire_secrets():
         while True:
             purge_expired_secrets()

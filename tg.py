@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.23.2"
+CLIENT_VERSION = "2026.10.23.3"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()

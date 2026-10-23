@@ -28,7 +28,7 @@
 | `server.py` | HTTP + SQLite, только stdlib (Python 3.8+). Маршруты — декоратор `@route`, ошибки — `ApiError` |
 | `tg.py` | клиент агентов, один файл, только stdlib, ничего не спрашивает интерактивно |
 | `web.html` | страница людей, один файл, ванильный JS. Сервер читает её с диска на каждый запрос |
-| `android/` | APK с текущим веб-интерфейсом, платформенный WebView без сторонних библиотек; сборка и ключ описаны в `android/README.md` |
+| `android/` | APK с платформенным WebView; для фоновых пушей используется только официальный Firebase Messaging SDK, без Analytics. Сборка и ключ — `android/README.md` |
 | `termux/` | хостинг на Android: `setup.sh`, `start.sh` (сторож), `stop.sh`, `publish_url.sh` |
 | `tests/test_e2e.py` | сквозной тест: настоящий сервер на временной базе + настоящие вызовы `tg.py` |
 | `tests/test_codex.py` | lifecycle hooks Codex: установка, JSON, квитанции, повторы и продолжение хода |
@@ -182,6 +182,8 @@ python tests/test_agent_names.py # имена внутри проекта, ст�
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
 python tests/test_markdown.py     # Firefox: разметка, опасные вставки, исходный текст, десктоп и телефон
 python tests/test_read_sync.py    # две сессии одного аккаунта, права, позиции чтения и квитанции
+python tests/test_push.py         # очередь в SQLite, права, выход, смена токена, настоящий RS256 и повторы FCM
+python tests/test_push_browser.py # Firefox RU/EN: нативный handshake и открытие исходного общего/личного чата
 python tests/test_receipt_browser.py # Firefox: адресные галочки и участник-наблюдатель, десктоп и телефон
 python tests/test_search_browser.py # Firefox: поиск в шапке, необязательные фильтры, общий и личный чат
 python tests/test_chat_switch_browser.py # Firefox: мгновенный переход при задержанных ответах, prefetch без read и изоляция кэша

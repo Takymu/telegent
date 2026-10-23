@@ -30,5 +30,7 @@ CLAUDE.local.md
 /android/build/
 /android/.signing/
 /android/local.properties
+/android/.gradle/
+/android/google-services.json
 *.keystore
 *.jks

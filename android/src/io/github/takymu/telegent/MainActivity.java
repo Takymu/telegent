@@ -70,6 +70,7 @@ public final class MainActivity extends Activity {
     private File downloadedFile;
     private AlertDialog downloadDialog;
     private AppUpdates updates;
+    private NativePush push;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -106,7 +107,7 @@ public final class MainActivity extends Activity {
         errorPanel.addView(errorTitle); errorPanel.addView(errorText); errorPanel.addView(retry); errorPanel.addView(address);
         errorPanel.setVisibility(View.GONE); content.addView(errorPanel, new FrameLayout.LayoutParams(-1, -1));
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1)); setContentView(root);
-        configureInsets(); configureWebView(); colors(); reconnect(); updates=new AppUpdates(this);
+        configureInsets(); configureWebView();push=new NativePush(this,web,()->serverOrigin);push.intent(getIntent()); colors(); reconnect(); updates=new AppUpdates(this);
     }
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
@@ -141,12 +142,14 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true); settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.3");
+        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.4");
         CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
+                String[] pushCommand=PushPolicy.command(url);
+                if(pushCommand!=null){if(request.isForMainFrame()&&NavigationPolicy.sameOrigin(view.getUrl(),serverOrigin))push.command(pushCommand);return true;}
                 String[] share=NavigationPolicy.shareRequest(url);
                 if(share!=null){if(request.isForMainFrame()&&NavigationPolicy.sameOrigin(view.getUrl(),serverOrigin))share(share[0],share[1]);return true;}
                 if (!request.isForMainFrame()) return !NavigationPolicy.sameOrigin(url, serverOrigin);
@@ -162,6 +165,7 @@ public final class MainActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 progress.setVisibility(View.GONE); CookieManager.getInstance().flush();
                 if (!pageFailed) errorPanel.setVisibility(View.GONE);
+                if(push!=null&&NavigationPolicy.sameOrigin(url,serverOrigin))push.sync();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) connectionError();
@@ -215,12 +219,14 @@ public final class MainActivity extends Activity {
         popup.getMenu().add(0, 3, 2, R.string.open_browser);
         popup.getMenu().add(0, 4, 3, R.string.about);
         popup.getMenu().add(0, 5, 4, R.string.check_updates);
+        popup.getMenu().add(0, 6, 5, R.string.push_notifications).setCheckable(true).setChecked(NativePush.preferences(this).getBoolean("registered",false));
         popup.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) {
                 web.evaluateJavascript("if(typeof saveDraft==='function')saveDraft()", value -> reconnect());
             } else if (item.getItemId() == 2) addressDialog();
             else if (item.getItemId() == 3) openExternal(NavigationPolicy.publicUrl(web.getUrl()));
             else if(item.getItemId()==5) updates.check(true);
+            else if(item.getItemId()==6) push.toggle();
             else new AlertDialog.Builder(this).setTitle(R.string.about).setMessage(R.string.about_text).setPositiveButton(R.string.ok, null).show();
             return true;
         }); popup.show();
@@ -389,7 +395,9 @@ public final class MainActivity extends Activity {
     private void backInPage() { if (web != null && web.canGoBack()) web.goBack(); else moveTaskToBack(true); }
     private void toast(int message) { if (!destroyed) Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
     @Override protected void onPause() { if(updates!=null)updates.pause(); web.onPause(); web.pauseTimers(); CookieManager.getInstance().flush(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); if (web != null) { web.resumeTimers(); web.onResume(); } if(updates!=null)updates.resume(); }
+    @Override protected void onResume() { super.onResume(); if (web != null) { web.resumeTimers(); web.onResume(); } if(updates!=null)updates.resume();if(push!=null)push.sync(); }
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(push!=null)push.intent(intent);}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==NativePush.PERMISSION&&push!=null)push.permissionResult();}
     @Override public void onConfigurationChanged(Configuration configuration) { super.onConfigurationChanged(configuration); colors(); }
     @Override protected void onDestroy() {
         destroyed = true; cancelDownload(); files.shutdownNow(); finishDownload();

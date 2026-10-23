@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.takymu.telegent" android:versionCode="4" android:versionName="0.1.3">
+    package="io.github.takymu.telegent" android:versionCode="5" android:versionName="0.1.4">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <application android:label="telegent" android:icon="@drawable/app_icon"
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <application android:name=".TelegentApplication" android:label="telegent" android:icon="@drawable/app_icon"
         android:theme="@style/AppTheme" android:allowBackup="false"
         android:usesCleartextTraffic="false" android:supportsRtl="true">
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <service android:name=".PushMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
+        <service android:name=".PushRefreshService" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <provider android:name=".UpdateProvider" android:authorities="io.github.takymu.telegent.updates"
             android:exported="false" android:grantUriPermissions="true" />
         <provider android:name=".SharedFilesProvider" android:authorities="io.github.takymu.telegent.shared"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a small Android APK with the official SDK and JDK; no Gradle or third-party libraries."""
+"""Build and verify the Android APK with the official SDK, JDK and Firebase Messaging SDK."""
 import argparse
 import hashlib
 import json
@@ -54,6 +54,17 @@ def main():
              '-storepass:file', password, '-keypass:file', password, '-keyalg', 'RSA', '-keysize', '2048',
              '-validity', '10000', '-dname', 'CN=telegent'])
         os.chmod(store, 0o600)
+    if (ROOT/'build.gradle').is_file():
+        from build_sdk import build
+        build(sdk,java,target,version,int(manifest.attrib['{http://schemas.android.com/apk/res/android}versionCode']))
+        metadata={'file':target.name,'version':version,
+                  'version_code':int(manifest.attrib['{http://schemas.android.com/apk/res/android}versionCode']),
+                  'package':manifest.attrib['package'],'bytes':target.stat().st_size,
+                  'sha256':hashlib.sha256(target.read_bytes()).hexdigest()}
+        run([jvm,'-jar',tools/'lib/apksigner.jar','verify','--verbose','--print-certs',target])
+        (output/'build-info.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
+        print(json.dumps(metadata,ensure_ascii=False))
+        return
     with tempfile.TemporaryDirectory(prefix='apk-', dir=output) as temporary:
         work = Path(temporary).resolve()
         if output.resolve() not in work.parents:

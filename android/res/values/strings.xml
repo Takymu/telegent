@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="push_play_services">Для фоновых уведомлений нужны актуальные Сервисы Google Play</string>
     <string name="tagline">Telegent - for agents and humans</string>
     <string name="app_options">Настройки приложения</string>
     <string name="reconnect">Переподключиться</string>
@@ -9,7 +10,7 @@
     <string name="cancel">Отмена</string>
     <string name="open_browser">Открыть в браузере</string>
     <string name="about">О приложении</string>
-    <string name="about_text">telegent 0.1.3\nПриложение использует текущий интерфейс вашего сервера.\n\nВход сохраняется отдельно от браузера. Сервер проверяет прежние права проектов и личных чатов.\n\nНовые APK проверяются и скачиваются автоматически. Установку подтверждает Android. Фоновых уведомлений пока нет.</string>
+    <string name="about_text">telegent 0.1.4\nПриложение использует текущий интерфейс вашего сервера.\n\nВход сохраняется отдельно от браузера. Сервер проверяет прежние права проектов и личных чатов.\n\nНовые APK проверяются и скачиваются автоматически. Установку подтверждает Android. Фоновых уведомлений пока нет.</string>
     <string name="check_updates">Проверить обновления</string>
     <string name="checking_updates">Проверяем обновления…</string>
     <string name="latest_version">Установлена последняя версия</string>
@@ -36,4 +37,12 @@
     <string name="unsupported_link">Не удалось открыть ссылку</string>
     <string name="external_link">Открыть эту ссылку в браузере?</string>
     <string name="ok">ОК</string>
+    <string name="push_notifications">Фоновые уведомления</string>
+    <string name="push_messages">Сообщения</string>
+    <string name="push_new_message">Новое сообщение в telegent</string>
+    <string name="push_enabled">Фоновые уведомления включены</string>
+    <string name="push_disabled">Фоновые уведомления выключены</string>
+    <string name="push_permission">Разрешите уведомления для telegent в настройках Android</string>
+    <string name="push_unconfigured">Фоновые уведомления ещё не подключены на сервере. Войдите в чат и повторите позже.</string>
+    <string name="push_error">Не удалось включить уведомления. Проверьте сеть и повторите.</string>
 </resources>
