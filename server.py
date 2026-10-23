@@ -2685,6 +2685,12 @@ def api_summary(h, user, q, data):
     if q.get("client") == "codex":
         report_agent_client(user, 'codex')
         touch(user, checking=True)
+    elif (not user['agent_client'] and not q.get('client') and q.get('metadata')=='1' and q.get('limit')=='10'
+          and h.headers.get('User-Agent')=='telegent-tg/1.0'
+          and h.headers.get('X-Telegent-Host') not in (None,'','web')
+          and not h.headers.get('X-Telegent-Client')):
+        # This is the existing Claude hook protocol, including clients predating client headers.
+        report_agent_client(user, 'claude')
     with DB_LOCK:
         me = presence(user)
         unacked = list_messages(user, {"for_me": "1", "unacked": "1", "full": "0", "limit": "1000"}, p["id"])

@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
 import unittest
 from unittest import mock
 
@@ -61,6 +62,31 @@ class AgentClientTest(unittest.TestCase):
         self.fx.cli('hook')
         self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'claude')
         self.fx.api('GET','/api/summary?metadata=1&client=codex')
+        self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'codex')
+
+    def test_legacy_claude_hook_without_upgrade_or_client_header(self):
+        legacy=self.fx.work/'legacy-tg.py'
+        source=subprocess.check_output(['git','show','82754b1:tg.py'],cwd=fixture.ROOT)
+        self.assertNotIn(b'X-Telegent-Client',source)
+        legacy.write_bytes(source)
+        config_before=self.fx.config.read_bytes()
+        result=subprocess.run([os.sys.executable,'-X','utf8',str(legacy),'--config',str(self.fx.config),'hook'],
+                              env=self.fx.env,capture_output=True,text=True,encoding='utf-8',timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'claude')
+        self.assertEqual(legacy.read_bytes(),source)
+        self.assertEqual(self.fx.config.read_bytes(),config_before)
+
+    def test_legacy_detection_does_not_guess_from_watch_name_or_human_requests(self):
+        headers={'User-Agent':'telegent-tg/1.0','X-Telegent-Host':'fixture/win'}
+        self.fx.api('GET','/api/summary?metadata=1')
+        self.assertIsNone(self.fx.api('GET','/api/me')['agent_client'])
+        self.fx.api('GET','/api/wait?timeout=0.01&after=999999&full=0&for_me=1',headers=headers)
+        self.assertIsNone(self.fx.api('GET','/api/me')['agent_client'])
+        self.fx.api('GET','/api/summary?metadata=1&limit=10',who='alice',headers=headers)
+        self.assertIsNone(self.fx.api('GET','/api/me',who='alice')['agent_client'])
+        self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'codex'})
+        self.fx.api('GET','/api/summary?metadata=1&limit=10',headers=headers)
         self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'codex')
 
     def test_unknown_or_ambiguous_environment_stays_unknown(self):
