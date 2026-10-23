@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.23.1"
+CLIENT_VERSION = "2026.10.23.2"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -277,6 +277,10 @@ class Conf:
         self.token = token
         self.state_path = resolve(c.get("state_file") or "tg.state.json", base)
         self.watch_cmd = (c.get("watch_cmd") or "").strip() or None
+        codex = bool(os.environ.get('CODEX_THREAD_ID') or os.environ.get('CODEX_SESSION_ID'))
+        claude = bool(os.environ.get('CLAUDECODE'))
+        self.agent_client = c.get('client') if c.get('client') in ('codex','claude') else (
+            ('codex' if codex else 'claude') if codex != claude else None)
         # Secretaries aggregate incoming messages; writes still select a project explicitly.
         self.secretary = bool(c.get('is_secretary'))
         self.project = os.environ.get("TELEGENT_PROJECT") or PROJECT_ARG[0] or c.get("project") or None
@@ -375,6 +379,7 @@ def api(conf, method, path, data=None, timeout=30, raw=False, sink=None):
     req = urllib.request.Request(url, data=body, method=method, headers={
         "Authorization": f"Bearer {conf.token}", "X-Telegent-Host": host_tag(),
         "Content-Type": "application/octet-stream" if isinstance(data, bytes) else "application/json", "User-Agent": "telegent-tg/1.0",
+        **({"X-Telegent-Client": conf.agent_client} if getattr(conf,'agent_client',None) in ('codex','claude') else {}),
         **({"X-Telegent-Project": conf.project} if conf.project else {})})
     try:
         with urllib.request.build_opener(NoApiRedirect).open(req, timeout=timeout) as r:
@@ -1307,6 +1312,7 @@ def cmd_hook(conf, args):
     user's prompt, i.e. with the user's authority, so it carries status only: whether watch listens, how many
     messages wait, their ids/authors/types. Never message text (subject, body, topic): peer text must not
     arrive dressed as the user. Silent when there is nothing to say; never fails the hook."""
+    conf.agent_client = 'claude'
     tg = shell_command(client_command(conf))
     tag = "[telegent]"
     try:
@@ -1544,6 +1550,7 @@ def cmd_codex_hook(args):
             if isinstance(event, dict):
                 with contextlib.redirect_stderr(io.StringIO()):
                     conf = Conf(args.config)
+                    conf.agent_client = 'codex'
                     schedule_update(conf)
                     result = codex_hook_result(conf, event)
     except (Exception, SystemExit):

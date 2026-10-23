@@ -22,6 +22,7 @@ def runtime(conf):
 
 
 def validate(conf,binding):
+    conf.agent_client='codex'
     me=tg.api_retry(conf,'GET','/api/me')
     if (me.get('kind')!='agent' or me.get('is_secretary') or me.get('id')!=binding.get('account_id')
             or (me.get('project') or {}).get('id')!=binding.get('project_id')):

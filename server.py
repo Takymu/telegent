@@ -226,6 +226,7 @@ def db():
                                  ("messages", "edited_ts", "REAL"), ("messages", "deleted_ts", "REAL"),
                                  ("users", "last_wait_ts", "REAL"), ("users", "pw_hash", "TEXT"),
                                  ("users", "last_check_ts", "REAL"),
+                                 ("users", "agent_client", "TEXT"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
                                  ("users", "is_secretary", "INTEGER NOT NULL DEFAULT 0"),
                                  ("invites", "is_secretary", "INTEGER NOT NULL DEFAULT 0"),
@@ -240,6 +241,9 @@ def db():
                                  ("invites", "project_id", "INTEGER"), ("invites", "role", "TEXT")):
             if col not in {r[1] for r in _db.execute(f"PRAGMA table_info({table})")}:
                 _db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                if table=='users' and col=='agent_client':
+                    # Historical Codex hook checks explicitly identified their client.
+                    _db.execute("UPDATE users SET agent_client='codex' WHERE kind='agent' AND last_check_ts IS NOT NULL")
         if "creator_unknown" not in {r[1] for r in _db.execute("PRAGMA table_info(projects)")}:
             _db.execute("BEGIN IMMEDIATE")
             try:
@@ -385,7 +389,17 @@ def account_name(key):
 
 def account_dict(row):
     return {"id": row["name"], "name": row["display_name"] or row["name"], "kind": row["kind"],
-            "owner": account_name(row["owner"]), "owner_id": row["owner"], "is_secretary": bool(row["is_secretary"])}
+            "owner": account_name(row["owner"]), "owner_id": row["owner"], "is_secretary": bool(row["is_secretary"]),
+            "agent_client": row['agent_client'] if row['kind']=='agent' else None}
+
+
+def report_agent_client(user, client):
+    # A self-reported display hint never changes identity, membership or authority.
+    if user['kind']=='agent' and client in ('codex','claude') and user['agent_client']!=client:
+        with DB_LOCK:
+            db().execute('UPDATE users SET agent_client=? WHERE name=?', (client,user['name']))
+            return db().execute('SELECT * FROM users WHERE name=?', (user['name'],)).fetchone()
+    return user
 
 
 def find_accounts(label=None, pid=None, kind=None, account_id=None, owner=None):
@@ -1376,6 +1390,8 @@ def msg_dicts(rows, me=None, full=True):
     ids = [r["id"] for r in rows]
     qs = ",".join("?" * len(ids))
     con = db()
+    clients = {r['name']:r['agent_client'] for r in con.execute(
+        'SELECT DISTINCT u.name,u.agent_client FROM users u JOIN messages m ON m.author=u.name WHERE m.id IN ('+qs+')', ids)}
     project_slugs={r['id']:r['slug'] for r in con.execute('SELECT id,slug FROM projects')}
     secretaries={r[0] for r in con.execute('SELECT name FROM users WHERE is_secretary=1')}
     atts, receipts, approvals, reactions = {}, {}, {}, {}
@@ -1416,6 +1432,7 @@ def msg_dicts(rows, me=None, full=True):
             "id": r["id"], "time": iso(r["ts"]), "ts": r["ts"],
             "delivered_at": iso(mine["delivered_ts"] or mine["read_ts"]) if mine else None,
             "author": account_name(r["author"]), "author_id": r["author"], "author_kind": r["author_kind"],
+            "author_client": clients.get(r['author']) if r['author_kind']=='agent' else None,
             "author_is_secretary":r['author'] in secretaries, "project":project_slugs[r['project_id']], "project_id":r['project_id'],
             "owner": account_name(r["owner"]), "owner_id": r["owner"], "host": r["host"],
             "to": [account_name(x) for x in recipients_list(r["recipients"])],
@@ -2021,7 +2038,7 @@ class Handler(BaseHTTPRequestHandler):
         if not u:
             raise ApiError(401, _ui_text('неизвестный или отозванный токен (или сессия закрыта)'))
         touch(u)
-        return u
+        return report_agent_client(u, self.headers.get('X-Telegent-Client'))
 
     def client_ip(self):
         return self.headers.get("CF-Connecting-IP") or self.client_address[0]
@@ -2666,6 +2683,7 @@ def api_summary(h, user, q, data):
         return result
     p = project_for(h, user, q)
     if q.get("client") == "codex":
+        report_agent_client(user, 'codex')
         touch(user, checking=True)
     with DB_LOCK:
         me = presence(user)
