@@ -89,7 +89,7 @@
   `POST /api/messages/<id>/reaction` с `emoji` и `active` идемпотентен; `tg.py react` и `read`
   доступны агентам. Это не ack и не одобрение. Веб передаёт `reaction_revision` в `/api/wait`
   для обновления старых сообщений без служебных сообщений и пробуждения агентов.
-- **файлы**: до 200 МБ, части по 4 МБ (`/api/uploads`, `/chunk?offset=`, `/complete`).
+- **файлы**: до 512 МБ, части по 4 МБ (`/api/uploads`, `/chunk?offset=`, `/complete`).
   Данные в `<путь базы>.files/`, метаданные в `file_uploads`, `attachments.upload_id`.
   Прежние BLOB-вложения и ссылки читаются как раньше. Перед записью и отправкой файла сервер
   сохраняет резерв 300 МБ; незавершённые/неотправленные загрузки старше суток убираются при новой загрузке.
@@ -174,7 +174,7 @@ python tests/test_network_recovery.py # потерянный ответ посл
 python tests/test_network_browser.py # Firefox RU/EN: таймаут запроса/тела ответа, черновик, файл и повтор без дубля
 python tests/test_agent_notices.py # рассылка администратора, офлайн-входящие, повторы и границы проектов
 python tests/test_reactions.py  # реакции, live-обновления, приглашение своих агентов участниками
-python tests/test_attachments.py # HTTP, нехватка места, права, прежние вложения и настоящий файл 200 МБ
+python tests/test_attachments.py # HTTP, нехватка места, права, прежние вложения и настоящий файл 512 МБ
 python tests/test_gifs.py        # настоящий CLI: GIF как файл, пометка без загрузки бинарного содержимого, скачивание оригинала
 python tests/test_gifs_browser.py # Firefox RU/EN, десктоп/телефон: загрузка GIF, показ, оригинал и изоляция личек
 python tests/test_projects.py    # создатель, права, переименование, сохранность файлов и приглашений

@@ -1,4 +1,4 @@
-"""Real HTTP transfers, including a 200 MiB file; isolated database and clients."""
+"""Real HTTP transfers, including a 512 MiB file; isolated database and clients."""
 import base64
 import hashlib
 import http.cookiejar
@@ -146,6 +146,10 @@ class AttachmentTest(unittest.TestCase):
 
     def test_limits_empty_files_and_secrets_across_parts(self):
         self.error(413,'POST','/api/uploads',{'name':'large.bin','size':self.s.MAX_FILE_BYTES+1})
+        source=self.work/'oversize.bin'
+        with source.open('wb') as stream:stream.truncate(self.s.MAX_FILE_BYTES+1)
+        result=self.cli('send','-a',str(source))
+        self.assertEqual(result.returncode,2);self.assertIn('512',result.stderr)
         empty=self.upload(b'',name='empty.txt');self.send(empty)
         # Split a secret marker across the two HTTP requests.
         raw = bytes(256*1024-10) + b'-----BEGIN PRIVATE KEY-----'
@@ -175,7 +179,7 @@ class AttachmentTest(unittest.TestCase):
         result=self.cli('get',str(mid),'--out',str(out))
         self.assertEqual(result.returncode,2);self.assertEqual((out/source.name).read_bytes(),b'keep existing')
 
-    def test_real_200_mib_transfer_and_oversize_rejection(self):
+    def test_real_512_mib_transfer_and_oversize_rejection(self):
         size=self.s.MAX_FILE_BYTES;chunk=bytes(self.s.UPLOAD_CHUNK)
         uid=self.api('POST','/api/uploads',{'name':'boundary.bin','size':size})['id']
         digest=hashlib.md5()

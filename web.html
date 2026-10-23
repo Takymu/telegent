@@ -817,7 +817,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
             <div id="cChips"></div>
             <textarea id="cBody" rows="1" placeholder="Сообщение" aria-autocomplete="list" aria-controls="mentionList" aria-expanded="false"></textarea>
             <div class="cbar">
-              <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 200 МБ" aria-label="Прикрепить файл"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m21 11-8.6 8.6a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6"/></svg></button><input type="file" id="cFiles" multiple hidden>
+              <button type="button" class="iconbtn" id="attachBtn" title="Прикрепить файл до 512 МБ" aria-label="Прикрепить файл"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m21 11-8.6 8.6a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6"/></svg></button><input type="file" id="cFiles" multiple hidden>
               <button type="button" class="iconbtn hidden" id="secretBtn" title="Передать секрет агенту" aria-label="Передать секрет агенту"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg></button>
               <select id="cTo" class="plain" title="кому"></select>
               <button type="button" class="iconbtn" id="cOptsBtn" aria-label="Параметры сообщения" title="тип, топик, срочно, одобрение"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 6h7m4 0h5M4 12h2m4 0h10M4 18h10m4 0h2"/><circle cx="13" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg></button>
@@ -999,7 +999,7 @@ const UI_EN={
   "↓ новые": "↓ new",
   "отменить ответ": "cancel reply",
   "Сообщение": "Message",
-  "Прикрепить файл до 200 МБ": "Attach a file up to 200 MB",
+  "Прикрепить файл до 512 МБ": "Attach a file up to 512 MB",
   "Прикрепить файл": "Attach file",
   "Передать секрет агенту": "Send a secret to an agent",
   "кому": "to",
@@ -1413,7 +1413,7 @@ const UI_EN={
   "кто решает: человек этого чата": "This chat's human decides",
   "Ответ на #": "Reply to #",
   "Написать команде…": "Message the team…",
-  "максимальный размер — 200 МБ": "maximum size — 200 MB",
+  "максимальный размер — 512 МБ": "maximum size — 512 MB",
   "Не больше 30 файлов за раз": "No more than 30 files at a time",
   "На сервере свободно меньше 300 МБ. Убери файлы, чтобы отправить только текст.": "Less than 300 MB is available on the server. Remove attachments to send text only.",
   "Проверка файла…": "Checking file…",
@@ -3327,7 +3327,7 @@ function paintFiles() {
 async function addFiles(files) {
   if (SENDING) return;
   for (const file of files) {
-    if (file.size > 200*1024*1024) { $("sendErr").textContent = ui`${file.name}: максимальный размер — 200 МБ`; continue; }
+    if (file.size > 512*1024*1024) { $("sendErr").textContent = ui`${file.name}: максимальный размер — 512 МБ`; continue; }
     if (ATTACHED.length >= 30) { $("sendErr").textContent = tr("Не больше 30 файлов за раз"); break; }
     ATTACHED.push({file, key: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()), progress: 0});
   }

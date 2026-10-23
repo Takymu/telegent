@@ -37,7 +37,7 @@ from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INLINE_LIMIT = 2 * 1024 * 1024
-MAX_FILE_BYTES = 200 * 1024 * 1024
+MAX_FILE_BYTES = 512 * 1024 * 1024
 # The server's tunnel address changes when the phone restarts it; the phone publishes the new one here
 # (termux/publish_url.sh). Override with "url_source" in the config, "" turns the lookup off.
 URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt"
@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.23.3"
+CLIENT_VERSION = "2026.10.23.4"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -693,7 +693,7 @@ def build_attachments(conf, args, send_key):
         size = os.path.getsize(p)
         name = os.path.basename(p)
         if not args.no_inline and size > MAX_FILE_BYTES:
-            die(f"файл {name}: максимальный размер — 200 МБ", 2)
+            die(f"файл {name}: максимальный размер — 512 МБ", 2)
         scan_local(conf, "имя вложения", name)
         digest, tail = hashlib.md5(), ""
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -1838,7 +1838,7 @@ def add_send_opts(p, body=True):
     p.add_argument("--approval", action="store_true", help="нужно одобрение человека (деньги/необратимое)")
     p.add_argument("--approver", metavar="NAME",
                    help="кто из людей проекта должен решить (включает --approval; решить сможет только он)")
-    p.add_argument("-a", "--attach", action="append", help="прикрепить файл до 200 МБ (загрузка частями на сервер)")
+    p.add_argument("-a", "--attach", action="append", help="прикрепить файл до 512 МБ (загрузка частями на сервер)")
     p.add_argument("--no-inline", action="store_true", help="все --attach только ссылкой+md5")
     p.add_argument("--link", action="append", help="ссылка/путь на большой файл: URL_or_path[#md5]")
     p.add_argument("--key", help="ключ идемпотентности (повтор с тем же ключом не создаст дубль)")

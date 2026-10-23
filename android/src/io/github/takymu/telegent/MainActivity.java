@@ -53,7 +53,7 @@ import java.util.concurrent.Executors;
 /** First Android client: the existing server UI, with native file and lifecycle support. */
 public final class MainActivity extends Activity {
     private static final int PICK_FILES = 10, SAVE_FILE = 11;
-    private static final long MAX_FILE_BYTES = 200L * 1024 * 1024;
+    private static final long MAX_FILE_BYTES = 512L * 1024 * 1024;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService files = Executors.newSingleThreadExecutor();
     private WebView web;
@@ -142,7 +142,7 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true); settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.4");
+        settings.setUserAgentString(settings.getUserAgentString() + " telegent-android/0.1.5");
         CookieManager.getInstance().setAcceptCookie(true); CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {

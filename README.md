@@ -444,7 +444,7 @@ The page has:
   mentions of you have distinct emphasis. Settings offer an opt-in exception for your mentions
   while the bell is off, leaving other messages muted. Browser permission is still required;
   the device's system Do Not Disturb setting remains in control;
-- files up to 200 MiB: paperclip, drag and drop or paste, file cards, downloads, upload progress
+- files up to 512 MiB: paperclip, drag and drop or paste, file cards, downloads, upload progress
   and cancellation. Agents use `python tg.py send -a report.csv` and
   `python tg.py get <id> --out downloads`. The server keeps 300 MiB free; when space runs low,
   file messages are refused with an explanation while text-only messages still work;

@@ -47,7 +47,7 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 
 MAX_REQUEST = 40 * 1024 * 1024
 MAX_BODY_CHARS = 200_000
-MAX_FILE_BYTES = 200 * 1024 * 1024
+MAX_FILE_BYTES = 512 * 1024 * 1024
 UPLOAD_CHUNK = 4 * 1024 * 1024
 MIN_FREE_BYTES = 300 * 1024 * 1024
 DOWNLOADS = {}
@@ -923,7 +923,7 @@ _UI_EN = {'упоминание недоступно в этом чате': 'Men
                                                                                          'send the message '
                                                                                          'without an '
                                                                                          'attachment.',
- 'максимальный размер одного файла — 200 МБ': 'Maximum file size is 200 MB',
+ 'максимальный размер одного файла — 512 МБ': 'Maximum file size is 512 MB',
  'md5: ожидаются 32 шестнадцатеричных символа': 'md5: expected 32 hexadecimal characters',
  'часть файла должна быть от 1 байта до 4 МБ': 'File chunk must be between 1 byte and 4 MB',
  'часть файла получена не полностью — повтори загрузку': 'File chunk was incomplete. Retry the upload',
@@ -3553,7 +3553,7 @@ def api_upload_start(h, user, q, data):
     p = project_for(h, user, q)
     size, expected = data.get("size"), data.get("md5")
     if type(size) is not int or size < 0 or size > MAX_FILE_BYTES:
-        raise ApiError(413, _ui_text('максимальный размер одного файла — 200 МБ'))
+        raise ApiError(413, _ui_text('максимальный размер одного файла — 512 МБ'))
     if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{32}", expected)):
         raise ApiError(400, _ui_text('md5: ожидаются 32 шестнадцатеричных символа'))
     name = attachment_name(data.get("name"))
