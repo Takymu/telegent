@@ -7,7 +7,7 @@
     python tg.py claim "resnet18 lr3e-4" --until "03:00" | claims | release "resnet18 lr3e-4"
 
 Config (first found): --config, $TELEGENT_CONFIG, tg.config.json next to this file, ~/.telegent/config.json
-    {"server": "https://...", "token_file": "~/.telegent/token", "secret_files": ["C:/work/project/secrets.txt"],
+    {"server": "https://...", "token_file": "~/.telegent/token",
      "watch_cmd": "python C:/path/tg.py watch"}      # watch_cmd: optional, the hook suggests exactly this command
 Full protocol: AGENTS.md.
 """
@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.23.4"
+CLIENT_VERSION = "2026.10.24.1"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -199,27 +199,6 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-# Same list as server.py: the client refuses first, the server enforces.
-SECRET_PATTERNS = [
-    ("private key", r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"),
-    ("AWS access key", r"\bAKIA[0-9A-Z]{16}\b"),
-    ("GitHub token", r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})"),
-    ("API key (sk-...)", r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}"),
-    ("HuggingFace token", r"\bhf_[A-Za-z0-9]{30,}"),
-    ("Slack token", r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
-    ("Google API key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
-    ("Telegram bot token", r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"),
-    ("JWT", r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
-    ("telegent token", r"\btg[tsi]_[0-9a-f]{32,}"),
-    ("password in URL", r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]{3,}@"),
-    ("sshpass -p", r"\bsshpass\s+-p\s*\S+"),
-    ("assigned secret", r"(?i)\b(?:password|passwd|pwd|passphrase|пароль|secret|token|api[_-]?key|"
-                        r"access[_-]?key|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?"
-                        r"(?![\s$<{%*]|\.\.\.|os\.environ|os\.getenv|getenv|env\b|ENV\b|none\b|None\b|null\b)"
-                        r"[^\s\"',;]{6,}"),
-]
-_SECRET_RES = [(n, re.compile(p)) for n, p in SECRET_PATTERNS]
-
 
 def die(msg, code=1):
     print(f"tg: {msg}", file=sys.stderr)
@@ -284,19 +263,6 @@ class Conf:
         # Secretaries aggregate incoming messages; writes still select a project explicitly.
         self.secretary = bool(c.get('is_secretary'))
         self.project = os.environ.get("TELEGENT_PROJECT") or PROJECT_ARG[0] or c.get("project") or None
-        self.literals = []
-        for entry in c.get("secret_files") or []:
-            if isinstance(entry, dict):
-                path, lines = entry.get("path"), set(entry.get("lines") or [])
-            else:
-                path, lines = entry, set()
-            try:
-                with open(resolve(path, base), encoding="utf-8-sig", errors="replace") as f:
-                    for i, ln in enumerate(f, 1):
-                        if (not lines or i in lines) and len(ln.strip()) >= 6:
-                            self.literals.append(ln.strip())
-            except OSError:
-                print(f"tg: предупреждение: secret_files {path} не читается", file=sys.stderr)
         if not self.server or not self.token:
             die("нет настройки: нужен tg.config.json с server и token_file (см. README.md), "
                 f"искал: --config, $TELEGENT_CONFIG, {os.path.join(HERE, 'tg.config.json')}, ~/.telegent/config.json")
@@ -670,20 +636,6 @@ def read_body(args):
     return args.body or ""
 
 
-def scan_local(conf, field, text):
-    if not text:
-        return
-    for kind, rx in _SECRET_RES:
-        m = rx.search(text)
-        if m:
-            die(f"НЕ отправлено: похоже на секрет ({kind}) в поле «{field}», строка {text.count(chr(10), 0, m.start()) + 1}. "
-                "Убери значение (напиши «лежит в файле X у меня») и пошли снова.", 4)
-    for lit in conf.literals:
-        i = text.find(lit)
-        if i >= 0:
-            die(f"НЕ отправлено: в поле «{field}» (строка {text.count(chr(10), 0, i) + 1}) есть строка из secret_files.", 4)
-
-
 def build_attachments(conf, args, send_key):
     atts = []
     for path in args.attach or []:
@@ -694,19 +646,13 @@ def build_attachments(conf, args, send_key):
         name = os.path.basename(p)
         if not args.no_inline and size > MAX_FILE_BYTES:
             die(f"файл {name}: максимальный размер — 512 МБ", 2)
-        scan_local(conf, "имя вложения", name)
-        digest, tail = hashlib.md5(), ""
-        decoder = codecs.getincrementaldecoder("utf-8")("replace")
-        overlap = max([4096] + [len(x)+512 for x in conf.literals])
+        digest = hashlib.md5()
         with open(p, "rb") as f:
             while True:
                 chunk = f.read(256*1024)
-                text = tail + decoder.decode(chunk, final=not chunk)
-                if not args.no_inline:
-                    scan_local(conf, "вложение " + name, text)
                 if not chunk:
                     break
-                digest.update(chunk); tail = text[-overlap:]
+                digest.update(chunk)
         a = {"name": name, "size": size, "md5": digest.hexdigest()}
         if args.no_inline:
             a["link"] = f"{host_tag()}:{os.path.abspath(p)}"
@@ -719,9 +665,7 @@ def build_attachments(conf, args, send_key):
         atts.append({"name": os.path.basename(link.rstrip("/")) or "link", "link": link, "md5": md5 or None})
     if len(atts) > 30:
         die("не больше 30 вложений", 2)
-    for a in atts:
-        scan_local(conf, "ссылка", a.get("link") or "")
-    # Scan every local file before any bytes leave the machine.
+    # Upload files in bounded chunks after collecting their metadata.
     for index, a in enumerate(atts):
         if "_path" not in a:
             continue
@@ -786,9 +730,6 @@ def do_send(conf, args, reply_to=None, default_to=None, default_to_ids=None):
         else:
             print("tg: --claim работает только с -t result, игнорирую (снять заявку: python tg.py release <ключ>)",
                   file=sys.stderr)
-    for field, text in (("тема", data["subject"]), ("текст", body), ("топик", data["topic"]),
-                        ("результат", json.dumps(data["result"] or {}, ensure_ascii=False))):
-        scan_local(conf, field, text)
     data["attachments"] = build_attachments(conf, args, data["idem_key"])
     res = api_retry(conf, "POST", "/api/messages", data, timeout=120)
     print(f"#{res['id']}" + (" (уже было отправлено — дубль не создан)" if res.get("duplicate") else " отправлено"))
@@ -817,7 +758,7 @@ def cmd_secret(conf,args):
     me=get_me(conf)
     if me["kind"]!="agent":die("получение секретов доступно клиенту агента",2)
     if not args.out:die("секрет сохраняется только в файл: secret ID --out ПУТЬ",2)
-    if not conf.path:die("для получения секрета нужен файл конфигурации: добавлю полученный файл в secret_files",2)
+    if not conf.path:die("для получения секрета нужен файл конфигурации",2)
     parsed=urllib.parse.urlsplit(conf.server)
     if parsed.scheme!="https" and parsed.hostname not in ("localhost","127.0.0.1","::1"):
         die("секрет можно получать только через HTTPS",2)
@@ -845,10 +786,6 @@ def cmd_secret(conf,args):
         os.makedirs(os.path.dirname(dst),exist_ok=True)
         fd=os.open(dst,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         with os.fdopen(fd,"wb") as f:f.write(raw);f.flush();os.fsync(f.fileno())
-    with open(conf.path,encoding="utf-8-sig") as f:settings=json.load(f)
-    protected=settings.setdefault("secret_files",[])
-    if not any((entry.get("path") if isinstance(entry,dict) else entry)==dst for entry in protected):
-        protected.append({"path":dst});write_json_atomic(conf.path,settings)
     api_retry(conf,"POST",f"/api/messages/{args.id}/secret",{"action":"consume","claim_key":delivery["claim_key"]})
     print(f"Секрет сохранён: {dst}. Значение не выведено; пакет удалён с сервера.")
 
@@ -994,8 +931,6 @@ def cmd_ack(conf, args):
 
 def cmd_status(conf, args, state):
     data = {"state": state, "ref": getattr(args, "ref", None) or "", "note": args.note or ""}
-    scan_local(conf, "ref", data["ref"])
-    scan_local(conf, "note", data["note"])
     res = api_retry(conf, "POST", f"/api/messages/{args.id}/status", data)
     print(f"#{args.id} -> {state} (уведомление #{res['status_message']})")
 
@@ -1123,8 +1058,6 @@ def cmd_board(conf, args):
         data = {k: getattr(args, k) for k in ("now", "next", "gpu_until", "note", "back") if getattr(args, k) is not None}
         if not data:
             die("board set --now ... --next ... --gpu-until ... --note ... --back ...")
-        for k, v in data.items():
-            scan_local(conf, k, v)
         res = api_retry(conf, "POST", "/api/board", data)
     else:
         res = api_retry(conf, "GET", "/api/board")
@@ -1161,8 +1094,6 @@ def claim_line(c):
 def cmd_claim(conf, args):
     data = {"key": args.key, "topic": args.topic, "note": args.note, "until": args.until, "force": args.force,
             "hours": args.hours}
-    for k in ("key", "topic", "note", "until"):
-        scan_local(conf, k, data[k])
     try:
         res = api_retry(conf, "POST", "/api/claims", {k: v for k, v in data.items() if v is not None})
     except Conflict as e:
@@ -1199,7 +1130,6 @@ def cmd_release(conf, args):
     k = args.key_or_id
     data = {"id": int(k)} if k.isdigit() else {"key": k}
     if args.note:
-        scan_local(conf, "note", args.note)
         data["note"] = args.note
     c = api_retry(conf, "POST", "/api/claims/release", data)["claim"]
     print(f"снято: {c['key']} (#{c['id']}, держал {c['owner']})")
@@ -1816,8 +1746,6 @@ def cmd_join(args):
 def cmd_init(args):
     path = args.config or os.path.join(HERE, "tg.config.json")
     c = {"server": args.server.rstrip("/"), "token_file": args.token_file}
-    if args.secret_file:
-        c["secret_files"] = args.secret_file
     with open(path, "w", encoding="utf-8") as f:
         json.dump(c, f, ensure_ascii=False, indent=2)
     print(f"записал {path}")
@@ -1830,7 +1758,7 @@ def add_send_opts(p, body=True):
     p.add_argument("-s", "--subject", help=argparse.SUPPRESS)   # old clients: becomes the first line of the text
     p.add_argument("-f", "--file", help="текст из файла; '-' = stdin")
     p.add_argument("--encoding", default="auto", help="кодировка -f/stdin: auto (UTF-8/BOM), cp1251, cp866, koi8-r, utf-16-le и др.")
-    p.add_argument("--allow-lossy-text", action="store_true", help="намеренно отправить много ?/�; не исправляет кодировку и не отключает секрет-фильтр")
+    p.add_argument("--allow-lossy-text", action="store_true", help="намеренно отправить много ?/�; не исправляет кодировку")
     p.add_argument("-t", "--type", default="info", choices=("info", "request", "question", "result", "alert", "decision"))
     p.add_argument("-T", "--topic", help="топик: tuning, eval, infra, ...")
     p.add_argument("--to", help="кому, через запятую (по умолчанию всем)")
@@ -1967,7 +1895,7 @@ def main():
     s = sub.add_parser("init", help="записать tg.config.json")
     s.add_argument("--server", required=True)
     s.add_argument("--token-file", required=True)
-    s.add_argument("--secret-file", action="append", help="файл со строками-секретами (не дать им уйти)")
+    s.add_argument("--secret-file", action="append", help="устаревший параметр совместимости, игнорируется")
     s = sub.add_parser("join", help="подключиться по ссылке-приглашению: получить токен и записать конфиг")
     s.add_argument("link", help="ссылка от человека (…#invite=tgi_…) или код tgi_…")
     s.add_argument("--token-file", help="куда записать токен (по умолчанию рядом с конфигом: token)")

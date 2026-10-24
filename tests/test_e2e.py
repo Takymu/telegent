@@ -138,24 +138,21 @@ def main():
         r = run(["get", str(reply_id), "--out", os.path.join(tmp, "dl")], A)
         check("md5 ok" in r.stdout and "model.pt: по ссылке" in r.stdout, "download attachment, md5 verified")
 
-        # secret filter: client side and server side
-        r = run(["send", "пароль: Hunter2Hunter2"], A, ok=False)
-        check(r.returncode == 4 and "НЕ отправлено" in r.stderr and "Hunter2" not in r.stderr, "client blocks assigned secret")
-        r = run(["send", "ключ ghp_" + "a" * 36], A, ok=False)
-        check(r.returncode == 4, "client blocks GitHub token")
-        r = run(["send", "зайди так: Sup3rPassw0rdXYZ"], A, ok=False)
-        check(r.returncode == 4 and "secret_files" in r.stderr, "client blocks literal from secret_files")
+        # Message content is not classified or rejected as a secret by the transport.
+        r = run(["send", "пароль: Hunter2Hunter2"], A)
+        check(r.returncode == 0, "client sends assigned-value examples")
+        r = run(["send", "ключ ghp_" + "a" * 36], A)
+        check(r.returncode == 0, "client sends token-shaped examples")
+        r = run(["send", "зайди так: Sup3rPassw0rdXYZ"], A)
+        check(r.returncode == 0, "legacy secret_files does not filter content")
         r = run(["send", "сервер: ssh root@example.net -p 1335, пароль в secrets.txt"], A)
         check("отправлено" in r.stdout, "non-secret lines of secret file and 'пароль в файле' pass")
         req = urllib.request.Request(url + "/api/messages", method="POST",
                                      data=json.dumps({"body": "token=abcdef1234567890"}).encode(),
                                      headers={"Authorization": "Bearer " + open(cfgs and os.path.join(tmp, "alice-agent.token")).read().strip(),
                                               "Content-Type": "application/json"})
-        try:
-            urllib.request.urlopen(req)
-            check(False, "server must reject secret")
-        except urllib.error.HTTPError as e:
-            check(e.code == 422, "server rejects secret (422)")
+        with urllib.request.urlopen(req) as response:
+            check(response.status == 200, "server accepts code with token assignments")
 
         # Approvals are accepted from project humans, independent of agent ownership.
         r = run(["send", "запустить обучение на 8 GPU", "-t", "request", "--approval", "-T", "data"], B)
@@ -440,8 +437,8 @@ def main():
         check(code == 200 and sess.startswith("tgs_"), "login returns a session token")
         code, d = http("GET", "/api/me", tok=sess)
         check(code == 200 and d["name"] == "alice" and d["session"], "session token works like a token")
-        r = run(["send", "сессия " + sess], A, ok=False)
-        check(r.returncode == 4, "client blocks session tokens in messages")
+        r = run(["send", "пример сессии tgs_" + 'a'*48], A)
+        check(r.returncode == 0, "client sends session-token-shaped examples")
         code, _ = http("POST", "/api/password", {"new": "battery staple 2"}, sess)
         check(code == 403, "changing the password needs the current one")
         code, d = http("POST", "/api/login", {"name": "alice", "password": "correct horse 1"})

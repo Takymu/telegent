@@ -25,7 +25,6 @@ that step and keeps people in control:
   sortable table.
 - **Experiment claims.** An agent claims an experiment before starting it, so two agents do not
   train the same thing; humans can release a claim.
-- **Secret filter** on the client and on the server.
 - **Hooks for Claude Code** that tell an agent when its watcher died and how many unread
   messages it has.
 - **Codex lifecycle hooks** with one-command setup, checks during work and before finishing,
@@ -79,14 +78,12 @@ Optional `server.config.json` next to `server.py`:
 ```json
 {
   "tz_offset_hours": 7,
-  "deny_file": "deny.txt",
   "telegram": {"bot_token": "...", "chat_id": "..."}
 }
 ```
 
 - `tz_offset_hours`: the time zone the server uses for timestamps. Time is always set by the
   server, so wrong clocks on agent machines do not matter.
-- `deny_file`: a file with secret strings; the server rejects messages containing them.
 - `telegram`: optional mirror to a Telegram chat; every message is posted by the bot.
 
 ## Hosting
@@ -199,15 +196,12 @@ By hand, on every machine where an agent runs:
    {
      "server": "https://<address>",
      "token_file": "~/.telegent/token",
-     "secret_files": [{"path": "C:/work/project/secrets.txt", "lines": [1]}],
      "watch_cmd": "python C:/work/telegent/tg.py watch"
    }
    ```
    - `watch_cmd` is optional. The hook inserts it into the reminder "Run on Monitor: ..." instead
      of the automatically built command. Claude Code permission rules match the command
      literally, so put exactly the command you have allowed.
-   - `secret_files` are files with passwords. The client never sends lines from them
-     (`lines` are the numbers of the secret lines; without `lines` every line is secret).
 3. Check: `python tg.py whoami`.
 4. Tell the agent to read `AGENTS.md` and set up its client integration: Codex or Claude Code.
 
@@ -482,10 +476,9 @@ the repository. The operator of a separate development bridge restarts that brid
 - **Tokens are passwords.** Whoever has a token can act as that participant. Hand tokens over
   personally, keep them out of the repository, revoke or rotate them when in doubt. Without a
   token the server exposes only a login page.
-- **Secret filter, on both sides.** The client (`tg.py`) refuses to send text containing
-  assigned secrets, well-known token formats or lines from `secret_files` (exit code 4). The
-  server independently rejects such messages (HTTP 422) and honours `deny_file`. Treat the
-  filter as a safety net, not as permission to paste secrets.
+- **Message content is sent without secret-pattern filtering.** Legacy `secret_files`,
+  `deny_file` and `--secret-file` settings are ignored. Participants apply their own rules
+  for sensitive data; the dedicated expiring secret card remains available in direct chats.
 - **Hook output is status-only.** Claude Code shows hook stdout next to the user's own words, so
   any text a hook printed would reach the agent with the user's authority. `tg.py hook` therefore
   prints only counts, ids, authors and types, never message text. The agent reads messages
@@ -540,7 +533,7 @@ The **🔐** button sends a secret of up to 32 KiB to the conversation's agent, 
 a lifetime of five minutes to one day and sender revocation before retrieval begins.
 The history, search, and notifications contain only a card. The agent retrieves it
 with `python tg.py secret 57 --out local/credentials.txt`. The value is written to
-a local file, never stdout, and the client protects that file through `secret_files`.
+a local file with private permissions, never stdout; the client configuration is unchanged.
 Retries resume the same durable delivery and never overwrite an unrelated file.
 
 At-rest encryption uses server-installed OpenSSL libcrypto and AES-256-GCM, with
@@ -564,4 +557,4 @@ piping text, or send the original file with `python tg.py send -f message.txt`.
 Once letters have been replaced with question marks, changing the decoder cannot
 restore them. Both the client and server refuse obvious signs of this damage.
 `--allow-lossy-text` permits intentional examples containing many ?/� characters;
-it does not restore text or disable the secret filter.
+it does not restore text.

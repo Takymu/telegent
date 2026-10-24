@@ -78,7 +78,7 @@ class EncodingTest(unittest.TestCase):
             self.assertEqual(self.stored(self.cli('send','-f','-',raw=text.encode())),text)
         text='????????????';self.assertEqual(self.stored(self.cli('send',text,'--allow-lossy-text')),text)
 
-    def test_old_agent_clients_are_protected_and_override_keeps_secret_filter(self):
+    def test_old_agent_clients_are_protected_and_override_preserves_content(self):
         text='?????? ???????? ???????? report 17'
         with self.assertRaises(urllib.error.HTTPError) as raised:self.fx.api('POST','/api/messages',{'body':text})
         self.assertEqual(raised.exception.code,422);raised.exception.close()
@@ -87,9 +87,9 @@ class EncodingTest(unittest.TestCase):
             self.assertEqual(raised.exception.code,422);raised.exception.close()
         self.fx.api('POST','/api/messages',{'body':text,'allow_lossy_text':True})
         self.fx.api('POST','/api/messages',{'body':text},who='alice')
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            self.fx.api('POST','/api/messages',{'body':text+' ghp_'+'x'*36,'allow_lossy_text':True})
-        self.assertEqual(raised.exception.code,422);raised.exception.close()
+        body=text+' ghp_'+'x'*36
+        mid=self.fx.api('POST','/api/messages',{'body':body,'allow_lossy_text':True})['id']
+        self.assertEqual(self.fx.api('GET',f'/api/messages/{mid}')['message']['body'],body)
 
     def test_reply_and_direct_messages_use_the_same_decoding(self):
         mid=self.fx.api('POST','/api/messages',{'body':'fixture question','to':['bob-agent']},who='alice')['id']

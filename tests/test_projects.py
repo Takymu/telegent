@@ -114,7 +114,8 @@ class ProjectTest(unittest.TestCase):
                 self.error(400, 'POST', '/api/projects', {'title': title}, project=False)
         self.assertEqual(self.rename('a'*80)['project']['title'], 'a'*80)
         self.assertEqual(self.rename('Команда 👩‍💻 & <тест>')['project']['title'], 'Команда 👩‍💻 & <тест>')
-        self.error(422, 'POST', '/api/project/rename', {'title': 'ghp_'+'A'*36})
+        title='ghp_'+'A'*36
+        self.assertEqual(self.rename(title)['project']['title'],title)
 
     def test_rename_preserves_messages_members_files_invites_and_ids(self):
         raw = b'attachment fixture\n'

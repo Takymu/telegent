@@ -10,7 +10,6 @@ See README.md for hosting (tunnel) and AGENTS.md for the agent protocol.
 """
 import argparse
 import base64
-import codecs
 import ctypes
 import ctypes.util
 import hashlib
@@ -52,49 +51,11 @@ UPLOAD_CHUNK = 4 * 1024 * 1024
 MIN_FREE_BYTES = 300 * 1024 * 1024
 DOWNLOADS = {}
 
-# ---------------------------------------------------------------- secret filter
-# Same list lives in tg.py (client checks first, server enforces).
-SECRET_PATTERNS = [
-    ("private key", r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"),
-    ("AWS access key", r"\bAKIA[0-9A-Z]{16}\b"),
-    ("GitHub token", r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})"),
-    ("API key (sk-...)", r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}"),
-    ("HuggingFace token", r"\bhf_[A-Za-z0-9]{30,}"),
-    ("Slack token", r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
-    ("Google API key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
-    ("Telegram bot token", r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"),
-    ("JWT", r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
-    ("telegent token", r"\btg[tsi]_[0-9a-f]{32,}"),
-    ("password in URL", r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]{3,}@"),
-    ("sshpass -p", r"\bsshpass\s+-p\s*\S+"),
-    ("assigned secret", r"(?i)\b(?:password|passwd|pwd|passphrase|пароль|secret|token|api[_-]?key|"
-                        r"access[_-]?key|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?"
-                        r"(?![\s$<{%*]|\.\.\.|os\.environ|os\.getenv|getenv|env\b|ENV\b|none\b|None\b|null\b)"
-                        r"[^\s\"',;]{6,}"),
-]
-_SECRET_RES = [(n, re.compile(p)) for n, p in SECRET_PATTERNS]
-
-
-def find_secret(text, literals=()):
-    """Return (kind, line_no) of the first secret-looking thing in text, or None. Never returns the secret."""
-    if not text:
-        return None
-    for kind, rx in _SECRET_RES:
-        m = rx.search(text)
-        if m:
-            return kind, text.count("\n", 0, m.start()) + 1
-    for lit in literals:
-        i = text.find(lit)
-        if i >= 0:
-            return "строка из списка секретов сервера", text.count("\n", 0, i) + 1
-    return None
-
 
 # ---------------------------------------------------------------- config / time
 class Cfg:
     db = os.path.join(HERE, "telegent.db")
     tz = timezone(timedelta(hours=7))
-    deny_literals = []
     push = None
     max_inline = 2 * 1024 * 1024
     telegram = None   # {"bot_token": ..., "chat_id": ...}
@@ -114,10 +75,6 @@ def load_config(path):
         Cfg.db = c["db"] if os.path.isabs(c["db"]) else os.path.join(os.path.dirname(path), c["db"])
     if c.get("max_inline_bytes"):
         Cfg.max_inline = int(c["max_inline_bytes"])
-    if c.get("deny_file"):
-        p = c["deny_file"] if os.path.isabs(c["deny_file"]) else os.path.join(os.path.dirname(path), c["deny_file"])
-        with open(p, encoding="utf-8") as f:
-            Cfg.deny_literals = [ln.strip() for ln in f if len(ln.strip()) >= 6 and not ln.startswith("#")]
     tg = c.get("telegram")
     if tg and tg.get("bot_token") and tg.get("chat_id"):
         Cfg.telegram = tg
@@ -860,15 +817,6 @@ _UI_EN = {'упоминание недоступно в этом чате': 'Men
                                                                                 'you didn’t use it, tell the '
                                                                                 'person who invited you',
  'приглашение просрочено; попроси новое': 'Invitation expired. Ask for a new one',
- 'похоже на секрет (': 'Looks like a secret (',
- ') в поле «': ') in field “',
- '», строка ': '”, line ',
- '. Сообщение НЕ отправлено. Убери значение (напиши «см. файл X у меня») и пошли снова.': '. Message NOT '
-                                                                                          'sent. Remove the '
-                                                                                          'value (write “see '
-                                                                                          'file X on my '
-                                                                                          'machine”) and try '
-                                                                                          'again.',
  'повреждён ключ хранилища секретов': 'The secret storage key is corrupted',
  'нужен прежний ключ хранилища секретов': 'The previous secret storage key is required',
  'нет такого личного чата': 'Direct chat not found',
@@ -1147,13 +1095,6 @@ def text_encoding_problem(text):
     if (text.count("?") >= 12 and ratio >= .15 and (len(runs) >= 3 or any(len(r) >= 12 for r in runs))) or (text.count("?") >= 6 and ratio >= .4 and any(len(r)>=4 for r in runs)):
         return "слишком много вопросительных знаков: возможно, буквы заменены до запуска клиента"
     return None
-
-
-
-def check_secret(field, text):
-    hit = find_secret(text, Cfg.deny_literals)
-    if hit:
-        raise ApiError(422, f"{_ui_text('похоже на секрет (')}{hit[0]}{_ui_text(') в поле «')}{field}{_ui_text('», строка ')}{hit[1]}{_ui_text('. Сообщение НЕ отправлено. Убери значение (напиши «см. файл X у меня») и пошли снова.')}")
 
 
 # ---------------------------------------------------------------- presence
@@ -1630,7 +1571,6 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
         raise ApiError(400, _ui_text('attachments: список, не больше 30 вложений'))
     for a in attachments:
         name = attachment_name(a.get("name"))
-        check_secret("имя вложения", name)
         if a.get("upload_id"):
             upload = own_upload(user, pid, a["upload_id"])
             if upload["attachment_id"] or upload["md5"] is None:
@@ -1643,11 +1583,9 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
                 raise ApiError(400, f"{_ui_text('вложение ')}{name}{_ui_text(': битый base64')}")
             if len(raw) > Cfg.max_inline:
                 raise ApiError(413, f"{_ui_text('вложение ')}{name}{_ui_text(' больше ')}{Cfg.max_inline}{_ui_text(' байт — пришли ссылкой и md5')}")
-            check_secret(f"вложение {name}", raw.decode("utf-8", errors="replace"))
             atts.append((name, len(raw), hashlib.md5(raw).hexdigest(), None, raw, None))
         elif a.get("link"):
             link = str(a["link"])[:1000]
-            check_secret(f"ссылка {name}", link)
             atts.append((name, a.get("size"), (a.get("md5") or None), link, None, None))
         else:
             raise ApiError(400, f"{_ui_text('вложение ')}{name}{_ui_text(': нужен content_b64 или link')}")
@@ -1659,16 +1597,11 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
     if any(a[4] is not None or a[5] for a in atts):
         require_file_space(sum(len(a[4]) * 3 for a in atts if a[4] is not None))
 
-    check_secret("тема", subject)
     if user["kind"] == "agent" and not system and data.get("allow_lossy_text") is not True:
         problem=text_encoding_problem(body)
         if problem:
             raise ApiError(422,"Сообщение НЕ отправлено: "+problem+". Отправь исходный текст из файла в правильной кодировке. "
-                           "Для намеренных знаков ?/� — allow_lossy_text=true; секрет-фильтр остаётся включён.")
-    check_secret("текст", body)
-    check_secret("топик", topic)
-    if result:
-        check_secret("результат", json.dumps(result, ensure_ascii=False))
+                           "Для намеренных знаков ?/� — allow_lossy_text=true.")
 
     idem = data.get("idem_key")
     idem = str(idem)[:100] if idem else None
@@ -2054,8 +1987,6 @@ def set_status(me, host, mid, data):
         raise ApiError(400, f"state: {' | '.join(STATES)}")
     ref = str(data.get("ref") or "")[:1000]
     note = str(data.get("note") or "")[:5000]
-    check_secret("ref", ref)
-    check_secret("note", note)
     m = get_message_row(mid, me)
     require_active_message(m)
     if m["type"] not in TRACKED_TYPES:
@@ -2079,7 +2010,6 @@ def set_approval(me, host, mid, data):
     if decision not in ("approve", "deny"):
         raise ApiError(400, "decision: approve | deny")
     note = str(data.get("note") or "")[:5000]
-    check_secret("note", note)
     m = get_message_row(mid, me)
     require_active_message(m)
     if not m["needs_approval"]:
@@ -2148,7 +2078,6 @@ def list_claims(q, pid):
 
 def claim_text(data, field, limit):
     v = str(data.get(field) or "").strip()[:limit]
-    check_secret(field, v)
     return v
 
 
@@ -2388,7 +2317,6 @@ def project_title(data):
     if any(ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF
            or c in "\u2028\u2029" for c in title):
         raise ApiError(400, _ui_text('название проекта должно быть одной строкой без управляющих символов'))
-    check_secret("название", title)
     return title
 
 
@@ -2996,7 +2924,6 @@ def api_agent_notice(h, user, q, data):
         raise ApiError(413, 'объявление слишком длинное')
     if text_encoding_problem(body):
         raise ApiError(422, 'повреждена кодировка объявления; отправь исходный текст в UTF-8')
-    check_secret('объявление', body)
     with DB_LOCK:
         groups = {}
         for row in db().execute("SELECT m.project_id,u.name FROM members m JOIN users u ON u.name=m.user "
@@ -3240,7 +3167,6 @@ def mutate_message(h,user,q,data,mid,deleting=False):
             if len(body)>MAX_BODY_CHARS:raise ApiError(413,_ui_text('текст слишком длинный'))
             if not body.strip() and not db().execute("SELECT 1 FROM attachments WHERE message_id=?",(mid,)).fetchone():
                 raise ApiError(400,_ui_text('пустое сообщение'))
-            check_secret("текст",body)
         if data["revision"]!=message["revision"]:
             if deleting or body!=message["body"]:
                 raise ApiError(409,_ui_text('сообщение уже изменилось; закрой редактор и открой актуальную версию'))
@@ -3525,21 +3451,6 @@ def discard_upload(uid):
     db().execute("DELETE FROM file_uploads WHERE id=? AND attachment_id IS NULL", (uid,))
 
 
-def scan_upload_chunk(uid, offset, raw, name):
-    # Include the previous suffix so secrets split across requests cannot evade the filter.
-    overlap = max([4096] + [len(x.encode("utf-8"))+512 for x in Cfg.deny_literals])
-    with open(upload_path(uid), "rb") as f:
-        f.seek(max(0, offset-overlap))
-        tail = f.read(min(offset, overlap))
-    decoder = codecs.getincrementaldecoder("utf-8")("replace")
-    text = decoder.decode(tail)
-    for start in range(0, len(raw), 256*1024):
-        part = raw[start:start+256*1024]
-        text += decoder.decode(part, final=start+len(part) == len(raw))
-        check_secret("файл " + name, text)
-        text = text[-overlap:]
-
-
 @route("GET", "/api/storage")
 def api_storage(h, user, q, data):
     project_for(h, user, q)
@@ -3557,7 +3468,6 @@ def api_upload_start(h, user, q, data):
     if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{32}", expected)):
         raise ApiError(400, _ui_text('md5: ожидаются 32 шестнадцатеричных символа'))
     name = attachment_name(data.get("name"))
-    check_secret("имя файла", name)
     key = str(data.get("key") or "")[:100] or None
     with UPLOAD_LOCK, DB_LOCK:
         # Abandoned drafts expire; adopted files and legacy BLOBs are never touched.
@@ -3607,12 +3517,6 @@ def api_upload_chunk(h, user, q, data, uid):
         row = own_upload(user, p["id"], uid)
         if row["attachment_id"] or row["md5"] is not None:
             raise ApiError(409, _ui_text('загрузка уже завершена'))
-        if offset == row["received"]:
-            try:
-                scan_upload_chunk(uid, offset, raw, row["name"])
-            except ApiError:
-                discard_upload(uid)
-                raise
         with open(upload_path(uid), "r+b") as f:
             if offset < row["received"]:
                 f.seek(offset)
@@ -3776,7 +3680,6 @@ def api_board_set(h, user, q, data):
         v = data.get(k)
         if v is not None:
             v = str(v)[:500]
-            check_secret(k, v)
             vals[k] = v
     with DB_LOCK:
         con = db()
@@ -3800,7 +3703,6 @@ def api_claim(h, user, q, data):
     key = norm_key(display)
     if not key:
         raise ApiError(400, _ui_text('нужен key — что именно занимаешь'))
-    check_secret("key", display)
     p = project_for(h, user, q)
     vals = {"topic": claim_text(data, "topic", 60), "note": claim_text(data, "note", 500),
             "until": claim_text(data, "until", 100)}

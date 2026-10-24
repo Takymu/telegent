@@ -144,20 +144,22 @@ class AttachmentTest(unittest.TestCase):
             self.assertEqual(result.returncode,2);self.assertIn('300',result.stderr)
         self.send(uid)
 
-    def test_limits_empty_files_and_secrets_across_parts(self):
+    def test_limits_empty_files_and_unfiltered_content_across_parts(self):
         self.error(413,'POST','/api/uploads',{'name':'large.bin','size':self.s.MAX_FILE_BYTES+1})
         source=self.work/'oversize.bin'
         with source.open('wb') as stream:stream.truncate(self.s.MAX_FILE_BYTES+1)
         result=self.cli('send','-a',str(source))
         self.assertEqual(result.returncode,2);self.assertIn('512',result.stderr)
         empty=self.upload(b'',name='empty.txt');self.send(empty)
-        # Split a secret marker across the two HTTP requests.
+        # Token-like content split across requests remains an ordinary attachment.
         raw = bytes(256*1024-10) + b'-----BEGIN PRIVATE KEY-----'
-        uid=self.api('POST','/api/uploads',{'name':'blocked.txt','size':len(raw)})['id']
+        uid=self.api('POST','/api/uploads',{'name':'example.txt','size':len(raw)})['id']
         self.api('POST',f'/api/uploads/{uid}/chunk?offset=0',raw[:20])
-        self.error(422,'POST',f'/api/uploads/{uid}/chunk?offset=20',raw[20:])
-        self.assertFalse(Path(self.s.upload_path(uid)).exists())
-        self.error(404,'POST','/api/messages',{'attachments':[{'upload_id':uid}]})
+        self.api('POST',f'/api/uploads/{uid}/chunk?offset=20',raw[20:])
+        self.api('POST',f'/api/uploads/{uid}/complete',{})
+        mid=self.send(uid)['id']
+        aid=self.api('GET',f'/api/messages/{mid}')['message']['attachments'][0]['id']
+        with self.request('GET',f'/api/attachments/{aid}') as response:self.assertEqual(response.read(),raw)
 
     def test_agent_upload_download_and_preserve_existing_file_on_corruption(self):
         source=self.work/'agent-report.bin';source.write_bytes(b'fixture\x00'*800000)

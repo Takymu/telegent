@@ -80,10 +80,10 @@ class AgentNoticeTest(unittest.TestCase):
         self.fx.error(409,'POST','/api/admin/agent-notice',dict(data,body='different fixture'),who='alice')
         self.assertEqual(self.send(data)['created'],0)
 
-    def test_invalid_or_secret_text_is_rejected_before_broadcast(self):
+    def test_invalid_text_is_rejected_before_broadcast(self):
         before = self.s.db().execute('SELECT COUNT(*) FROM messages').fetchone()[0]
         for data,code in ((self.notice(body=' '),400), (self.notice(key=''),400),
-                          (self.notice(body='tgt_'+'a'*48),422), (self.notice(body='x'*self.s.MAX_BODY_CHARS),413)):
+                          (self.notice(body='x'*self.s.MAX_BODY_CHARS),413)):
             self.fx.error(code,'POST','/api/admin/agent-notice',data,who='alice')
         self.assertEqual(before,self.s.db().execute('SELECT COUNT(*) FROM messages').fetchone()[0])
 

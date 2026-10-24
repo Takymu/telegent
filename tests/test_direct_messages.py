@@ -111,7 +111,9 @@ class DirectMessageTest(unittest.TestCase):
         self.assertNotIn(value,json.dumps(message));self.assertEqual(message['secret']['state'],'pending')
         self.assertEqual(message['attachments'],[])
         self.assertEqual(self.api('GET','/api/messages?conversation=all&q='+value)['messages'],[])
-        self.deny(422,'POST','/api/messages',{'conversation_id':self.cid,'body':value},'bob')
+        ordinary=self.send(value)
+        self.assertEqual(self.api('GET',f'/api/messages/{ordinary}')['message']['body'],value)
+        self.deny(404,'GET',f'/api/messages/{ordinary}',who='alice')
         envelope=json.loads(row['envelope']);m=self.s.get_message_row(mid)
         aad=json.dumps(['telegent-secret-v1',self.cid,'bob','alice-agent',m['idem_key']],ensure_ascii=False,separators=(',',':')).encode()
         self.assertEqual(self.s.unseal_secret(envelope,aad),value.encode())
@@ -184,18 +186,20 @@ class DirectMessageTest(unittest.TestCase):
             self.assertIsNotNone(self.s.db().execute('SELECT envelope FROM secret_envelopes WHERE message_id=?',(mid,)).fetchone()[0])
         finally:path.write_bytes(saved)
 
-    def test_secret_receive_protects_plain_values_in_the_selected_client_config(self):
+    def test_secret_receive_saves_value_without_mutating_client_configuration(self):
         value='fixture credential value without a token prefix'
         mid=self.secret(value=value);cfg=self.fx.work/'literal-client.json';tok=self.fx.work/'literal-agent.token';tok.write_text(self.fx.tokens['alice-agent'])
         cfg.write_text(json.dumps({'server':self.fx.url,'token_file':str(tok),'project':'main','url_source':''}))
         out=self.fx.work/('literal-'+str(mid)+'.txt')
         base=[sys.executable,str(fixture.ROOT/'tg.py'),'--config',str(cfg)]
+        original=cfg.read_bytes()
         result=subprocess.run(base+['secret',str(mid),'--out',str(out)],env=self.fx.env,capture_output=True,text=True,timeout=15)
         self.assertEqual(result.returncode,0,result.stderr)
-        self.assertIn({'path':str(out)},json.loads(cfg.read_text())['secret_files'])
-        result=subprocess.run(base+['send',value],env=self.fx.env,capture_output=True,text=True,timeout=15)
-        self.assertEqual(result.returncode,4,result.stderr)
+        self.assertEqual(cfg.read_bytes(),original)
+        self.assertEqual(out.read_text(),value)
         self.assertNotIn(value,result.stdout+result.stderr)
+        result=subprocess.run(base+['send',value],env=self.fx.env,capture_output=True,text=True,timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
 
     def test_claimed_value_cannot_be_recalled_but_late_save_confirmation_is_safe(self):
         mid=self.secret();key=secrets.token_hex(32)
