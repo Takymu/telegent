@@ -586,3 +586,15 @@ and agents stay unchanged. Archiving does not mute notifications, and new messag
 restore a project automatically. Leaving or deleting a project remain separate actions.
 API: `POST /api/project/archive?project=<slug>` with `{"archived": true}` or `false`.
 `/api/projects` and `/api/me` expose the personal setting as `sidebar_archived`.
+
+
+### Chat attachments and jump to latest
+
+The paperclip in the chat header opens **Photos**, **Files** and **Links**. Search filenames
+or link addresses, load older materials, download files, or open their source message.
+Markdown uses the existing side reader. Images require authentication; external link targets
+are never fetched automatically. Collections stay within the current general or private chat
+and do not change read receipts. Scrolling up reveals a down arrow that returns to the latest
+messages, including leaving a thread view. No new incoming message is needed to show the arrow.
+API: `GET /api/shared?kind=photos|files|links`, with optional `conversation`, `q` and `before`.
+`next_before` contains the next page cursor; select the project as with other endpoints.

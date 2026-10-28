@@ -1060,6 +1060,8 @@ _UI_EN = {'упоминание недоступно в этом чате': 'Men
  ': битый base64': ': invalid base64',
  'у ': 'For '}
 _UI_EN.update({
+    "нужен раздел photos, files или links и поиск до 200 символов": "Choose photos, files or links and a search of up to 200 characters",
+    "before: нужен положительный номер страницы": "before: use a positive page cursor",
     "archived: нужно true или false": "archived: use true or false",
     "проект недоступен": "Project is not available",
     "ход работы публикует только сам агент": "Only the agent itself can publish work progress",
@@ -3745,6 +3747,67 @@ def api_progress(h, user, q, data):
     return {'events':[{'id':r['id'],'agent_id':r['agent'],'message_id':r['message_id'],'subject':r['subject'],
                        'private':bool(r['conversation_id']),'body':r['body'],'state':r['state'],'time':iso(r['ts'])} for r in reversed(rows)],
             'limit':100,'presence':presence(target)}
+
+
+def shared_urls(text):
+    """HTTP links only; no requests, previews or interpretation of active markup."""
+    urls, seen = [], set()
+    for match in re.finditer(r'https?://[^\s<>"\'`]+',text or '',re.I):
+        url = match.group().rstrip('.,;:!?')
+        for left,right in (('(',')'),('[',']'),('{','}')):
+            while url.endswith(right) and url.count(right)>url.count(left):url=url[:-1]
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.scheme.lower() not in ('http','https') or not parsed.hostname:continue
+        except ValueError:continue
+        if url not in seen:seen.add(url);urls.append(url)
+    return urls
+
+
+@route("GET", "/api/shared")
+def api_shared(h,user,q,data):
+    p = project_for(h,user,q)
+    kind, query, cid = q.get('kind','photos'),q.get('q','').strip(),q.get('conversation')
+    if kind not in ('photos','files','links') or len(query)>200:
+        raise ApiError(400,'нужен раздел photos, files или links и поиск до 200 символов')
+    before = q.get('before','')
+    if before and (len(before)>19 or not before.isascii() or not before.isdigit() or not 0<int(before)<2**63):
+        raise ApiError(400,'before: нужен положительный номер страницы')
+    with DB_LOCK:
+        if not member_role(p['id'],user['name']):raise ApiError(404,'проект недоступен')
+        visible,params = message_visibility(user['name'])
+        where = ['m.project_id=?','m.deleted_ts IS NULL',"m.type!='secret'",visible]
+        args = [p['id'],*params]
+        if cid:
+            conversation_row(cid,user,p['id'])
+            where.append('m.conversation_id=?');args.append(cid)
+        else:where.append('m.conversation_id IS NULL')
+        revision = content_revision(p['id'],user['name'])
+        if q.get('check')=='1':return {'revision':revision}
+        if kind in ('photos','files'):
+            photo = "((a.content IS NOT NULL OR a.upload_id IS NOT NULL) AND (lower(a.name) LIKE '%.png' OR lower(a.name) LIKE '%.jpg' OR lower(a.name) LIKE '%.jpeg' OR lower(a.name) LIKE '%.gif' OR lower(a.name) LIKE '%.webp'))"
+            where.append(photo if kind=='photos' else 'NOT '+photo)
+            if before:where.append('a.id<?');args.append(int(before))
+            if query:where.append('instr(pylower(a.name),?)>0');args.append(query.lower())
+            rows = db().execute('SELECT a.id,a.name,a.size,a.md5,a.link,(a.content IS NOT NULL OR a.upload_id IS NOT NULL) AS inl,'
+                                'm.id AS mid,m.ts,m.author,m.subject FROM attachments a JOIN messages m ON m.id=a.message_id WHERE '+
+                                ' AND '.join(where)+' ORDER BY a.id DESC LIMIT 41',args).fetchall()
+            items = [{'message_id':r['mid'],'author':account_name(r['author']),'time':iso(r['ts']),'subject':r['subject'],
+                      'attachment':{'id':r['id'],'name':r['name'],'size':r['size'],'md5':r['md5'],'link':r['link'],'inline':bool(r['inl'])}} for r in rows[:40]]
+        else:
+            where.append("(lower(m.body) LIKE '%http%' OR EXISTS(SELECT 1 FROM attachments a WHERE a.message_id=m.id AND lower(a.link) LIKE 'http%'))")
+            if before:where.append('m.id<?');args.append(int(before))
+            if query:
+                where.append('(instr(pylower(m.body),?)>0 OR EXISTS(SELECT 1 FROM attachments a WHERE a.message_id=m.id AND instr(pylower(COALESCE(a.link,\'\')),?)>0))')
+                args.extend([query.lower(),query.lower()])
+            rows = db().execute('SELECT m.id,m.ts,m.author,m.subject,m.body FROM messages m WHERE '+' AND '.join(where)+' ORDER BY m.id DESC LIMIT 21',args).fetchall()
+            items = []
+            for r in rows[:20]:
+                texts = [r['body']]+[a[0] for a in db().execute('SELECT link FROM attachments WHERE message_id=? AND link IS NOT NULL',(r['id'],))]
+                urls = list(dict.fromkeys(url for text in texts for url in shared_urls(text) if not query or query.casefold() in url.casefold()))
+                if urls:items.append({'message_id':r['id'],'author':account_name(r['author']),'time':iso(r['ts']),'subject':r['subject'],'links':urls[:200],'truncated':len(urls)>200})
+        page = 20 if kind=='links' else 40
+        return {'items':items,'next_before':rows[page-1]['id'] if len(rows)>page else None,'revision':revision}
 
 
 @route("GET", "/api/board")

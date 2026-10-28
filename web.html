@@ -130,8 +130,8 @@ main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .send { width: 34px; height: 34px; padding: 0; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-ink);
   display:inline-flex;align-items:center;justify-content:center;flex:none;font-size: 18px; font-weight: 700; }
 .send:disabled { opacity: .5; }
-#newBtn { position: absolute; top: -44px; left: 50%; transform: translateX(-50%); z-index: 6;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .25); border-radius: 999px; padding: 7px 16px; }
+#newBtn { position:absolute;top:-52px;right:18px;z-index:6;min-width:42px;min-height:42px;font-size:18px;
+  box-shadow:0 2px 10px rgba(0,0,0,.25);border-radius:999px;padding:7px 12px; }
 #app aside { border-left: 1px solid var(--line); overflow-y: auto; padding: 16px; }
 #app .wrap { grid-template-columns: var(--projects-width, 220px) 6px minmax(0, 1fr) 6px var(--status-width, 300px); }
 #projectsResize { cursor:col-resize;touch-action:none;position:relative;outline:none; }
@@ -565,6 +565,18 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .work-tabs { display:flex;flex-wrap:wrap;gap:6px; }
 .work-tabs button { min-height:44px; }
 .work-tabs .active { background:var(--accent);color:var(--accent-ink); }
+.shared-search { display:block;margin:14px 0; }
+.shared-search input { display:block;width:100%;margin-top:6px; }
+.shared-tabs button.active { border-color:var(--accent);background:var(--line); }
+.shared-item { overflow-wrap:anywhere; }
+.shared-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px; }
+.shared-grid .ux-card { margin:0;min-width:0; }
+.shared-photo { display:block;width:100%;height:130px;padding:0;overflow:hidden;font-size:36px; }
+.shared-photo img { width:100%;height:100%;object-fit:cover; }
+.shared-caption { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;margin:6px 0; }
+.shared-photo-tools { display:flex;gap:4px; }
+.shared-photo-tools button { min-height:40px;padding:3px 6px; }
+.shared-name { text-align:left;max-width:100%;overflow-wrap:anywhere; }
 .file-preview { display:block;max-width:100%;max-height:65dvh;margin:auto;border-radius:8px; }
 .password-field { position:relative;display:inline-block;max-width:100%; }
 .password-field input { width:100%;padding-right:44px !important; }
@@ -750,6 +762,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     <button id="themeBtn" title="тема">◐</button>
     <button id="pwBtn" class="hidden" title="задать или сменить пароль для входа">Пароль</button>
     <button id="logoutBtn">Выйти</button>
+    <button id="sharedBtn" class="search-icon-button" type="button" data-ux="shared" title="Вложения чата" aria-label="Вложения чата"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m21 11-8.6 8.6a6 6 0 0 1-8.5-8.5l9.3-9.3a4 4 0 0 1 5.7 5.7l-9.3 9.3a2 2 0 0 1-2.8-2.8l8.6-8.6"/></svg></button>
     <button id="filtersBtn" class="search-icon-button" type="button" title="Поиск (Ctrl+K)" aria-label="Поиск" aria-expanded="false" aria-controls="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span id="searchCount" class="fcount hidden"></span></button>
     <button id="settingsBtn" title="Настройки" aria-label="Настройки" data-ux="settings">⚙</button>
   </header>
@@ -925,6 +938,19 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 "use strict";
 // ---- localization: translate source-owned strings before inserting user values
 const UI_EN={
+  "Обновить": "Refresh",
+  "Вложения чата": "Chat attachments",
+  "Вложения": "Attachments",
+  "Раздел вложений": "Attachment categories",
+  "Фото": "Photos",
+  "Файлы": "Files",
+  "Ссылки": "Links",
+  "Поиск по названию или ссылке": "Search by filename or link",
+  "Загрузить ещё": "Load more",
+  "Показано: ": "Showing: ",
+  "Пока ничего не найдено.": "Nothing found yet.",
+  "Другие ссылки — в исходном сообщении": "More links are in the original message",
+  "К последним сообщениям": "Jump to latest messages",
   "Архив": "Archive",
   "Вернуть из архива": "Restore from archive",
   "В архив для себя": "Archive for me",
@@ -1584,7 +1610,7 @@ let PROJECT_ACCOUNT=null, DM_SCOPE=null;
 let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREAD_FROM = 0;
 let ACTIVE_DM = null, CONVERSATIONS = [];
 let VIEW_RETURN=null, WORK_MODE="waiting", ACTION_TARGET=null, PREVIEW_URL=null, INV_TRACK=null;
-let INV_MODE=null, INFO_VERSION=0;
+let INV_MODE=null, INFO_VERSION=0, SHARED_LIBRARY=null, SHARED_TIMER=null;
 const DOCUMENTS=new Map();let DOCUMENT_ACTIVE=null,DOCUMENT_OPEN=false;
 const OUTGOING = new Map();let OUTGOING_SEQUENCE=0;
 function paintOutgoing() {
@@ -2244,6 +2270,7 @@ $("themeBtn").onclick = () => {
 applyTheme();
 
 async function login(tok) {
+  closeInfo();
   clearChatCache();
   const storedToken = st.get("tg_token");
   TOKEN = tok;
@@ -2673,6 +2700,7 @@ $("pwForm").onsubmit = async e => {
 };
 
 $("logoutBtn").onclick = async () => {
+  closeInfo();
   if(nativePushSupported())nativePushCommand('logout');
   clearChatCache();
   try { await api("POST", "/api/logout"); } catch {}
@@ -2792,11 +2820,17 @@ for (const id of ["projects", "aside", "invDialog", "pwDialog", "npDialog", "prD
   READ_VISIBILITY.observe($(id), {attributes: true, attributeFilter: ["class"]});
 function toBottom() { SC.scrollTop = SC.scrollHeight; UNSEEN = 0; updateNewBtn(); }
 function updateNewBtn() {
-  $("newBtn").classList.toggle("hidden", !UNSEEN);
-  $("newBtn").textContent = ui`↓ новые (${UNSEEN})`;
+  $("newBtn").classList.toggle("hidden",!feedVisible()||(!UNSEEN&&nearBottom()&&!THREAD));
+  $("newBtn").textContent=UNSEEN?ui`↓ новые (${UNSEEN})`:"↓";
+  $("newBtn").title=$("newBtn").ariaLabel=tr("К последним сообщениям");
 }
-$("newBtn").onclick = toBottom;
-SC.addEventListener("scroll", () => { if (UNSEEN && nearBottom()) { UNSEEN = 0; updateNewBtn(); } scheduleRead(); }, {passive: true});
+$("newBtn").onclick=async()=>{
+  const scope=documentScope();
+  try{if(THREAD||hasFilters()){THREAD=null;resetFilters();paintTab();await reload();}else{toBottom();await refresh();}if(scope===documentScope())toBottom();}
+  catch(error){if(scope===documentScope())toast(error.message,true);}
+};
+SC.addEventListener("scroll",()=>{if(UNSEEN&&nearBottom())UNSEEN=0;updateNewBtn();scheduleRead();},{passive:true});
+const BOTTOM_VISIBILITY=new ResizeObserver(updateNewBtn);BOTTOM_VISIBILITY.observe(SC);BOTTOM_VISIBILITY.observe($("feed"));
 function setHeaderHeight() { document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px"); }
 window.addEventListener("resize", setHeaderHeight);
 
@@ -3236,6 +3270,8 @@ function paintTab() {
   if(statusDesktop()){projectsWidth(PROJECTS_WIDTH);statusWidth(STATUS_WIDTH);}
   document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===TAB));
   const feed=TAB==="feed" || TAB==="direct" && !!ACTIVE_DM;
+  if(SHARED_LIBRARY&&SHARED_LIBRARY.scope!==documentScope())closeInfo();
+  $("sharedBtn").classList.toggle("hidden",!feed);
   $("feedView").classList.toggle("hidden",!feed);
   $("directView").classList.toggle("hidden",TAB!=="direct" || !!ACTIVE_DM);
   $("moreView").classList.toggle("hidden",TAB!=="more");
@@ -3495,9 +3531,9 @@ async function loadDocument(doc){
     if([401,403,404].includes(error.status)){doc.text='';doc.truncated=false;}
   }finally{clearTimeout(timeout);if(current()&&DOCUMENT_ACTIVE===doc.id&&DOCUMENT_OPEN)paintDocuments();}
 }
-async function openDocument(id){
+async function openDocument(id,source=null){
   id=String(id);if(!/^[1-9]\d*$/.test(id))return;
-  const row=[...MSGS.values(),...RES].find(m=>!m.deleted&&!m.secret&&m.project===PROJECT&&(m.conversation_id||null)===(ACTIVE_DM?.id||null)&&m.attachments?.some(a=>String(a.id)===id));
+  const row=[...(source?[source]:[]),...MSGS.values(),...RES].find(m=>!m.deleted&&!m.secret&&m.project===PROJECT&&(m.conversation_id||null)===(ACTIVE_DM?.id||null)&&m.attachments?.some(a=>String(a.id)===id));
   const attachment=row?.attachments.find(a=>String(a.id)===id);
   if(!attachment?.inline||attachment.optimistic||! /\.(md|markdown|mdown)$/i.test(attachment.name))return;
   let doc=DOCUMENTS.get(id);
@@ -4146,10 +4182,10 @@ async function returnView(){
 }
 let PROGRESS_TIMER=null;
 function stopProgress(){clearTimeout(PROGRESS_TIMER);PROGRESS_TIMER=null;}
-function closeInfo(){stopProgress();INFO_VERSION++;if($("infoDialog").open)$("infoDialog").close();}
-function showInfo(title,html){stopProgress();INFO_VERSION++;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoHeading").textContent=title;$("infoBody").innerHTML=html;if(!$("infoDialog").open)$("infoDialog").showModal();}
-$("infoDialog").addEventListener("close",()=>{if($("infoDialog").open)return;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoBody").replaceChildren();});
-$("infoDialog").addEventListener("cancel",()=>{INFO_VERSION++;});
+function closeInfo(){stopShared();stopProgress();INFO_VERSION++;if($("infoDialog").open)$("infoDialog").close();}
+function showInfo(title,html){stopShared();stopProgress();INFO_VERSION++;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoHeading").textContent=title;$("infoBody").innerHTML=html;if(!$("infoDialog").open)$("infoDialog").showModal();}
+$("infoDialog").addEventListener("close",()=>{if($("infoDialog").open)return;stopShared();stopProgress();if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoBody").replaceChildren();});
+$("infoDialog").addEventListener("cancel",()=>{stopShared();stopProgress();INFO_VERSION++;});
 $("infoDialog").addEventListener("click",e=>{const r=$("infoDialog").getBoundingClientRect();if(e.target===$("infoDialog")&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))closeInfo();});
 function messageMeta(m,inline=false){
   return `<span class="message-meta ${inline?"inline-meta":""}">${m.edited?ui`<span class="medited" title="${esc(m.edited)}">изменено</span>`:""}<time class="mtime" datetime="${esc(m.time)}" title="${esc(m.time)} · #${m.id}">${hhmm(m.time)}</time>${isMine(m)?receiptButton(m):""}</span>`;
@@ -4256,6 +4292,73 @@ async function showMember(id){
   const b=board.board.find(b=>b.id===id),tasks=open.messages.filter(m=>m.status?.state==="taken"&&m.status.by_id===id),cs=claims.claims.filter(c=>c.owner_id===id||c.owner===u.name);
   showInfo(u.name,(u.kind==="agent"?progressNav(id,false):"")+ui`<p>${u.kind==="agent"?(u.is_secretary?tr("Секретарь · человек-владелец: "):tr("Агент · человек-владелец: "))+esc(u.owner):tr("Человек")}</p><p>Связь: ${esc(presenceText(u))}</p>${u.kind==='agent'&&!u.listening?'<p class="ux-muted">'+esc(tr('нет активного слушателя'))+(u.last_check?' · '+esc(tr('проверял входящие ')+shortTime(u.last_check)):'')+'</p>':''}${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
 }
+function clearSharedImages(state){
+  state.observer?.disconnect();state.abort?.abort();
+  for(const url of state.urls?.values()||[])URL.revokeObjectURL(url);
+  state.urls=new Map();state.abort=new AbortController();
+}
+function stopShared(){
+  clearTimeout(SHARED_TIMER);SHARED_TIMER=null;
+  if(SHARED_LIBRARY){clearTimeout(SHARED_LIBRARY.searchTimer);clearSharedImages(SHARED_LIBRARY);SHARED_LIBRARY=null;}
+}
+const sharedCurrent=state=>SHARED_LIBRARY===state&&state.scope===documentScope()&&state.version===INFO_VERSION&&$('infoDialog').open;
+function sharedPath(state,extra={}){
+  return '/api/shared?'+new URLSearchParams({kind:state.kind,q:state.query,...(state.conversation?{conversation:state.conversation}:{}),...extra});
+}
+async function showShared(){
+  if(!PROJECT||!feedVisible())return;
+  showInfo(tr('Вложения')+' · '+(ACTIVE_DM?.peer||tr('Общий чат')),ui`<div class="actions shared-tabs" role="group" aria-label="Раздел вложений"><button data-ux="shared-kind" data-kind="photos">Фото</button><button data-ux="shared-kind" data-kind="files">Файлы</button><button data-ux="shared-kind" data-kind="links">Ссылки</button></div><label class="shared-search">Поиск по названию или ссылке<input id="sharedSearch" type="search" maxlength="200" autocomplete="off"></label><div class="actions"><button data-ux="shared-refresh">Обновить</button></div><p id="sharedStatus" role="status"></p><div id="sharedItems"></div><button id="sharedMore" class="hidden" data-ux="shared-more">Загрузить ещё</button>`);
+  const state=SHARED_LIBRARY={scope:documentScope(),conversation:ACTIVE_DM?.id||null,version:INFO_VERSION,kind:'photos',query:'',items:[],urls:new Map(),request:0,abort:new AbortController()};
+  $('sharedSearch').oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(()=>{if(sharedCurrent(state)){state.query=$('sharedSearch').value.trim();loadShared(false);}},300);};
+  await loadShared(false);
+  const check=async()=>{
+    if(!sharedCurrent(state))return;
+    try{const data=await api('GET',sharedPath(state,{check:'1'}));if(sharedCurrent(state)&&data.revision!==state.revision)await loadShared(false);}
+    catch(error){if(sharedCurrent(state)){if(error.status===403||error.status===404){state.items=[];clearSharedImages(state);$('sharedItems').replaceChildren();$('sharedMore').classList.add('hidden');}$('sharedStatus').textContent=error.message;}}
+    if(sharedCurrent(state))SHARED_TIMER=setTimeout(check,15000);
+  };if(sharedCurrent(state))SHARED_TIMER=setTimeout(check,15000);
+}
+async function loadShared(more){
+  const state=SHARED_LIBRARY;if(!state||!sharedCurrent(state))return;
+  const request=++state.request;
+  if(!more){state.items=[];state.next=null;clearSharedImages(state);$('sharedItems').replaceChildren();}
+  $('sharedStatus').textContent=tr('Загружаем…');$('sharedMore').disabled=true;
+  document.querySelectorAll('.shared-tabs button').forEach(button=>{button.classList.toggle('active',button.dataset.kind===state.kind);button.setAttribute('aria-pressed',String(button.dataset.kind===state.kind));});
+  try{
+    const data=await api('GET',sharedPath(state,more&&state.next?{before:String(state.next)}:{}));
+    if(!sharedCurrent(state)||request!==state.request)return;
+    state.items.push(...data.items);state.next=data.next_before;state.revision=data.revision;
+    renderShared(state);
+    $('sharedStatus').textContent=state.items.length?tr('Показано: ')+state.items.length:tr('Пока ничего не найдено.');
+  }catch(error){if(sharedCurrent(state)&&request===state.request)$('sharedStatus').textContent=error.message;}
+  finally{if(sharedCurrent(state)&&request===state.request){$('sharedMore').disabled=false;$('sharedMore').classList.toggle('hidden',!state.next);}}
+}
+function renderShared(state){
+  const source=item=>`<p class="ux-muted">${esc(item.author)} · ${esc(shortTime(item.time))}</p><button data-act="jump" data-id="${item.message_id}">${tr('Открыть сообщение')} #${item.message_id}</button>`;
+  $('sharedItems').className=state.kind==='photos'?'shared-grid':'';
+  $('sharedItems').innerHTML=state.items.map(item=>{
+    if(item.links)return `<article class="ux-card shared-item">${item.links.map(url=>`<p><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></p>`).join('')}${item.truncated?'<p>'+tr('Другие ссылки — в исходном сообщении')+'</p>':''}${source(item)}</article>`;
+    const a=item.attachment,photo=state.kind==='photos',preview=a.inline&&(photo&&a.size<=12*1024*1024||/\.(md|markdown|mdown)$/i.test(a.name));
+    if(photo)return `<article class="ux-card shared-item"><button class="shared-photo" data-ux="shared-open" data-id="${a.id}" data-message="${item.message_id}" ${a.size<=1048576?`data-shared-image="${a.id}"`:''} aria-label="${esc(a.name)}"><span aria-hidden="true">▧</span></button><span class="shared-caption" title="${esc(a.name)}">${esc(a.name)}</span><div class="shared-photo-tools"><button data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" aria-label="${esc(tr('Скачать')+' '+a.name)}" title="${esc(tr('Скачать')+' '+fileSize(a.size))}">↓</button><button data-act="jump" data-id="${item.message_id}" aria-label="${esc(tr('Открыть сообщение')+' '+item.author+' '+shortTime(item.time))}" title="${esc(item.author+' · '+shortTime(item.time))}">↗ #${item.message_id}</button></div></article>`;
+    return `<article class="ux-card shared-item">${photo?`<button class="shared-photo" data-ux="shared-open" data-id="${a.id}" data-message="${item.message_id}" ${a.size<=1048576?`data-shared-image="${a.id}"`:''} aria-label="${esc(a.name)}"><span aria-hidden="true">▧</span></button>`:''}<p>${preview?`<button class="shared-name" data-ux="shared-open" data-id="${a.id}" data-message="${item.message_id}">${esc(a.name)}</button>`:esc(a.name)}</p><p class="ux-muted">${fileSize(a.size)}</p>${a.inline?`<button data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}">${tr('Скачать')}</button>`:`<p class="ux-muted">${esc(a.link||'')}</p>`}${source(item)}</article>`;
+  }).join('');
+  state.observer?.disconnect();
+  state.observer=new IntersectionObserver(entries=>{for(const entry of entries){if(!entry.isIntersecting)continue;const node=entry.target;state.observer.unobserve(node);
+    const apply=url=>{if(!sharedCurrent(state)||!node.isConnected)return;const img=new Image();img.alt=node.ariaLabel;img.src=url;node.replaceChildren(img);};
+    const saved=state.urls.get(node.dataset.sharedImage);if(saved){apply(saved);continue;}
+    fetchImageBlob(node.dataset.sharedImage,state.abort.signal).then(blob=>{if(!sharedCurrent(state))return;const url=URL.createObjectURL(blob);state.urls.set(node.dataset.sharedImage,url);apply(url);}).catch(()=>{});
+  }},{root:$('infoDialog'),rootMargin:'100px'});
+  for(const node of $('sharedItems').querySelectorAll('[data-shared-image]'))state.observer.observe(node);
+}
+async function openSharedFile(id,mid){
+  const state=SHARED_LIBRARY;if(!state||!sharedCurrent(state))return;
+  const message=(await api('GET','/api/messages/'+mid)).message;if(!sharedCurrent(state))return;
+  if(message.deleted||message.project!==PROJECT||(message.conversation_id||null)!==state.conversation)return;
+  const attachment=message.attachments.find(a=>a.id===id&&a.inline);if(!attachment)return;
+  if(/\.(md|markdown|mdown)$/i.test(attachment.name)){closeInfo();await openDocument(id,message);}
+  else if(/\.(png|jpe?g|gif|webp)$/i.test(attachment.name)&&attachment.size<=12*1024*1024)await previewFile(id,attachment.name);
+  else toast(tr('Для просмотра доступны изображения до 12 МБ. Файл можно скачать.'),true);
+}
 function progressNav(id,active){
   return `<div class="actions" role="tablist" aria-label="${esc(tr('Карточка агента'))}"><button role="tab" aria-selected="${!active}" data-ux="member" data-account="${esc(id)}">${tr('Профиль')}</button><button role="tab" aria-selected="${active}" data-ux="progress" data-account="${esc(id)}">${tr('Ход работы')}</button></div>`;
 }
@@ -4340,6 +4443,11 @@ document.addEventListener("click",async e=>{
   const el=e.target.closest("[data-ux]");if(!el)return;e.preventDefault();
   try {switch(el.dataset.ux){
     case "close-info":closeInfo();break;
+    case "shared":await showShared();break;
+    case "shared-kind":if(SHARED_LIBRARY){SHARED_LIBRARY.kind=el.dataset.kind;await loadShared(false);}break;
+    case "shared-more":await loadShared(true);break;
+    case "shared-refresh":await loadShared(false);break;
+    case "shared-open":await openSharedFile(+el.dataset.id,+el.dataset.message);break;
     case "invite-close":$("invClose").click();break;
     case "invite-mode":chooseInviteMode(el.dataset.mode);break;
     case "invite-back":INV_MODE=null;$("invChoices").classList.remove("hidden");$("invFields").classList.add("hidden");$("invPick").classList.add("hidden");break;
