@@ -22,11 +22,11 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
  const check=(ok,label)=>{if(!ok)throw Error(label);checks++};
  const wait=async fn=>{for(let i=0;i<160;i++){if(fn())return;await pause(40)}throw Error('render timeout')};
  try {
-  await wait(()=>ME&&MSGS.has(FIXTURE.general)&&document.querySelector('#m'+FIXTURE.general));
+  await wait(()=>ME&&NAV_READY&&MSGS.has(FIXTURE.general)&&document.querySelector('#m'+FIXTURE.general));
   const projects=$('projList').querySelectorAll('.pitem').length;
   const openMessage=id=>{
     const node=document.querySelector('#m'+id);
-    if(VIEWPORT==='desktop')node.querySelector('.mtext').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:innerWidth-12,clientY:innerHeight-12}));
+    if(VIEWPORT==='desktop')node.querySelector('.mtext').dispatchEvent(new PointerEvent('contextmenu',{bubbles:true,cancelable:true,button:2,pointerType:'mouse',clientX:innerWidth-12,clientY:innerHeight-12}));
     else node.querySelector('[data-act="more"]').click();
   };
   openMessage(FIXTURE.general);
@@ -34,7 +34,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   if(VIEWPORT==='desktop'){
     const r=$('menu').getBoundingClientRect();
     check(r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,'context menu stays within viewport');
-    check(getComputedStyle(document.querySelector('#m'+FIXTURE.general+' [data-act="more"]')).display==='none','desktop ellipsis hidden');
+    if(matchMedia('(hover:hover) and (pointer:fine)').matches)check(getComputedStyle(document.querySelector('#m'+FIXTURE.general+' [data-act="more"]')).display==='none','mouse desktop ellipsis hidden');
   }
   closeMenu();
 
@@ -127,15 +127,16 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   $('cTo').value='alice-agent';$('cTo').dispatchEvent(new Event('change'));
   $('cBody').value='sent draft '+VIEWPORT;$('sendBtn').click();
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='sent draft '+VIEWPORT));
-  check($('cTo').value==='alice-agent','selected recipient remains after sending');
+  check([...MSGS.values()].find(m=>m.body==='sent draft '+VIEWPORT).to_ids[0]===peer.id,'explicit selection still addresses the intended stable recipient');
+  check($('cTo').value==='','successful sending resets the next recipient to everyone');
   $('cBody').value='same recipient '+VIEWPORT;$('sendBtn').click();
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='same recipient '+VIEWPORT));
-  check([...MSGS.values()].find(m=>m.body==='same recipient '+VIEWPORT).to_ids[0]===peer.id,'next message reaches the same stable recipient');
+  check(![...MSGS.values()].find(m=>m.body==='same recipient '+VIEWPORT).to_ids.length,'next message defaults to everyone');
   await setProject(FIXTURE.second);check($('cTo').value==='','recipient is scoped to project');await setProject('main');
-  check($('cTo').value==='alice-agent','recipient restored on project return');
+  check($('cTo').value==='','project return does not restore a previous recipient');
   await openDirect(cid);$('cBody').value='private preference fixture '+VIEWPORT;$('sendBtn').click();
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='private preference fixture '+VIEWPORT));await selectTab('feed');
-  check($('cTo').value==='alice-agent','private sending leaves general recipient alone');
+  check($('cTo').value==='','private sending cannot change general default recipient');
   $('cTo').value='';$('cTo').dispatchEvent(new Event('change'));
   $('cBody').value='everyone fixture '+VIEWPORT;$('sendBtn').click();
   await wait(()=>!SENDING&&[...MSGS.values()].some(m=>m.body==='everyone fixture '+VIEWPORT));
@@ -203,6 +204,20 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     await loadProjects();check(PROJECTS.at(-1).id===original[0],'mouse reorder persists on server');
     check(PROJECT==='main','reordering does not open another project');
   }
+  // Existing recipient-only preferences/drafts must not override a new message.
+  clearDraft();resetCompose();st.set(recipientStorageKey(),peer.id);
+  $('cTo').value='alice-agent';$('cTo').dispatchEvent(new Event('change'));
+  saveDraft();check(!st.get(draftStorageKey()),'a recipient alone is not a persisted draft');
+  await setProject(FIXTURE.second);await setProject('main');
+  check($('cTo').value===''&&!st.get(recipientStorageKey()),'legacy sticky preference is cleared on return');
+  st.set(draftStorageKey(),JSON.stringify({body:'',type:'info',to:'alice-agent',recipient_id:peer.id,files:[]}));
+  DRAFTS.delete(draftKey());COMPOSE_SCOPE=null;restoreDraft();
+  check($('cTo').value==='','legacy recipient-only draft is ignored');
+  $('cTo').value='alice-agent';$('cTo').dispatchEvent(new Event('change'));
+  check($('cChips').textContent.includes('alice-agent'),'explicit recipient is visible above the composer');
+  $('cChips').querySelector('[data-chip="recipient"]').click();
+  check($('cTo').value==='','recipient chip switches back to everyone');
+  $('cTo').value='alice-agent';$('cTo').dispatchEvent(new Event('change'));
   $('cBody').value='reload public '+VIEWPORT;$('cBody').dispatchEvent(new Event('input'));
   await pause(300);check(JSON.parse(st.get(draftStorageKey())).body===$('cBody').value,'typing persists draft before navigation');
   await openDirect(cid);$('cBody').value='reload private '+VIEWPORT;
@@ -221,7 +236,12 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
  try {
   for(let i=0;i<160&&(!ME?.project||COMPOSE_SCOPE!==draftKey()||!NAV_READY);i++)await pause(40);
   check($('cBody').value==='reload public '+VIEWPORT,'public draft survives browser restart');
-  check($('cTo').value==='alice-agent','recipient survives browser restart');
+  check($('cTo').value==='alice-agent','nonempty directed draft keeps recipient after browser restart');
+  check($('cChips').textContent.includes('alice-agent'),'restored draft makes its recipient explicit');
+  const knownUsers=ME.users;ME.users=[];setupCompose();restoreDraft();
+  check(RECIPIENT_PENDING&&$('sendBtn').disabled,'unresolved draft recipient cannot silently become a broadcast');
+  ME.users=knownUsers;setupCompose();restoreDraft();
+  check(!RECIPIENT_PENDING&&!$('sendBtn').disabled&&$('cTo').value==='alice-agent','membership resolution re-enables the same recipient');
   const recipient=ME.users.find(u=>u.name==='alice-agent'), oldName=recipient.name;
   recipient.name='renamed-agent';setupCompose();restoreDraft();
   check($('cTo').value==='renamed-agent','saved recipient follows stable identity after rename');

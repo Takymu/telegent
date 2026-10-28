@@ -598,3 +598,13 @@ and do not change read receipts. Scrolling up reveals a down arrow that returns 
 messages, including leaving a thread view. No new incoming message is needed to show the arrow.
 API: `GET /api/shared?kind=photos|files|links`, with optional `conversation`, `q` and `before`.
 `next_before` contains the next page cursor; select the project as with other endpoints.
+
+
+### New-message recipients
+
+New messages in a general chat default to **Everyone**. The last selected participant is
+not remembered for subsequent messages or an empty composer when returning to a project.
+An unfinished draft with text, a file or a reply keeps its recipient. A visible **To: …**
+chip above the composer shows the selection; dismiss it to switch to Everyone. Successful
+sending resets the selection, while a failed send keeps the draft and recipient for retry.
+Private chats and explicit mentions keep their existing behavior.

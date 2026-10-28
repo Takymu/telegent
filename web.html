@@ -426,6 +426,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 #cChips:empty { display: none; }
 .cchip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; border-radius: 999px; padding: 1px 4px 1px 9px;
   background: var(--chip); }
+.recipient-chip { border:1px solid var(--accent);font-weight:600; }
 .cchip button { border: 0; background: transparent; padding: 0 4px; font-size: 13px; color: var(--muted); line-height: 1; }
 #cOpts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px;
   border-top: 1px dashed var(--line); }
@@ -938,6 +939,8 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 "use strict";
 // ---- localization: translate source-owned strings before inserting user values
 const UI_EN={
+  "Кому: ": "To: ",
+  "Проверяем адресата…": "Checking recipient…",
   "Обновить": "Refresh",
   "Вложения чата": "Chat attachments",
   "Вложения": "Attachments",
@@ -1627,19 +1630,19 @@ let DRAFT_TIMER=null, COMPOSE_SCOPE=null;
 const draftKey = () => `${ME?.id}|${PROJECT}|${ACTIVE_DM?.id || "general"}`;
 const draftStoragePrefix = () => "tg_draft_v1:"+encodeURIComponent(ME.id)+":";
 const draftStorageKey = () => draftStoragePrefix()+encodeURIComponent(PROJECT)+":"+(ACTIVE_DM?.id || "general");
-const RECIPIENTS = new Map();
 let RECIPIENT_PENDING=null, MENTION_BINDINGS={};
 const recipientStoragePrefix = () => "tg_recipient_v1:"+encodeURIComponent(ME.id)+":";
 const recipientStorageKey = () => recipientStoragePrefix()+encodeURIComponent(PROJECT);
 const selectedRecipientId = () => $("cTo").selectedOptions[0]?.dataset.id || (RECIPIENT_PENDING?.scope===draftKey()?RECIPIENT_PENDING.id:"");
-function rememberRecipient(id) {
-  if(ACTIVE_DM || !ME || !PROJECT)return;
-  RECIPIENTS.set(recipientStorageKey(),id); st.set(recipientStorageKey(),id);
+const hasDraftContent=d=>!!(d?.body?.trim()||d?.reply||d?.attachments?.length||d?.files?.length);
+function resetEmptyRecipient(){
+  if(!ACTIVE_DM&&!hasDraftContent({body:$('cBody').value,reply:REPLY,attachments:ATTACHED,files:DRAFTS.get(draftKey())?.files})){restoreRecipient('');updateChips();}
 }
 function restoreRecipient(id) {
   RECIPIENT_PENDING=id&&!ACTIVE_DM&&!ME.users.length?{scope:draftKey(),id}:null;
   // Resolve saved identities against current membership, never a reused display name.
   $("cTo").value=ACTIVE_DM ? "" : ME.users.find(u=>u.id===id && u.id!==ME.id)?.name || "";
+  $("sendBtn").disabled=SENDING||!!RECIPIENT_PENDING;
 }
 function saveDraft() {
   clearTimeout(DRAFT_TIMER); DRAFT_TIMER=null;
@@ -1649,9 +1652,10 @@ function saveDraft() {
   DRAFTS.set(draftKey(),draft);
   const {attachments,...stored}=draft;
   stored.files=attachments.map(a=>a.file.name);
+  if(!hasDraftContent(draft)){stored.to="";stored.recipient_id="";}
   if(stored.reply) stored.reply={id:stored.reply.id,author:stored.reply.author,author_id:stored.reply.author_id,subject:stored.reply.subject};
   try {
-    if(!draft.body && !draft.reply && !draft.topic && !draft.to && !draft.urgent && !draft.approval && !stored.files.length && draft.type==="info") localStorage.removeItem(draftStorageKey());
+    if(!draft.body && !draft.reply && !draft.topic && !stored.to && !draft.urgent && !draft.approval && !stored.files.length && draft.type==="info") localStorage.removeItem(draftStorageKey());
     else localStorage.setItem(draftStorageKey(),JSON.stringify(stored));
   } catch { /* The in-memory draft remains available if browser storage is unavailable. */ }
 }
@@ -1661,10 +1665,11 @@ function clearDraft() {
 }
 function forgetDrafts() {
   RECIPIENT_PENDING=null;
-  clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;COMPOSE_SCOPE=null;DRAFTS.clear();RECIPIENTS.clear();
+  clearTimeout(DRAFT_TIMER);DRAFT_TIMER=null;COMPOSE_SCOPE=null;DRAFTS.clear();
   try {for(const key of Object.keys(localStorage)) if(key.startsWith(draftStoragePrefix()) || key.startsWith(recipientStoragePrefix()))localStorage.removeItem(key);}catch{}
 }
 function restoreDraft() {
+  const sameComposer=COMPOSE_SCOPE===draftKey();
   COMPOSE_SCOPE=draftKey();
   let draft = DRAFTS.get(draftKey());
   if(!draft) {
@@ -1672,6 +1677,8 @@ function restoreDraft() {
     if(draft && (typeof draft.body!=="string" || !TYPES[draft.type]))draft=null;
     if(draft)draft.attachments=[];
   }
+  if(draft&&!sameComposer&&!hasDraftContent(draft))draft={...draft,to:"",recipient_id:""};
+  if(draft)DRAFTS.set(draftKey(),draft);
   resetCompose();
   if (draft) {
     $("cBody").value=draft.body; $("cTo").value=draft.to || ""; $("cTopic").value=draft.topic || ""; $("cType").value=draft.type;
@@ -2402,7 +2409,7 @@ async function setProject(slug) {
   $("inviteBtn").classList.toggle("hidden", ME.kind !== "human");
   $("inviteBtn").textContent = ME.project.role === "owner" ? tr("+ Пригласить") : tr("+ Добавить агента");
   $("projects").classList.remove("open"); $("aside").classList.remove("open");
-  setupCompose(); TAB="feed";restoreDraft();paintTab();
+  setupCompose(); TAB="feed";restoreDraft();resetEmptyRecipient();paintTab();
   renderConversations();renderProjects();
   const hit=restoreChat();if(!hit)loadingChat();
   const current=()=>TOKEN===token&&PROJECT===slug&&CHAT_SWITCH===navigation;
@@ -3240,7 +3247,7 @@ document.addEventListener("click", async e => {
       case "projmenu": openProjectMenu(el.dataset.slug, el); break;
       case "parchivefolder":PROJECT_ARCHIVE_OPEN=!PROJECT_ARCHIVE_OPEN;renderProjects();break;
       case "parchive":await archiveProject(el.dataset.slug);break;
-      case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
+      case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else {$("projects").classList.remove("open");resetEmptyRecipient();} break;
       case "prename": case "pleave": case "pdelete": await projectAction(el.dataset.act, el.dataset.slug); break;
       case "mrole": case "mremove": case "mreset": case "mrename": case "madd":
         await memberAction(el.dataset.act, el.dataset.name, el.dataset.role, el.dataset.account); break;
@@ -3299,6 +3306,7 @@ async function selectTab(tab) {
   if(changed)resetFeedState();
   const needsReload=changed || !MSGS.size || COMPOSE_SCOPE!==draftKey();
   if(COMPOSE_SCOPE!==draftKey())restoreDraft();
+  if(tab==="feed")resetEmptyRecipient();
   paintTab();
   if(tab==="direct") {renderConversations();loadConversations().catch(()=>{});if(!mobileLayout())$("dmSearch").focus();}
   else if(tab==="feed") {if(needsReload){const hit=restoreChat();if(!hit)loadingChat();const update=(hit?refresh():reload()).catch(()=>{});if(!hit)await update;}}
@@ -3311,18 +3319,20 @@ $("sideBtn").onclick = () => { $("aside").classList.toggle("open"); $("projects"
 // options (type, topic, urgent, approval) live behind ⚙; what is set shows as chips above the text
 function updateChips() {
   const chips = [];
+  if(!ACTIVE_DM&&($("cTo").value||RECIPIENT_PENDING))chips.push(["recipient",RECIPIENT_PENDING?tr("Проверяем адресата…"):tr("Кому: ")+$("cTo").value]);
   if ($("cType").value !== "info") chips.push(["type", TYPES[$("cType").value]]);
   if ($("cTopic").value.trim()) chips.push(["topic", "#" + $("cTopic").value.trim().replace(/^#/, "")]);
   if ($("cUrgent").checked) chips.push(["urgent", tr("срочно")]);
   if ($("cApproval").checked) chips.push(["approval", tr("нужно одобрение") + ($("cApprover").value ? ": " + $("cApprover").value : "")]);
   $("cApprover").classList.toggle("hidden", !$("cApproval").checked);
-  $("cChips").innerHTML = chips.map(([k, t]) => ui`<span class="cchip">${esc(t)}<button type="button" data-chip="${k}" title="убрать">✕</button></span>`).join("");
+  $("cChips").innerHTML = chips.map(([k, t]) => ui`<span class="cchip ${k==="recipient"?"recipient-chip":""}">${esc(t)}<button type="button" data-chip="${k}" title="убрать">✕</button></span>`).join("");
   $("cOptsBtn").classList.toggle("on", chips.length > 0 || !$("cOpts").classList.contains("hidden"));
   $("cBody").placeholder = REPLY ? ui`Ответ ${REPLY.author}…` : ME && ME.project ? (ACTIVE_DM?ui`Личное сообщение ${ACTIVE_DM.peer}`:ui`Сообщение в «${ME.project.title}»`) : tr("Сообщение");
 }
 $("cChips").onclick = e => {
   const k = e.target.dataset && e.target.dataset.chip;
   if (!k) return;
+  if (k === "recipient"){restoreRecipient("");$("sendBtn").disabled=SENDING;}
   if (k === "type") $("cType").value = "info";
   if (k === "topic") $("cTopic").value = "";
   if (k === "urgent") $("cUrgent").checked = false;
@@ -3338,7 +3348,7 @@ function startReply(m) {
   $("replyBar").classList.remove("hidden");
   $("replyText").textContent = ui`Ответ на #${m.id} (${m.author}): ${(m.body||m.subject||tr("Вложение")).replace(/\s+/g," ").slice(0,240)}`;
   $("cTopic").value = m.topic || "";
-  $("cTo").value = !isMine(m) ? m.author : "";
+  restoreRecipient(!isMine(m)?m.author_id:"");updateChips();
   $("cBody").focus(); scheduleDraft();
 }
 function resetCompose(force = false) {
@@ -3348,13 +3358,14 @@ function resetCompose(force = false) {
   ATTACHED = []; COMPOSE_RETRY = null; paintFiles();
   REPLY = null; $("replyBar").classList.add("hidden");
   $("cBody").value = ""; $("cFiles").value = ""; $("cFilesInfo").textContent = ""; $("cTo").value = "";
-  restoreRecipient(RECIPIENTS.get(recipientStorageKey()) ?? st.get(recipientStorageKey()) ?? "");
+  restoreRecipient("");
+  if(ME&&PROJECT)st.set(recipientStorageKey(),null);
   $("cUrgent").checked = false; $("cApproval").checked = false; $("cApprover").value = ""; $("sendErr").textContent = "";
   $("cType").value = "info"; $("cTopic").value = ""; $("cOpts").classList.add("hidden");
   updateChips();
   growBody();
 }
-$("cancelReply").onclick = e => { e.preventDefault(); REPLY=null;$("replyBar").classList.add("hidden");updateChips();scheduleDraft(); };
+$("cancelReply").onclick = e => { e.preventDefault(); REPLY=null;restoreRecipient("");$("replyBar").classList.add("hidden");updateChips();scheduleDraft(); };
 
 // the composer grows with the text (up to 40% of the screen); Enter sends, Shift+Enter is a new line
 function growBody() {
@@ -3365,7 +3376,7 @@ function growBody() {
 $("cBody").addEventListener("input", growBody);
 $("cBody").addEventListener("input",scheduleDraft);
 for(const id of ["cTo","cTopic","cType","cUrgent","cApproval","cApprover"]) $(id).addEventListener("change",scheduleDraft);
-$("cTo").addEventListener("change",()=>{RECIPIENT_PENDING=null;rememberRecipient(selectedRecipientId());$('sendBtn').disabled=SENDING;});
+$("cTo").addEventListener("change",()=>{RECIPIENT_PENDING=null;updateChips();$('sendBtn').disabled=SENDING;});
 window.addEventListener("pagehide",saveDraft);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")saveDraft();});
 // on a phone keyboard Enter is a new line and the ↑ button sends
@@ -3678,7 +3689,6 @@ $("sendBtn").onclick = async () => {
     for (const a of ATTACHED) data.attachments.push(await uploadFile(a, UPLOAD_ABORT.signal));
     UPLOAD_ABORT.signal.throwIfAborted?.();
     pending.id=(await api("POST", "/api/messages", data, UPLOAD_ABORT.signal)).id; paintOutgoing();
-    rememberRecipient(data.to_ids?.[0] || "");
     clearDraft(); resetCompose(true);
     try { await refresh(); } catch(err) { toast(err.message,true); }
     toBottom();
