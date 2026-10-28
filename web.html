@@ -141,6 +141,30 @@ body.resizing-projects, body.resizing-projects * { cursor:col-resize !important;
 #statusResize:hover::after, #statusResize:focus-visible::after, body.resizing-status #statusResize::after { background: var(--accent); }
 body.resizing-status, body.resizing-status * { cursor: col-resize !important; user-select: none !important; }
 #app aside { border-left: 0; min-width: 0; }
+#documentReader { grid-column:5;grid-row:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--panel);overflow:hidden; }
+#app.reader-open aside { display:none; }
+.document-tabs { display:flex;flex:none;overflow-x:auto;border-bottom:1px solid var(--line);min-height:42px; }
+.document-tab { display:flex;flex:none;max-width:250px;border-bottom:2px solid transparent; }
+.document-tab.active { border-bottom-color:var(--accent);background:var(--code); }
+.document-tab button { border:0;border-radius:0;background:transparent;min-width:0; }
+.document-tab [role=tab] { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px; }
+.document-toolbar { display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--line); }
+.document-toolbar button { min-height:36px; }
+.document-toolbar button[aria-pressed=true] { color:var(--accent);background:var(--code); }
+#documentBody { flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px;overflow-wrap:anywhere; }
+#documentBody.md { font-size:14px;line-height:1.65; }
+#documentBody.md h1 { font-size:1.7em; } #documentBody.md h2 { font-size:1.4em; }
+#documentBody pre.document-source { white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.6 ui-monospace,Consolas,monospace; }
+.markdown-table { overflow-x:auto;max-width:100%;margin:.7em 0; }
+.markdown-table th,.markdown-table td { border:1px solid var(--line);min-width:90px; }
+.document-warning { padding:10px;border-radius:6px;background:var(--warn-bg);color:var(--warn);margin-bottom:14px; }
+.markdown-file { display:flex;align-items:center;gap:4px; }
+.markdown-file .file-card { flex:1;min-width:0; } .markdown-file>button:last-child { flex:none;width:44px;height:44px;padding:0; }
+@media(max-width:900px) {
+  #app.reader-open #documentReader { position:fixed;inset:var(--hdr,53px) 0 0;z-index:18; }
+  .document-toolbar button,.document-tab button { min-height:44px; }
+  #documentBody { padding:16px; }
+}
 #projects { border-right: 1px solid var(--line); overflow-y: auto; padding: 16px 10px; }
 #projects h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 6px 8px; }
 .pitem { display: flex; align-items: center; border-radius: 8px;
@@ -843,6 +867,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
     <div id="statusResize" role="separator" aria-orientation="vertical" aria-controls="aside" aria-label="Ширина панели статуса"
       tabindex="0" title="Потяни, чтобы изменить ширину. Двойной щелчок — сбросить."></div>
     <aside id="aside">
+      <button id="openDocuments" class="hidden" type="button" style="margin-bottom:12px">Открытые файлы</button>
       <div class="panel">
         <h2 style="display:flex;align-items:center">Участники<span style="flex:1"></span>
           <button id="inviteBtn" class="hidden" style="font-size:12px;text-transform:none;letter-spacing:0">+ Пригласить</button></h2>
@@ -854,6 +879,17 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
         </div>
       </div>
     </aside>
+    <section id="documentReader" class="hidden" aria-label="Просмотр Markdown">
+      <div id="documentTabs" class="document-tabs" role="tablist" aria-label="Открытые файлы"></div>
+      <div class="document-toolbar">
+        <button type="button" data-doc-action="status">Участники</button>
+        <button type="button" id="documentRender" data-doc-action="render" aria-pressed="true">Просмотр</button>
+        <button type="button" id="documentSource" data-doc-action="source" aria-pressed="false">Исходник</button>
+        <span style="flex:1"></span><button type="button" id="documentDownload">Скачать</button>
+        <button type="button" data-doc-action="close" aria-label="Закрыть просмотр Markdown">✕</button>
+      </div>
+      <div id="documentBody" role="tabpanel" tabindex="0"></div>
+    </section>
   </div>
   <nav id="mobileNav" aria-label="Навигация по проекту"><button type="button" data-mobile="projects" aria-label="Проекты"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Проекты</span></button><button type="button" data-mobile="feed" aria-label="Общий"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 1 1 19 0Z"/><path d="M7 9h9m-9 4h6"/></svg><span>Общий</span><span id="mobileGeneralBadge" class="nav-badge hidden"></span></button><button type="button" data-mobile="users" aria-label="Участники"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 4a3 3 0 0 1 0 6m3 11v-3a6 6 0 0 0-3-5"/></svg><span>Участники</span></button><button type="button" data-mobile="direct" aria-label="Личные"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 5V3m8 2V3m-8 9h8m-8 4h5"/></svg><span>Личные</span><span id="mobileDirectBadge" class="nav-badge hidden"></span></button><button type="button" data-mobile="more" aria-label="Ещё"><svg class="ui-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span>Ещё</span></button></nav>
 </div>
@@ -1453,7 +1489,22 @@ const UI_EN={
   "Серая (белые галочки)": "Gray (white ticks)",
   "Настройка сохраняется в этом браузере.": "This setting is saved in this browser.",
   "Вложение": "Attachment",
-  "работает": "working"
+  "работает": "working",
+  "Просмотр Markdown": "Markdown viewer",
+  "Скачать": "Download",
+  "Ширина панели просмотра": "Preview panel width",
+  "Открытые файлы": "Open files",
+  "Просмотр": "Preview",
+  "Исходник": "Source",
+  "Читать в панели": "Read in panel",
+  "Открыть Markdown: ": "Open Markdown: ",
+  "Закрыть просмотр Markdown": "Close Markdown viewer",
+  "Закрыть файл: ": "Close file: ",
+  "Загружаем Markdown…": "Loading Markdown…",
+  "Показано начало большого файла. Скачай оригинал для полного текста.": "Showing the beginning of a large file. Download the original for the complete text.",
+  "Не удалось прочитать текст Markdown. Скачай оригинал, чтобы открыть его в своей кодировке.": "Could not decode the Markdown text. Download the original to open it with its encoding.",
+  "Открыто восемь файлов. Закрой вкладку, чтобы открыть ещё один.": "Eight files are open. Close a tab to open another.",
+  "Загрузка не завершилась. Повтори попытку.": "Loading did not complete. Try again."
 };
 let LANGUAGE_SETTING="auto";
 try{LANGUAGE_SETTING=localStorage.getItem("tg_language")||"auto";}catch{}
@@ -1514,6 +1565,7 @@ let PROJECT = null, PROJECTS = [], WANT_PROJECT = null, POLL_ABORT = null, UNREA
 let ACTIVE_DM = null, CONVERSATIONS = [];
 let VIEW_RETURN=null, WORK_MODE="waiting", ACTION_TARGET=null, PREVIEW_URL=null, INV_TRACK=null;
 let INV_MODE=null, INFO_VERSION=0;
+const DOCUMENTS=new Map();let DOCUMENT_ACTIVE=null,DOCUMENT_OPEN=false;
 const OUTGOING = new Map();let OUTGOING_SEQUENCE=0;
 function paintOutgoing() {
   const pending=[...OUTGOING.values()].filter(p=>p.scope===draftKey());
@@ -1603,6 +1655,7 @@ function putChatPage(key,data) {
   while(CHAT_PAGES.size>24||CHAT_BYTES>4*1024*1024){const oldest=CHAT_PAGES.keys().next().value;if(oldest===CHAT_PAGE_KEY&&CHAT_PAGES.size>1){const current=CHAT_PAGES.get(oldest);CHAT_PAGES.delete(oldest);CHAT_PAGES.set(oldest,current);continue;}CHAT_BYTES-=CHAT_PAGES.get(oldest).size;CHAT_PAGES.delete(oldest);}
 }
 function clearChatCache() {
+  clearDocuments();
   CHAT_GENERATION++;CHAT_SWITCH++;FEED_EPOCH++;POLL_ABORT?.abort();CHAT_PAGES.clear();CHAT_META.clear();CHAT_BYTES=0;CHAT_PAGE_KEY=null;
   clearTimeout(CHAT_WARM_TIMER);CHAT_WARM_TIMER=null;
 }
@@ -1700,7 +1753,7 @@ function markdownInline(text, depth = 0, links = true) {
     return end;
   };
   while (i < text.length) {
-    if (text[i] === "\\" && /[\\`*_[\]~<>]/.test(text[i + 1] || "")) { plain += text[i + 1]; i += 2; continue; }
+    if (text[i] === "\\" && /[\\`*_[\]~<>|]/.test(text[i + 1] || "")) { plain += text[i + 1]; i += 2; continue; }
     if (text[i] === "`") {
       const marker = /^`+/.exec(text.slice(i))[0], end = endOf(marker, i + marker.length);
       if (end >= 0) { flush(); html += `<code>${esc(text.slice(i + marker.length, end))}</code>`; i = end + marker.length; continue; }
@@ -1741,6 +1794,17 @@ function markdownInline(text, depth = 0, links = true) {
   }
   flush(); return html;
 }
+function markdownCells(line){
+  if(!line.includes('|'))return null;
+  const cells=[];let cell='',code=0;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='\\'&&i+1<line.length){cell+=c+line[++i];continue;}
+    if(c==='`'){let n=1;while(line[i+1]==='`'){n++;i++;}cell+='`'.repeat(n);if(!code)code=n;else if(code===n)code=0;continue;}
+    if(c==='|'&&!code){cells.push(cell.trim());cell='';if(cells.length>128)return null;}else cell+=c;
+  }
+  cells.push(cell.trim());if(cells[0]==='')cells.shift();if(cells.at(-1)==='')cells.pop();return cells;
+}
 function markdown(text, depth = 0) {
   text = String(text ?? "").replace(/\r\n?/g, "\n");
   if (depth > 8) return `<p>${esc(text).replace(/\n/g, "<br>")}</p>`;
@@ -1750,13 +1814,20 @@ function markdown(text, depth = 0) {
   const list = line => /^( {0,3})([-+*]|\d{1,9}[.)])\s+(.+)$/.exec(line);
   const quote = line => /^ {0,3}> ?/.test(line);
   const block = line => fence(line) || heading(line) || list(line) || quote(line);
+  const tableAt=i=>{const head=markdownCells(lines[i]||''),sep=markdownCells(lines[i+1]||'');return head?.length&&head.length===sep?.length&&sep.every(c=>/^:?-{3,}:?$/.test(c))?{head,sep}:null;};
   for (let i = 0; i < lines.length;) {
     if (!lines[i].trim()) { i++; continue; }
-    const f = fence(lines[i]), h = heading(lines[i]), l = list(lines[i]);
+    const f = fence(lines[i]), h = heading(lines[i]), l = list(lines[i]),table=tableAt(i);
     if (f) {
       const code = []; i++;
       while (i < lines.length && !new RegExp(`^ {0,3}${f[1][0]}{${f[1].length},}\\s*$`).test(lines[i])) code.push(lines[i++]);
       out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`); if (i < lines.length) i++;
+    } else if(table){
+      const align=table.sep.map(c=>c.startsWith(':')&&c.endsWith(':')?'center':c.endsWith(':')?'right':'left');
+      const cells=(row,tag)=>table.head.map((_,index)=>`<${tag} style="text-align:${align[index]}">${markdownInline(row[index]||'')}</${tag}>`).join('');
+      const rows=[];i+=2;
+      while(i<lines.length&&lines[i].trim()) {const row=markdownCells(lines[i]);if(!row||block(lines[i]))break;rows.push('<tr>'+cells(row,'td')+'</tr>');i++;}
+      out.push('<div class="markdown-table"><table><thead><tr>'+cells(table.head,'th')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>');
     } else if (h) {
       out.push(`<h${h[1].length}>${markdownInline(h[2])}</h${h[1].length}>`); i++;
     } else if (quote(lines[i])) {
@@ -1777,7 +1848,7 @@ function markdown(text, depth = 0) {
       out.push(`<${tag}${ordered ? ` start="${parseInt(l[2], 10)}"` : ""}>${items.join("")}</${tag}>`);
     } else {
       const part = [lines[i++]];
-      while (i < lines.length && lines[i].trim() && !block(lines[i])) part.push(lines[i++]);
+      while (i < lines.length && lines[i].trim() && !block(lines[i])&&!tableAt(i)) part.push(lines[i++]);
       out.push(`<p>${markdownInline(part.join("\n"))}</p>`);
     }
   }
@@ -1811,16 +1882,17 @@ $("projectsResize").ondblclick=()=>projectsWidth(220,true);
 $("projectsResize").onkeydown=e=>{if(statusDesktop()&&["ArrowLeft","ArrowRight","Home"].includes(e.key)){e.preventDefault();projectsWidth(e.key==="Home"?220:$("projects").getBoundingClientRect().width+(e.key==="ArrowRight"?20:-20),true);}};
 window.addEventListener("resize",()=>{endProjectsResize();projectsWidth(PROJECTS_WIDTH);});
 window.addEventListener("blur",()=>endProjectsResize());
-let STATUS_WIDTH = Number(st.get("tg_status_width")) || 300, STATUS_DRAG = null;
+let STATUS_WIDTH = Number(st.get("tg_status_width")) || 300, DOCUMENT_WIDTH=Number(st.get("tg_document_width"))||520, STATUS_DRAG = null;
 const statusDesktop = () => matchMedia("(min-width: 901px)").matches;
 function statusWidth(value, save = false) {
-  const max = Math.min(600, Math.max(260, innerWidth - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--projects-width"))||220) - 360 - 12));
+  if(DOCUMENT_OPEN&&!save&&value===STATUS_WIDTH)value=DOCUMENT_WIDTH;
+  const max = Math.min(DOCUMENT_OPEN?900:600, Math.max(260, innerWidth - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--projects-width"))||220) - 360 - 12));
   const width = Math.round(Math.max(260, Math.min(max, value)));
   document.documentElement.style.setProperty("--status-width", width + "px");
   const handle = $("statusResize");
   handle.setAttribute("aria-valuemin", "260"); handle.setAttribute("aria-valuemax", String(max));
   handle.setAttribute("aria-valuenow", String(width));
-  if (save) { STATUS_WIDTH = width; st.set("tg_status_width", String(width)); }
+  if (save) { if(DOCUMENT_OPEN){DOCUMENT_WIDTH=width;st.set("tg_document_width",String(width));}else{STATUS_WIDTH = width; st.set("tg_status_width", String(width));} }
   return width;
 }
 function endStatusResize(e) {
@@ -1832,18 +1904,18 @@ function endStatusResize(e) {
 $("statusResize").onpointerdown = e => {
   if (!statusDesktop() || e.button !== 0) return;
   e.preventDefault();
-  STATUS_DRAG = {pointer: e.pointerId, x: e.clientX, width: $("aside").getBoundingClientRect().width};
+  STATUS_DRAG = {pointer: e.pointerId, x: e.clientX, width: $(DOCUMENT_OPEN?"documentReader":"aside").getBoundingClientRect().width};
   $("statusResize").setPointerCapture(e.pointerId); document.body.classList.add("resizing-status");
 };
 $("statusResize").onpointermove = e => {
   if (STATUS_DRAG && e.pointerId === STATUS_DRAG.pointer) statusWidth(STATUS_DRAG.width + STATUS_DRAG.x - e.clientX, true);
 };
 for (const event of ["pointerup", "pointercancel", "lostpointercapture"]) $("statusResize").addEventListener(event, endStatusResize);
-$("statusResize").ondblclick = () => statusWidth(300, true);
+$("statusResize").ondblclick = () => statusWidth(DOCUMENT_OPEN?520:300, true);
 $("statusResize").onkeydown = e => {
   if (!statusDesktop()) return;
   if (["ArrowLeft", "ArrowRight", "Home"].includes(e.key)) {
-    e.preventDefault(); statusWidth(e.key === "Home" ? 300 : $("aside").getBoundingClientRect().width + (e.key === "ArrowLeft" ? 20 : -20), true);
+    e.preventDefault(); statusWidth(e.key === "Home" ? (DOCUMENT_OPEN?520:300) : $(DOCUMENT_OPEN?"documentReader":"aside").getBoundingClientRect().width + (e.key === "ArrowLeft" ? 20 : -20), true);
   }
 };
 window.addEventListener("resize", () => { endStatusResize(); statusWidth(STATUS_WIDTH); });
@@ -2106,6 +2178,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault(); buttons[next]?.focus(); return;
   }
   if (e.key === "Escape") {
+    if(DOCUMENT_OPEN){e.preventDefault();hideDocuments();return;}
     if($("filters").classList.contains("open")){e.preventDefault();$("closeFilters").click();return;}
     if (!$("menu").classList.contains("hidden")) { e.preventDefault(); closeMenu(true); return; }
     closeMenu(); closeSecret();
@@ -2240,6 +2313,7 @@ async function migrateLegacyReadState(token, storedToken) {
 }
 
 function showNoProject() {
+  clearDocuments();
   CHAT_SWITCH++;CHAT_PAGE_KEY=null;
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = null; st.set("tg_project", null);
@@ -2258,7 +2332,7 @@ async function setProject(slug) {
   if (SENDING) { toast(tr("Дождись отправки сообщения или нажми «Отмена»"), true); return; }
   const p=PROJECTS.find(p=>p.slug===slug);if(!p)return;
   rememberChat();const navigation=++CHAT_SWITCH,token=TOKEN;
-  clearInlineImages();
+  clearInlineImages();clearDocuments();
   cancelProjectDrag();
   closeInfo();if($("actionDialog").open)$("actionDialog").close();VIEW_RETURN=null;
   saveDraft(); closeMenu();
@@ -2302,6 +2376,7 @@ async function setProject(slug) {
 
 const feedCursor = () => ACTIVE_DM ? ACTIVE_DM.read_upto || 0 : ME.project?.read_upto || 0;
 function resetFeedState() {
+  clearDocuments();
   CHAT_PAGE_KEY=null;LOADING_OLDER=false;
   clearInlineImages(); $("pendingOutgoing").replaceChildren();
   FEED_EPOCH++;
@@ -2633,7 +2708,7 @@ function readingFeed() {
   return ME?.kind === "human" && (TAB === "feed" || TAB === "direct" && !!ACTIVE_DM) && document.visibilityState === "visible" &&
     !$("editDialog").open && !document.querySelector("dialog.ux-dialog[open]") &&
     !["invDialog", "pwDialog", "npDialog", "prDialog", "pdDialog", "secretDialog", "menu"].some(id => !$(id).classList.contains("hidden")) &&
-    !(innerWidth <= 900 && ["projects", "aside"].some(id => $(id).classList.contains("open")));
+    !(innerWidth <= 900 && (DOCUMENT_OPEN||["projects", "aside"].some(id => $(id).classList.contains("open"))));
 }
 const READ_OBSERVER = new IntersectionObserver(entries => {
   if (!readingFeed()) return;
@@ -2800,6 +2875,7 @@ for (const id of ["fTopic", "fType", "fOpen", "fPending", "fWaiting", "fSystem"]
 
 // returns false when nothing changed (the poll refreshes every ~25 s; don't repaint for nothing)
 function render(force) {
+  syncDocuments();
   const list = [...MSGS.values()].sort((a, b) => a.id - b.id);
   const sig = THREAD + "|" + UNREAD_FROM + "|" + JSON.stringify(list);
   if (!force && sig === SIG) return false;
@@ -3304,6 +3380,7 @@ function requestNativeShare(kind,id){
 }
 const fileShareButton=a=>nativeSharing()&&a.inline&&!a.optimistic?ui`<button type="button" data-act="sharefile" data-att="${a.id}" style="min-height:40px;margin-top:4px">Поделиться</button>`:'';
 function fileCard(a) {
+  if(a.inline&&!a.optimistic&&/\.(md|markdown|mdown)$/i.test(a.name))return ui`<div><div class="markdown-file"><button type="button" class="file-card" data-doc-open="${a.id}" title="Открыть Markdown: ${esc(a.name)}"><span class="file-symbol">MD</span><span class="file-info"><span class="file-name">${esc(a.name)}</span><span class="file-detail">${fileSize(a.size)} · ${tr("Читать в панели")}</span></span></button><button type="button" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Скачать ${esc(a.name)}" title="Скачать ${esc(a.name)}">↓</button></div>${fileShareButton(a)}</div>`;
   if(a.inline && /\.(png|jpe?g|gif|webp)$/i.test(a.name)){
     const gif=/\.gif$/i.test(a.name);
     return ui`<div><div class="${gif?'gif-card':'image-card'}"><button type="button" class="inline-image" ${a.optimistic?"":`data-ux="preview" data-image="${a.id}"`} data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Открыть изображение: ${esc(a.name)}"><span role="status">Загружаем изображение…</span></button>${gif?'<span class="gif-label">GIF</span>':''}${gif&&!a.optimistic?ui`<button type="button" class="gif-download" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" aria-label="Скачать ${esc(a.name)}" title="Скачать ${esc(a.name)}">↓</button>`:''}</div>${fileShareButton(a)}</div>`;
@@ -3313,6 +3390,107 @@ function fileCard(a) {
   return a.inline ? ui`<div><button class="file-card" data-act="dl" data-att="${a.id}" data-name="${esc(a.name)}" title="Скачать ${esc(a.name)}">${content}<span class="file-download" aria-hidden="true">↓</span></button>${fileShareButton(a)}</div>`
     : `<div class="file-card">${content}</div>`;
 }
+const documentScope=()=>`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id||''}`;
+function showDocuments(){
+  if(!DOCUMENTS.size)return;
+  DOCUMENT_OPEN=true;$('app').classList.add('reader-open');$('documentReader').classList.remove('hidden');
+  $('statusResize').setAttribute('aria-controls','documentReader');$('statusResize').setAttribute('aria-label',tr('Ширина панели просмотра'));statusWidth(DOCUMENT_WIDTH);
+  closeMobilePanels();observeReadRows();paintDocuments();
+}
+function hideDocuments(){
+  DOCUMENT_OPEN=false;$('app').classList.remove('reader-open');$('documentReader').classList.add('hidden');
+  $('statusResize').setAttribute('aria-controls','aside');$('statusResize').setAttribute('aria-label',tr('Ширина панели статуса'));statusWidth(STATUS_WIDTH);observeReadRows();
+}
+function clearDocuments(){
+  for(const doc of DOCUMENTS.values())doc.abort.abort();
+  DOCUMENTS.clear();DOCUMENT_ACTIVE=null;$('documentBody').replaceChildren();$('documentTabs').replaceChildren();
+  $('openDocuments').classList.add('hidden');hideDocuments();
+}
+function closeDocument(id){
+  id=String(id);DOCUMENTS.get(id)?.abort.abort();DOCUMENTS.delete(id);
+  if(DOCUMENT_ACTIVE===id)DOCUMENT_ACTIVE=[...DOCUMENTS.keys()].at(-1)||null;
+  if(!DOCUMENTS.size)clearDocuments();else paintDocuments();
+}
+function paintDocuments(){
+  $('openDocuments').classList.toggle('hidden',!DOCUMENTS.size);
+  const doc=DOCUMENTS.get(DOCUMENT_ACTIVE);if(!doc)return;
+  $('documentTabs').innerHTML=[...DOCUMENTS.values()].map(d=>`<div class="document-tab${d.id===doc.id?' active':''}"><button type="button" role="tab" id="document-tab-${d.id}" data-doc-tab="${d.id}" aria-selected="${d.id===doc.id}" tabindex="${d.id===doc.id?0:-1}" title="${esc(d.name)}">${esc(d.name)}</button><button type="button" data-doc-close="${d.id}" aria-label="${esc(tr('Закрыть файл: ')+d.name)}">×</button></div>`).join('');
+  const body=$('documentBody');body.setAttribute('aria-labelledby','document-tab-'+doc.id);
+  $('documentRender').setAttribute('aria-pressed',String(!doc.source));$('documentSource').setAttribute('aria-pressed',String(!!doc.source));
+  Object.assign($('documentDownload').dataset,{act:'dl',att:doc.id,name:doc.name});
+  body.className=doc.source?'':'md';body.replaceChildren();
+  if(doc.loading){body.textContent=tr('Загружаем Markdown…');return;}
+  if(doc.error){const message=document.createElement('p');message.className='err';message.textContent=doc.error;const retry=document.createElement('button');retry.type='button';retry.textContent=tr('Повторить');retry.dataset.docAction='retry';body.append(message,retry);return;}
+  if(doc.truncated){const warning=document.createElement('div');warning.className='document-warning';warning.textContent=tr('Показано начало большого файла. Скачай оригинал для полного текста.');body.append(warning);}
+  if(doc.source){const source=document.createElement('pre');source.className='document-source';source.textContent=doc.text;body.append(source);}
+  else{const rendered=document.createElement('div');rendered.innerHTML=markdown(doc.text);body.append(rendered);}
+  body.scrollTop=doc.scroll||0;
+}
+async function loadDocument(doc){
+  doc.loading=true;doc.error=null;doc.abort.abort();const controller=doc.abort=new AbortController(),version=doc.request=(doc.request||0)+1;
+  if(DOCUMENT_ACTIVE===doc.id&&DOCUMENT_OPEN)paintDocuments();
+  const timeout=setTimeout(()=>controller.abort(),40000),scope=doc.scope,limit=512*1024;
+  const current=()=>DOCUMENTS.get(doc.id)===doc&&scope===documentScope()&&doc.request===version;
+  try{
+    const response=await appFetch('/api/attachments/'+doc.id,{signal:controller.signal,headers:{Authorization:'Bearer '+TOKEN,'X-Telegent-Project':PROJECT,Range:`bytes=0-${limit}`}});
+    if(!response.ok){const error=new Error(tr('Не удалось открыть файл: HTTP ')+response.status);error.status=response.status;throw error;}
+    const reader=response.body.getReader(),parts=[];let size=0,limited=false;
+    try{while(true){const {value,done}=await reader.read();if(done)break;const take=value.subarray(0,limit+1-size);parts.push(take);size+=take.length;if(size>limit){limited=true;break;}}}
+    finally{await reader.cancel().catch(()=>{});}
+    const bytes=new Uint8Array(Math.min(size,limit));let offset=0;
+    for(const part of parts){const take=part.subarray(0,bytes.length-offset);bytes.set(take,offset);offset+=take.length;if(offset===bytes.length)break;}
+    const encoding=bytes[0]===255&&bytes[1]===254?'utf-16le':bytes[0]===254&&bytes[1]===255?'utf-16be':'utf-8';
+    const truncated=limited||doc.size>bytes.length;const decoder=new TextDecoder(encoding,{fatal:true});
+    let text;
+    try{text=decoder.decode(bytes,{stream:truncated});if(!truncated)text+=decoder.decode();if(text.includes('\0'))throw Error();}
+    catch{throw Error(tr('Не удалось прочитать текст Markdown. Скачай оригинал, чтобы открыть его в своей кодировке.'));}
+    if(!current())return;
+    doc.truncated=truncated||text.length>200000;doc.text=text.slice(0,200000);doc.loading=false;doc.checked=Date.now();
+  }catch(error){
+    if(!current())return;
+    doc.loading=false;doc.error=error.name==='AbortError'?tr('Загрузка не завершилась. Повтори попытку.'):error.message;
+    if([401,403,404].includes(error.status)){doc.text='';doc.truncated=false;}
+  }finally{clearTimeout(timeout);if(current()&&DOCUMENT_ACTIVE===doc.id&&DOCUMENT_OPEN)paintDocuments();}
+}
+async function openDocument(id){
+  id=String(id);if(!/^[1-9]\d*$/.test(id))return;
+  const row=[...MSGS.values(),...RES].find(m=>!m.deleted&&!m.secret&&m.project===PROJECT&&(m.conversation_id||null)===(ACTIVE_DM?.id||null)&&m.attachments?.some(a=>String(a.id)===id));
+  const attachment=row?.attachments.find(a=>String(a.id)===id);
+  if(!attachment?.inline||attachment.optimistic||! /\.(md|markdown|mdown)$/i.test(attachment.name))return;
+  let doc=DOCUMENTS.get(id);
+  if(!doc){
+    if(DOCUMENTS.size>=8){toast(tr('Открыто восемь файлов. Закрой вкладку, чтобы открыть ещё один.'),true);return;}
+    doc={id,name:attachment.name,size:attachment.size,message:row.id,scope:documentScope(),abort:new AbortController(),loading:true,text:'',checked:0};DOCUMENTS.set(id,doc);
+  }
+  DOCUMENT_ACTIVE=id;showDocuments();if(!doc.request)await loadDocument(doc);else syncDocuments();
+}
+function syncDocuments(){
+  for(const doc of DOCUMENTS.values()){
+    if(doc.scope!==documentScope()){clearDocuments();return;}
+    const message=MSGS.get(doc.message);
+    if(message&&(message.deleted||!message.attachments.some(a=>String(a.id)===doc.id))){closeDocument(doc.id);continue;}
+    if(doc.loading||doc.checking||Date.now()-(doc.checked||0)<20000)continue;
+    doc.checking=true;doc.checked=Date.now();
+    api('GET','/api/messages/'+doc.message).then(result=>{if(DOCUMENTS.get(doc.id)!==doc)return;if(result.message.deleted||!result.message.attachments.some(a=>String(a.id)===doc.id))closeDocument(doc.id);})
+      .catch(error=>{if(DOCUMENTS.get(doc.id)===doc&&[401,403,404].includes(error.status))closeDocument(doc.id);}).finally(()=>doc.checking=false);
+  }
+}
+$('openDocuments').onclick=showDocuments;
+document.addEventListener('click',event=>{
+  const open=event.target.closest('[data-doc-open]');if(open){event.preventDefault();openDocument(open.dataset.docOpen).catch(error=>toast(error.message,true));return;}
+  const tab=event.target.closest('[data-doc-tab]');if(tab){const before=DOCUMENTS.get(DOCUMENT_ACTIVE);if(before)before.scroll=$('documentBody').scrollTop;DOCUMENT_ACTIVE=tab.dataset.docTab;showDocuments();return;}
+  const close=event.target.closest('[data-doc-close]');if(close){closeDocument(close.dataset.docClose);return;}
+  const action=event.target.closest('[data-doc-action]')?.dataset.docAction;if(!action)return;
+  if(action==='close'){clearDocuments();return;}if(action==='status'){hideDocuments();$('aside').classList.add('open');return;}
+  const doc=DOCUMENTS.get(DOCUMENT_ACTIVE);if(!doc)return;
+  if(action==='retry')loadDocument(doc);else{doc.source=action==='source';doc.scroll=0;paintDocuments();}
+});
+$('documentTabs').addEventListener('keydown',event=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  const tabs=[...DOCUMENTS.keys()],at=tabs.indexOf(DOCUMENT_ACTIVE);if(!tabs.length)return;event.preventDefault();
+  DOCUMENT_ACTIVE=event.key==='Home'?tabs[0]:event.key==='End'?tabs.at(-1):tabs[(at+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length];
+  showDocuments();$('document-tab-'+DOCUMENT_ACTIVE)?.focus();
+});
 const FILE_PREVIEWS=new Map();
 function paintFiles() {
   for(const [file,url] of FILE_PREVIEWS)if(!ATTACHED.some(a=>a.file===file)){URL.revokeObjectURL(url);FILE_PREVIEWS.delete(file);}

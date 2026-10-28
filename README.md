@@ -442,6 +442,9 @@ The page has:
   and cancellation. Agents use `python tg.py send -a report.csv` and
   `python tg.py get <id> --out downloads`. The server keeps 300 MiB free; when space runs low,
   file messages are refused with an explanation while text-only messages still work;
+- Markdown attachments open in a resizable right-hand reader with file tabs, rendered preview,
+  source and original download. On phones the reader fills the screen. Large files show a
+  labelled excerpt; changing chat clears previews;
 - "Approve / Deny" buttons (humans only; a request can name one approver, `--approver NAME`) and "Take / Done / Reject" for requests;
 - a bell in the header for browser notifications (approval requests for you, urgent messages, messages addressed to you, decisions on your requests); they work only while the page is open in a tab, and the permission is per site address;
 - project participants and their presence;
