@@ -73,6 +73,7 @@ header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
 .body.collapsed { max-height: 9.5em; overflow: hidden; position: relative; }
 .kv { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; background: var(--code); border-radius: 7px; padding: 6px 8px; margin: 6px 0; }
 .kv b { font-weight: 600; }
+.archive-toggle { display:block;width:100%;text-align:left;margin:10px 0 4px;padding:10px 8px;color:var(--muted); }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .actions button { font-size: 12.5px; padding: 3px 9px; }
 .actions [role="tab"][aria-selected="true"] { background:var(--line);border-color:var(--accent); }
@@ -924,6 +925,11 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 "use strict";
 // ---- localization: translate source-owned strings before inserting user values
 const UI_EN={
+  "Архив": "Archive",
+  "Вернуть из архива": "Restore from archive",
+  "В архив для себя": "Archive for me",
+  "Проект в вашем архиве": "Project archived for you",
+  "Проект возвращён из архива": "Project restored from archive",
   "Карточка агента": "Agent card",
   "Профиль": "Profile",
   "Ход работы": "Work progress",
@@ -2263,7 +2269,7 @@ async function login(tok) {
   await migrateLegacyReadState(tok, storedToken);
   await loadProjects();
   const want = WANT_PROJECT || st.get("tg_project");
-  const pick = PROJECTS.find(p => p.slug === want) || PROJECTS[0];
+  const pick = PROJECTS.find(p => p.slug === want) || PROJECTS.find(p=>!p.sidebar_archived) || PROJECTS[0];
   if (pick) await setProject(pick.slug); else showNoProject();
   await restoreLanguageView();
   startNavigation();
@@ -2345,6 +2351,7 @@ function showNoProject() {
 async function setProject(slug) {
   if (SENDING) { toast(tr("Дождись отправки сообщения или нажми «Отмена»"), true); return; }
   const p=PROJECTS.find(p=>p.slug===slug);if(!p)return;
+  if(p.sidebar_archived)PROJECT_ARCHIVE_OPEN=true;
   rememberChat();const navigation=++CHAT_SWITCH,token=TOKEN;
   clearInlineImages();clearDocuments();
   cancelProjectDrag();
@@ -2442,7 +2449,7 @@ async function newDirect(peer) {
 $("dmSearch").oninput=renderConversations;
 $("dmBack").onclick=()=> { if(SENDING)return; rememberChat();CHAT_SWITCH++;saveDraft(); ACTIVE_DM=null; resetFeedState(); paintTab();renderConversations();loadConversations().catch(e=>toast(e.message,true)); };
 const seen = slug => +(PROJECTS.find(p => p.slug === slug)?.read_upto || 0);
-let PROJECT_DRAG=null, PROJECT_DRAG_CLICK=0, PROJECT_ORDER_SAVING=false;
+let PROJECT_DRAG=null, PROJECT_DRAG_CLICK=0, PROJECT_ORDER_SAVING=false, PROJECT_ARCHIVE_OPEN=false;
 function cancelProjectDrag() {
   const d=PROJECT_DRAG;PROJECT_DRAG=null;if(!d)return;
   clearTimeout(d.timer);cancelAnimationFrame(d.frame);d.ghost?.remove();d.line?.remove();d.row.classList.remove("reordering");
@@ -2452,7 +2459,7 @@ function moveProjectDrag(x,y) {
   const d=PROJECT_DRAG;if(!d)return;
   if(!d.active) {if(Math.hypot(x-d.x,y-d.y)>10)cancelProjectDrag();return;}
   d.yNow=y;d.ghost.style.top=(y-d.offset)+"px";
-  const rows=[...$("projList").querySelectorAll(".pitem")].filter(r=>r!==d.row);
+  const rows=[...$("projList").querySelectorAll(".pitem")].filter(r=>r!==d.row&&!r.classList.contains("archived"));
   d.index=rows.findIndex(r=>y<r.getBoundingClientRect().top+r.getBoundingClientRect().height/2);
   if(d.index<0)d.index=rows.length;
   const target=rows[d.index],rect=(target || rows[rows.length-1] || d.row).getBoundingClientRect();
@@ -2461,7 +2468,7 @@ function moveProjectDrag(x,y) {
 function startProjectDrag(target,x,y) {
   cancelProjectDrag();
   const row=target.closest(".pitem");
-  if(!row || target.closest("button") || ME?.kind!=="human" || PROJECT_ORDER_SAVING || SENDING || PROJECTS.length<2)return;
+  if(!row || target.closest("button") || ME?.kind!=="human" || PROJECT_ORDER_SAVING || SENDING || row.classList.contains("archived") || PROJECTS.filter(p=>!p.sidebar_archived).length<2)return;
   const d=PROJECT_DRAG={row,slug:row.dataset.slug,x,y,offset:y-row.getBoundingClientRect().top,token:TOKEN};
   d.timer=setTimeout(()=>{
     if(PROJECT_DRAG!==d)return;
@@ -2484,8 +2491,9 @@ async function finishProjectDrag(cancel=false) {
   const d=PROJECT_DRAG;if(!d)return;
   const active=d.active,index=d.index,slug=d.slug;cancelProjectDrag();
   if(!active || cancel || TOKEN!==d.token)return;
-  const original=PROJECTS.map(p=>p.id),order=PROJECTS.filter(p=>p.slug!==slug),item=PROJECTS.find(p=>p.slug===slug);
-  if(!item)return;order.splice(index,0,item);
+  const original=PROJECTS.map(p=>p.id),group=PROJECTS.filter(p=>!p.sidebar_archived&&p.slug!==slug),item=PROJECTS.find(p=>p.slug===slug);
+  if(!item||item.sidebar_archived)return;group.splice(index,0,item);
+  let position=0;const order=PROJECTS.map(p=>p.sidebar_archived?p:group[position++]);
   if(order.every((p,i)=>p.id===original[i]))return;
   PROJECT_ORDER_SAVING=true;
   try {
@@ -2520,15 +2528,17 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape" && PROJECT_DRAG){e.p
 window.addEventListener("blur",()=>cancelProjectDrag());
 function renderProjects() {
   if(PROJECT_DRAG)return;
-  $("projList").innerHTML = PROJECTS.length ? PROJECTS.map(p => {
+  const row = p => {
     const n = p.slug !== PROJECT ? (p.unread != null ? p.unread + (p.direct_unread || 0) : ((p.last_id || 0) > seen(p.slug) ? "•" : 0)) : 0;
-    return ui`<div class="pitem ${p.slug === PROJECT ? "active" : ""}" data-slug="${esc(p.slug)}">
+    return ui`<div class="pitem ${p.slug === PROJECT ? "active" : ""} ${p.sidebar_archived?"archived":""}" data-slug="${esc(p.slug)}">
       <a class="pselect" href="#" data-act="proj" data-slug="${esc(p.slug)}" title="${esc(p.title)} (${esc(p.slug)})" ${p.slug === PROJECT ? 'aria-current="page"' : ''}>
       <span class="pname">${esc(p.title)}</span>${n ? `<span class="pcount">${n}</span>` : ""}</a>
       <button class="pmore" data-act="projmenu" data-slug="${esc(p.slug)}" title="Действия с проектом"
         aria-label="Действия с проектом «${esc(p.title)}»" aria-haspopup="menu" aria-controls="menu"
         aria-expanded="${PROJECT_MENU === p.slug}">⋯</button></div>`;
-  }).join("") : ui`<div class="muted" style="padding:0 8px;font-size:13px">Пока нет проектов.</div>`;
+  };
+  const active=PROJECTS.filter(p=>!p.sidebar_archived),archived=PROJECTS.filter(p=>p.sidebar_archived);
+  $("projList").innerHTML = PROJECTS.length ? active.map(row).join("")+(archived.length?ui`<button class="archive-toggle" data-act="parchivefolder" aria-expanded="${PROJECT_ARCHIVE_OPEN}" aria-controls="archivedProjects">${PROJECT_ARCHIVE_OPEN?"▾":"▸"} Архив (${archived.length})</button><div id="archivedProjects" ${PROJECT_ARCHIVE_OPEN?"":"hidden"}>${archived.map(row).join("")}</div>`:"") : ui`<div class="muted" style="padding:0 8px;font-size:13px">Пока нет проектов.</div>`;
   if (PROJECT_MENU && !PROJECTS.some(p => p.slug === PROJECT_MENU)) closeMenu();
 }
 
@@ -2536,6 +2546,7 @@ const projectInfo = slug => slug === PROJECT && ME.project ? ME.project : PROJEC
 function projectActions(p) {
   if (!p) return [];
   const data = {slug: p.slug}, items = [];
+  if (ME?.kind==='human') items.push({label:tr(p.sidebar_archived?"Вернуть из архива":"В архив для себя"),act:"parchive",data});
   if (p.can_rename) items.push({label: tr("Переименовать проект"), act: "prename", data});
   items.push({label: tr("Покинуть проект"), act: "pleave", data});
   if (p.role === "owner") items.push({label: tr("Удалить проект"), act: "pdelete", data, cls: "bad"});
@@ -2551,6 +2562,21 @@ function openProjectMenu(slug, anchor) {
   $("menu").querySelector("button")?.focus({preventScroll: true});
 }
 
+async function archiveProject(slug){
+  const p=projectInfo(slug);if(!p||ME?.kind!=="human")return;
+  const scope=uiScope(),archived=!p.sidebar_archived;
+  closeMenu();cancelProjectDrag();
+  try{
+    const data=await api("POST","/api/project/archive?project="+encodeURIComponent(slug),{archived});
+    if(scope!==uiScope())return;
+    PROJECTS=PROJECTS.map(p=>p.slug===slug?{...p,...data.project}:p);
+    if(archived&&slug===PROJECT)PROJECT_ARCHIVE_OPEN=true;
+    applyProjectInfo(data.project);renderProjects();
+    toast(tr(archived?"Проект в вашем архиве":"Проект возвращён из архива"));
+    await loadProjects();
+  }catch(error){if(scope===uiScope())toast(error.message,true);}
+}
+
 async function loadProjects() {
   const token=TOKEN,account=ME?.id,request=++PROJECT_REQUEST;
   try {
@@ -2563,6 +2589,7 @@ async function loadProjects() {
     const active=PROJECTS.find(p=>p.slug===PROJECT);
     if(active && ME?.project?.id===active.id) Object.assign(active,preserveReadCursor(active,ME.project));
     const current = PROJECTS.find(p => p.slug === PROJECT);
+    if(current?.sidebar_archived&&!previous.find(p=>p.id===current.id)?.sidebar_archived)PROJECT_ARCHIVE_OPEN=true;
     $("generalCount").textContent=current?.unread?` (${current.unread})`:"";
     if (current) NTF.unread = document.visibilityState === "visible" ? 0 : (current.unread || 0);
     syncMobileNav(); applyProjectInfo(PROJECTS.find(p => p.slug === PROJECT)); renderProjects();
@@ -3177,6 +3204,8 @@ document.addEventListener("click", async e => {
       case "memmenu": openMenu(MEMBER_ACTS[el.dataset.name] || [], el, esc(el.dataset.name)); break;
       case "secretaries":await showSecretaries();break;
       case "projmenu": openProjectMenu(el.dataset.slug, el); break;
+      case "parchivefolder":PROJECT_ARCHIVE_OPEN=!PROJECT_ARCHIVE_OPEN;renderProjects();break;
+      case "parchive":await archiveProject(el.dataset.slug);break;
       case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else $("projects").classList.remove("open"); break;
       case "prename": case "pleave": case "pdelete": await projectAction(el.dataset.act, el.dataset.slug); break;
       case "mrole": case "mremove": case "mreset": case "mrename": case "madd":

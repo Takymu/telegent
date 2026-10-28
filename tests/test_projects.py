@@ -58,6 +58,52 @@ class ProjectTest(unittest.TestCase):
     def rename(self, title, who='alice', **extra):
         return self.api('POST', '/api/project/rename', dict(title=title, **extra), who=who)
 
+    def test_personal_archive_preserves_project_data_memberships_and_other_people(self):
+        mid=self.api('POST','/api/messages',{'body':'Archive fixture','attachments':[{'name':'fixture.txt','content_b64':'Zml4dHVyZQ=='}]})['id']
+        invite=self.api('POST','/api/invites',{'name':'guest-'+self.slug,'kind':'human'})
+        before=self.api('GET',f'/api/messages/{mid}')['message']
+        unread=next(p['unread'] for p in self.api('GET','/api/projects',who='bob',project=False)['projects'] if p['id']==self.p['id'])
+        members=[tuple(r) for r in self.s.db().execute('SELECT user,role,added_by,added_ts,read_upto,sidebar_position FROM members WHERE project_id=? ORDER BY user',(self.p['id'],))]
+        result=self.api('POST','/api/project/archive',{'archived':True},who='bob')['project']
+        self.assertTrue(result['sidebar_archived']);self.assertEqual(result['id'],self.p['id'])
+        self.assertEqual(next(p['unread'] for p in self.api('GET','/api/projects',who='bob',project=False)['projects'] if p['id']==self.p['id']),unread)
+        self.assertFalse(self.api('GET','/api/me')['project']['sidebar_archived'])
+        self.assertFalse(self.api('GET','/api/me',who=self.agent)['project']['sidebar_archived'])
+        self.assertIn(self.p['id'],[p['id'] for p in self.s.my_projects('bob')])
+        after=self.api('GET',f'/api/messages/{mid}')['message']
+        self.assertEqual((before['body'],before['attachments']),(after['body'],after['attachments']))
+        self.assertEqual(members,[tuple(r) for r in self.s.db().execute('SELECT user,role,added_by,added_ts,read_upto,sidebar_position FROM members WHERE project_id=? ORDER BY user',(self.p['id'],))])
+        self.assertEqual(self.s.db().execute('SELECT archived FROM projects WHERE id=?',(self.p['id'],)).fetchone()[0],0)
+        self.assertTrue(self.s.db().execute('SELECT 1 FROM invites WHERE code_hash=? AND used_ts IS NULL',(self.s.token_hash(invite['code']),)).fetchone())
+        self.assertTrue(self.api('POST','/api/project/archive',{'archived':True},who='bob')['project']['sidebar_archived'])
+        with self.s.DB_LOCK:self.s._db.close();self.s._db=None
+        self.assertTrue(self.api('GET','/api/me',who='bob')['project']['sidebar_archived'])
+        self.assertFalse(self.api('POST','/api/project/archive',{'archived':False},who='bob')['project']['sidebar_archived'])
+
+    def test_archive_is_personal_human_setting_with_strict_validation(self):
+        self.error(403,'POST','/api/project/archive',{'archived':True},who=self.agent)
+        self.error(404,'POST','/api/project/archive',{'archived':True},who='carol')
+        self.error(401,'POST','/api/project/archive',{'archived':True},who=None)
+        for payload in ({},{'archived':'true'},{'archived':1},{'archived':None},{'archived':True,'user':'bob'},{'archived':False,'project_id':self.p['id']}):
+            self.error(400,'POST','/api/project/archive',payload)
+        self.assertFalse(self.api('GET','/api/me',who='bob')['project']['sidebar_archived'])
+        self.api('POST','/api/project/archive',{'archived':True},who='bob')
+        self.api('POST','/api/members/remove',{'name':'bob'})
+        self.error(404,'POST','/api/project/archive',{'archived':True},who='bob')
+        # Restore the cleanup owner's membership, without inheriting an old preference.
+        self.api('POST','/api/members/add',{'name':'bob'})
+        self.assertFalse(self.api('GET','/api/me',who='bob')['project']['sidebar_archived'])
+
+    def test_archive_syncs_between_independent_human_sessions(self):
+        self.api('POST','/api/password',{'new':'fixture bob password'},who='bob')
+        for label in ('bob-desktop','bob-mobile'):
+            self.fx.tokens[label]=self.api('POST','/api/login',{'name':'bob','password':'fixture bob password'},who=None,project=False)['token']
+        self.api('POST','/api/project/archive',{'archived':True},who='bob-desktop')
+        projects=self.api('GET','/api/projects',who='bob-mobile',project=False)['projects']
+        self.assertTrue(next(p for p in projects if p['id']==self.p['id'])['sidebar_archived'])
+        self.api('POST','/api/project/archive',{'archived':False},who='bob-mobile')
+        self.assertFalse(self.api('GET','/api/me',who='bob-desktop')['project']['sidebar_archived'])
+
     def test_personal_project_order_persists_without_changing_other_accounts(self):
         before=self.api('GET','/api/projects',project=False)['projects']
         bob_before=self.api('GET','/api/projects',who='bob',project=False)['projects']

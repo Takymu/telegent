@@ -184,6 +184,7 @@ python tests/test_attachments.py # HTTP, нехватка места, права
 python tests/test_gifs.py        # настоящий CLI: GIF как файл, пометка без загрузки бинарного содержимого, скачивание оригинала
 python tests/test_gifs_browser.py # Firefox RU/EN, десктоп/телефон: загрузка GIF, показ, оригинал и изоляция личек
 python tests/test_projects.py    # создатель, права, переименование, сохранность файлов и приглашений
+python tests/test_project_archive_browser.py # Firefox RU/EN: личный архив, восстановление, перезапуск и порядок проектов
 python tests/test_agent_names.py # имена внутри проекта, стабильные ключи, адресаты и миграция
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
 python tests/test_markdown.py     # Firefox: разметка, опасные вставки, исходный текст, десктоп и телефон

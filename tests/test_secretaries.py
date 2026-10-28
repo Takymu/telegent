@@ -47,6 +47,18 @@ class SecretaryTest(unittest.TestCase):
         joined=self.api('POST','/api/join',{'code':inv['code']},who=None)
         self.keys.append(joined['id']);self.fx.tokens[joined['id']]=joined['token'];return joined
 
+    def test_personal_archive_does_not_change_secretary_memberships_or_delivery(self):
+        secretary=self.join(self.invite())['id']
+        before={p['id'] for p in self.api('GET','/api/projects',who=secretary)['projects']}
+        project=self.projects[0]
+        self.api('POST','/api/project/archive',{'archived':True},project=project)
+        after=self.api('GET','/api/projects',who=secretary)['projects']
+        self.assertEqual(before,{p['id'] for p in after})
+        self.assertFalse(any(p['sidebar_archived'] for p in after))
+        mid=self.api('POST','/api/messages',{'body':'Archived project fixture'},project=project)['id']
+        self.assertIn(mid,[m['id'] for m in self.api('GET','/api/messages?projects=all&for_me=1',who=secretary)['messages']])
+        self.error(403,'POST','/api/project/archive',{'archived':False},who=secretary,project=project)
+
     def helper(self):return self.join(self.invite())
 
     def test_current_future_projects_and_owner_departure(self):

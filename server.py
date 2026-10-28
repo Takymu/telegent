@@ -211,6 +211,7 @@ def db():
                                  ("invites", "is_secretary", "INTEGER NOT NULL DEFAULT 0"),
                                  ("members", "read_upto", "INTEGER NOT NULL DEFAULT 0"),
                                  ("members", "sidebar_position", "INTEGER"),
+                                 ("members", "sidebar_archived", "INTEGER NOT NULL DEFAULT 0"),
                                  ("messages", "conversation_id", "TEXT"),
                                  ("attachments", "upload_id", "TEXT"),
                                  ("projects", "admin_owner", "TEXT"), ("projects", "service_agent", "TEXT"),
@@ -1059,6 +1060,8 @@ _UI_EN = {'упоминание недоступно в этом чате': 'Men
  ': битый base64': ': invalid base64',
  'у ': 'For '}
 _UI_EN.update({
+    "archived: нужно true или false": "archived: use true or false",
+    "проект недоступен": "Project is not available",
     "ход работы публикует только сам агент": "Only the agent itself can publish work progress",
     "нужны message_id, key, body и state": "Use message_id, key, body and state",
     "message_id: нужен номер исходного сообщения": "message_id: provide the source message number",
@@ -2281,9 +2284,10 @@ def can_rename_project(p, user):
 
 
 def project_dict(p, user):
-    member = db().execute("SELECT read_upto FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()
+    member = db().execute("SELECT read_upto,sidebar_archived FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()
     return {"id": p["id"], "slug": p["slug"], "title": p["title"], "role": 'secretary' if user['is_secretary'] else p["role"],
             "read_upto": member["read_upto"] if member else 0,
+            "sidebar_archived": bool(user['kind']=='human' and member and member['sidebar_archived']),
             "created_by": None if p["creator_unknown"] else account_name(p["created_by"]),
             "created_by_id": None if p["creator_unknown"] else p["created_by"], "can_rename": can_rename_project(p, user),
             "kind": "development" if p["admin_owner"] else "team",
@@ -2639,6 +2643,20 @@ def secretary_messages(user,q):
         rows.extend(list_messages(user,q,p['id']))
     limit=max(1,min(int(q.get('limit') or 100),1000))
     return sorted(rows,key=lambda m:m['id'])[-limit:]
+
+
+@route("POST", "/api/project/archive")
+def api_project_archive(h, user, q, data):
+    require_human(user)
+    if set(data) != {'archived'} or type(data['archived']) is not bool:
+        raise ApiError(400, 'archived: нужно true или false')
+    p = project_for(h,user,q)
+    with DB_LOCK:
+        if not member_role(p['id'],user['name']):
+            raise ApiError(404, 'проект недоступен')
+        db().execute('UPDATE members SET sidebar_archived=? WHERE project_id=? AND user=?',
+                     (int(data['archived']),p['id'],user['name']))
+        return {'project':project_dict(p,user)}
 
 
 @route("POST", "/api/projects/order")

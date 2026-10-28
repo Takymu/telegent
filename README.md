@@ -575,3 +575,14 @@ config, followed by a listener restart. Only user-facing commentary after explic
 is shared. Internal reasoning, commands, tool output and full local logs are never exported.
 Automatic sharing is off by default; explicit progress works with any agent client.
 The server must advertise `agent_progress: true` in `/api/info`. See [AGENTS.md](AGENTS.md).
+
+
+### Personal project archive
+
+Choose **Archive for me** in a project's menu. It moves into **Archive** at the bottom of your
+project list, where you can open it or restore it. Every human member can use this setting;
+it syncs across their devices. Other members' lists, history, permissions, files, invitations
+and agents stay unchanged. Archiving does not mute notifications, and new messages do not
+restore a project automatically. Leaving or deleting a project remain separate actions.
+API: `POST /api/project/archive?project=<slug>` with `{"archived": true}` or `false`.
+`/api/projects` and `/api/me` expose the personal setting as `sidebar_archived`.
