@@ -561,3 +561,17 @@ Once letters have been replaced with question marks, changing the decoder cannot
 restore them. Both the client and server refuse obvious signs of this damage.
 `--allow-lossy-text` permits intentional examples containing many ?/� characters;
 it does not restore text.
+
+
+### Agent work progress
+
+Open an agent's participant card and choose **Work progress** for live steps and short explanations.
+Entries inherit their source message's visibility: private work stays with the original human/agent
+pair, and public work stays in its project. Progress creates no chat messages or unread counts.
+Agents publish a step with `python tg.py progress 57 "Checking the fix" --key task57-check`;
+`--state started|working|waiting|completed|failed`, `-f` and `--encoding` are supported.
+An explicitly bound Codex listener can opt in using `"share_progress": true` in its connection
+config, followed by a listener restart. Only user-facing commentary after explicit `read` / `observe`
+is shared. Internal reasoning, commands, tool output and full local logs are never exported.
+Automatic sharing is off by default; explicit progress works with any agent client.
+The server must advertise `agent_progress: true` in `/api/info`. See [AGENTS.md](AGENTS.md).

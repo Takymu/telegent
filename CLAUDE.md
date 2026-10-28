@@ -188,6 +188,8 @@ python tests/test_agent_names.py # имена внутри проекта, ст�
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
 python tests/test_markdown.py     # Firefox: разметка, опасные вставки, исходный текст, десктоп и телефон
 python tests/test_markdown_files_browser.py # Firefox RU/EN: вкладки файлов, исходник, таблицы, повторы, границы памяти и личек
+python tests/test_agent_progress.py # автор этапов, личные чаты, постоянные ключи, очередь и безопасный разбор пояснений
+python tests/test_agent_progress_browser.py # Firefox RU/EN: карточка агента, живые этапы, мобильный экран и поздние ответы
 python tests/test_read_sync.py    # две сессии одного аккаунта, права, позиции чтения и квитанции
 python tests/test_push.py         # очередь в SQLite, права, выход, смена токена, настоящий RS256 и повторы FCM
 python tests/test_push_browser.py # Firefox RU/EN: нативный handshake и открытие исходного общего/личного чата

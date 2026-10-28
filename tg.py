@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.24.1"
+CLIENT_VERSION = "2026.10.28.1"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -256,6 +256,7 @@ class Conf:
         self.token = token
         self.state_path = resolve(c.get("state_file") or "tg.state.json", base)
         self.watch_cmd = (c.get("watch_cmd") or "").strip() or None
+        self.share_progress = c.get('share_progress') is True
         codex = bool(os.environ.get('CODEX_THREAD_ID') or os.environ.get('CODEX_SESSION_ID'))
         claude = bool(os.environ.get('CLAUDECODE'))
         self.agent_client = c.get('client') if c.get('client') in ('codex','claude') else (
@@ -1053,6 +1054,19 @@ def cmd_watch(conf, args):
             return
 
 
+def cmd_progress(conf, args):
+    source = api_retry(conf, 'GET', '/api/messages/'+str(args.id))['message']
+    previous = conf.project
+    conf.project = source.get('project') or previous
+    try:
+        body = read_body(args)
+        if text_encoding_problem(body):die(text_encoding_problem(body),2)
+        result = api_retry(conf,'POST','/api/progress',{'message_id':args.id,'body':body,
+                           'state':args.state,'key':args.key or uuid.uuid4().hex})
+        print('этап #'+str(result['id'])+(' (уже опубликован)' if result.get('duplicate') else ' опубликован'))
+    finally:conf.project = previous
+
+
 def cmd_board(conf, args):
     if args.action == "set":
         data = {k: getattr(args, k) for k in ("now", "next", "gpu_until", "note", "back") if getattr(args, k) is not None}
@@ -1838,6 +1852,13 @@ def main():
     s.add_argument("id", type=int)
     s.add_argument("--out", default=".")
     s.add_argument("--name", help="только это вложение")
+    s = sub.add_parser('progress', help='пояснение этапа; доступ наследуется от исходного сообщения')
+    s.add_argument('id',type=int)
+    s.add_argument('body',nargs='?')
+    s.add_argument('-f','--file')
+    s.add_argument('--encoding',default='auto')
+    s.add_argument('--state',choices=('started','working','waiting','completed','failed'),default='working')
+    s.add_argument('--key',help='постоянный ключ этапа для повторов без дубля')
     s = sub.add_parser("board", help="доска статуса: board | board set --now ... --next ... --gpu-until ...")
     s.add_argument("action", nargs="?", choices=("show", "set"), default="show")
     s.add_argument("--now")
@@ -1928,7 +1949,7 @@ def main():
     if args.cmd != 'update': schedule_update(conf)
     {
         "send": cmd_send, "reply": cmd_reply, "inbox": cmd_inbox, "read": cmd_read, "ack": cmd_ack,
-        "watch": cmd_watch, "get": cmd_get, "board": cmd_board, "results": cmd_results,
+        "watch": cmd_watch, "get": cmd_get, "board": cmd_board, "progress":cmd_progress, "results": cmd_results,
         "search": cmd_search, "whoami": cmd_whoami, "sent": cmd_sent, "hook": cmd_hook, "projects": cmd_projects,
         "react": cmd_react, "dm": cmd_dm, "secret": cmd_secret, "refresh": cmd_refresh, "update": cmd_update,
         "claim": cmd_claim, "claims": cmd_claims, "release": cmd_release,

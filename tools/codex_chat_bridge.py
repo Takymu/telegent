@@ -23,6 +23,7 @@ class Transcript:
     def __init__(self, path):
         self.path, self.offset = Path(path), 0
         self.turn, self.busy, self.completed, self.closed = None, True, {}, set()
+        self.updates = []
 
     def poll(self):
         if self.path.stat().st_size < self.offset:
@@ -38,9 +39,17 @@ class Transcript:
                     event = json.loads(line)
                 except (ValueError, UnicodeError):
                     continue
+                payload = event.get('payload') or {}
+                # Only explicit user-facing commentary. Never read reasoning or tool payloads.
+                if (event.get('type') == 'response_item' and payload.get('type') == 'message'
+                        and payload.get('role') == 'assistant' and payload.get('phase') == 'commentary'):
+                    text = ''.join(item.get('text','') for item in payload.get('content',[])
+                                   if item.get('type') == 'output_text')
+                    if self.turn and text.strip():
+                        self.updates.append((self.turn,start,text[:4000]))
+                        self.updates = self.updates[-200:]
                 if event.get('type') != 'event_msg':
                     continue
-                payload = event.get('payload') or {}
                 if payload.get('type') == 'task_started':
                     self.turn, self.busy = payload.get('turn_id'), True
                 elif payload.get('type') == 'task_complete':
@@ -109,9 +118,66 @@ def observe(conf, session, mid):
     if (record.get('thread') != session or receipt.get('status') != 'accepted'
             or receipt.get('turn_id') != transcript.turn or not transcript.busy):
         raise RuntimeError('No matching accepted dispatch in this active session turn')
-    record.update(observed_at=time.time(), observed_turn=transcript.turn)
+    record.update(observed_at=time.time(), observed_turn=transcript.turn, observed_offset=transcript.offset)
     ipc.write_receipt(path, record)
     print('MODEL_RECEIPT_CONFIRMED', mid, transcript.turn)
+
+
+def forward_progress(conf, session, transcript, folder, messages):
+    if not getattr(conf,'share_progress',False):return
+    ledger_path = folder/'progress-receipts.json'
+    ledger = ipc.load_json(ledger_path)
+    groups = {}
+    for message in messages:
+        record = ipc.load_json(folder/('message-'+str(message['id'])+'.json'))
+        if (record.get('thread') == session and record.get('observed_at')
+                and type(record.get('observed_offset')) is int):
+            groups.setdefault(record['observed_turn'],[]).append((message,record))
+    for turn, items in groups.items():
+        # Mixed scopes fail closed. The fixed source survives new messages in the same turn.
+        if len({(m['project_id'],m.get('conversation_id')) for m,_ in items}) != 1:continue
+        plan_path = folder/('progress-turn-'+str(uuid.uuid5(uuid.UUID(session),turn))+'.json')
+        plan = ipc.load_json(plan_path)
+        if not plan:
+            source,record = min(items,key=lambda row:row[0]['id'])
+            plan = {'message_id':source['id'],'project_id':source['project_id'],
+                    'conversation_id':source.get('conversation_id'),'offset':record['observed_offset']}
+            ipc.write_receipt(plan_path,plan)
+        if (plan['project_id'],plan.get('conversation_id')) != (items[0][0]['project_id'],items[0][0].get('conversation_id')):continue
+        updates = [('started','started','Сообщение прочитано. Агент приступил к работе.')]
+        updates += [(str(offset),'working',text) for event_turn,offset,text in transcript.updates
+                    if event_turn==turn and offset>=plan['offset']]
+        if turn in transcript.completed:
+            updates.append(('completed','completed','Ход завершён. Это не означает завершение всей задачи.'))
+        elif turn in transcript.closed:
+            updates.append(('aborted','waiting','Ход прерван. Задача может быть не завершена.'))
+        for suffix,state,body in updates:
+            key = 'codex-progress-'+str(uuid.uuid5(uuid.UUID(session),turn+':'+suffix))
+            if key not in ledger.get('sent',[]):
+                ledger.setdefault('pending',{})[key]={'message_id':plan['message_id'],'key':key,'state':state,'body':body}
+    # Persist before attempting HTTP. Acknowledged messages may disappear from the next inbox.
+    ipc.write_receipt(ledger_path,ledger)
+    if ledger.get('retry_after',0)>time.time():return
+    if not ledger.get('pending'):return
+    try:
+        if not tg.api_retry(conf,'GET','/api/info',tries=1).get('agent_progress'):
+            ledger['retry_after']=time.time()+60;ipc.write_receipt(ledger_path,ledger);return
+    except (SystemExit,tg.NetError,OSError):
+        ledger['retry_after']=time.time()+30;ipc.write_receipt(ledger_path,ledger);return
+    for key,payload in list(ledger.get('pending',{}).items())[:10]:
+        try:
+            tg.api_retry(conf,'POST','/api/progress',payload,tries=1)
+        except (SystemExit,tg.NetError,OSError) as error:
+            # Optional reporting must not stop delivery, receipts or final replies on old/offline servers.
+            ledger['retry_after']=time.time()+30
+            # Rotate a refused source so a deleted task cannot block other tasks' reports.
+            ledger['pending'].pop(key,None);ledger['pending'][key]=payload
+            ipc.write_receipt(ledger_path,ledger)
+            if isinstance(error,SystemExit) and error.code==2:continue
+            return
+        ledger['pending'].pop(key,None)
+        ledger['sent']=(ledger.get('sent',[])+[key])[-2000:]
+        ledger.pop('retry_after',None);ipc.write_receipt(ledger_path,ledger)
 
 
 def forward_completed(conf, session, transcript, folder, me, messages):
@@ -191,6 +257,7 @@ def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
                                   'conversation_id': message.get('conversation_id')})
     # IPC acceptance is not a model read. Only explicit observation enables forwarding.
     forward_completed(conf, session, transcript, folder, me, wanted)
+    forward_progress(conf, session, transcript, folder, wanted)
     ipc.write_receipt(folder/'status.json', {'status': 'delivery_pending' if held else 'listening',
                       'pid': os.getpid(), 'thread': session, 'heartbeat': time.time(),
                       'pending': [m['id'] for m in wanted]})

@@ -75,6 +75,7 @@ header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
 .kv b { font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .actions button { font-size: 12.5px; padding: 3px 9px; }
+.actions [role="tab"][aria-selected="true"] { background:var(--line);border-color:var(--accent); }
 .att { font-size: 12.5px; margin: 2px 0; overflow-wrap: anywhere; }
 .approval { font-size: 12.5px; padding: 6px 8px; border-radius: 7px; background: var(--warn-bg); color: var(--warn); margin: 6px 0; }
 aside .panel { margin-bottom: 14px; }
@@ -923,6 +924,19 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 "use strict";
 // ---- localization: translate source-owned strings before inserting user values
 const UI_EN={
+  "Карточка агента": "Agent card",
+  "Профиль": "Profile",
+  "Ход работы": "Work progress",
+  "Этапы и пояснения агента. Внутренние рассуждения и локальный журнал не передаются.": "Steps and explanations shared by the agent. Internal reasoning and local logs are not transmitted.",
+  "Начал работу": "Started",
+  "Работает": "Working",
+  "Ожидает": "Waiting",
+  "Этап завершён": "Step completed",
+  "Ошибка": "Error",
+  "Личное": "Private",
+  "Агент ещё не опубликовал этапы работы. Наличие связи не означает, что он передаёт журнал.": "The agent has not shared any steps yet. Being online does not mean progress sharing is enabled.",
+  "Обновляется автоматически · последние 100 записей": "Updates automatically · latest 100 entries",
+  "Не удалось обновить. Повторим автоматически: ": "Could not refresh. Retrying automatically: ",
   "Очистить список": "Clear list",
   "Убрать из списка": "Dismiss reminder",
   "Напоминания убраны из списка": "Reminders dismissed",
@@ -4101,8 +4115,10 @@ async function returnView(){
   updateFilterCount();if(view.tab==="feed" || view.dm){MSGS=new Map(view.messages.map(m=>[m.id,m]));OLDEST=view.oldest;NO_MORE=view.noMore;render(true);await refresh();}
   requestAnimationFrame(()=>{SC.scrollTop=view.y;});
 }
-function closeInfo(){INFO_VERSION++;if($("infoDialog").open)$("infoDialog").close();}
-function showInfo(title,html){INFO_VERSION++;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoHeading").textContent=title;$("infoBody").innerHTML=html;if(!$("infoDialog").open)$("infoDialog").showModal();}
+let PROGRESS_TIMER=null;
+function stopProgress(){clearTimeout(PROGRESS_TIMER);PROGRESS_TIMER=null;}
+function closeInfo(){stopProgress();INFO_VERSION++;if($("infoDialog").open)$("infoDialog").close();}
+function showInfo(title,html){stopProgress();INFO_VERSION++;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoHeading").textContent=title;$("infoBody").innerHTML=html;if(!$("infoDialog").open)$("infoDialog").showModal();}
 $("infoDialog").addEventListener("close",()=>{if($("infoDialog").open)return;if(PREVIEW_URL){URL.revokeObjectURL(PREVIEW_URL);PREVIEW_URL=null;}$("infoBody").replaceChildren();});
 $("infoDialog").addEventListener("cancel",()=>{INFO_VERSION++;});
 $("infoDialog").addEventListener("click",e=>{const r=$("infoDialog").getBoundingClientRect();if(e.target===$("infoDialog")&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))closeInfo();});
@@ -4209,7 +4225,29 @@ async function showMember(id){
   const current=ME.users.find(member=>member.id===id);if(!current)return;Object.assign(u,current);
   const [board,claims,open]=await Promise.all([api("GET","/api/board"),api("GET","/api/claims?active=1"),api("GET","/api/messages?open=1&conversation=all&limit=1000")]);if(scope!==uiScope())return;
   const b=board.board.find(b=>b.id===id),tasks=open.messages.filter(m=>m.status?.state==="taken"&&m.status.by_id===id),cs=claims.claims.filter(c=>c.owner_id===id||c.owner===u.name);
-  showInfo(u.name,ui`<p>${u.kind==="agent"?(u.is_secretary?tr("Секретарь · человек-владелец: "):tr("Агент · человек-владелец: "))+esc(u.owner):tr("Человек")}</p><p>Связь: ${esc(presenceText(u))}</p>${u.kind==='agent'&&!u.listening?'<p class="ux-muted">'+esc(tr('нет активного слушателя'))+(u.last_check?' · '+esc(tr('проверял входящие ')+shortTime(u.last_check)):'')+'</p>':''}${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
+  showInfo(u.name,(u.kind==="agent"?progressNav(id,false):"")+ui`<p>${u.kind==="agent"?(u.is_secretary?tr("Секретарь · человек-владелец: "):tr("Агент · человек-владелец: "))+esc(u.owner):tr("Человек")}</p><p>Связь: ${esc(presenceText(u))}</p>${u.kind==='agent'&&!u.listening?'<p class="ux-muted">'+esc(tr('нет активного слушателя'))+(u.last_check?' · '+esc(tr('проверял входящие ')+shortTime(u.last_check)):'')+'</p>':''}${b?boardCard(b):tr('<p class="muted">Участник не сообщил текущую задачу.</p>')}<h3>Взятые просьбы, доступные тебе</h3>${tasks.map(m=>`<p><button data-act="jump" data-id="${m.id}">${esc(m.subject)}</button></p>`).join("")||tr('<p class="muted">Нет открытых взятых просьб.</p>')}<h3>Заявки</h3>${cs.map(c=>`<p>${esc(c.key)}${c.expired?tr(" · просрочена"):""}</p>`).join("")||tr('<p class="muted">Нет заявок.</p>')}<p class="ux-muted">Это явные записи участника. Наличие связи не подтверждает выполнение работы.</p>`);
+}
+function progressNav(id,active){
+  return `<div class="actions" role="tablist" aria-label="${esc(tr('Карточка агента'))}"><button role="tab" aria-selected="${!active}" data-ux="member" data-account="${esc(id)}">${tr('Профиль')}</button><button role="tab" aria-selected="${active}" data-ux="progress" data-account="${esc(id)}">${tr('Ход работы')}</button></div>`;
+}
+async function showProgress(id){
+  const u=ME.users.find(u=>u.id===id&&u.kind==='agent');if(!u)return;
+  showInfo(u.name,progressNav(id,true)+ui`<p class="ux-muted">Этапы и пояснения агента. Внутренние рассуждения и локальный журнал не передаются.</p><p id="progressStatus" role="status">Загружаем…</p><div id="progressEvents"></div>`);
+  const version=INFO_VERSION,scope=uiScope();let last='';
+  const current=()=>version===INFO_VERSION&&scope===uiScope()&&$('infoDialog').open&&!!$('progressEvents');
+  const poll=async()=>{
+    if(!current())return;
+    try{
+      const data=await api('GET','/api/progress?agent='+encodeURIComponent(id));if(!current())return;
+      const value=JSON.stringify(data.events);
+      if(value!==last){
+        $('progressEvents').innerHTML=data.events.map(e=>`<article class="ux-card"><p class="ux-muted"><time datetime="${esc(e.time)}">${esc(shortTime(e.time))}</time> · ${esc(tr(({started:'Начал работу',working:'Работает',waiting:'Ожидает',completed:'Этап завершён',failed:'Ошибка'})[e.state]||e.state))}${e.private?' · '+tr('Личное'):''}</p><p class="ux-muted">#${e.message_id} · ${esc(e.subject)}</p><div class="mbody" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(e.body)}</div></article>`).join('')||tr('<p class="muted">Агент ещё не опубликовал этапы работы. Наличие связи не означает, что он передаёт журнал.</p>');
+        last=value;
+      }
+      $('progressStatus').textContent=(data.presence?presenceText({kind:'agent',...data.presence})+' · ':'')+tr('Обновляется автоматически · последние 100 записей');
+    }catch(err){if(!current())return;$('progressEvents').replaceChildren();last='';$('progressStatus').textContent=tr('Не удалось обновить. Повторим автоматически: ')+err.message;}
+    if(current())PROGRESS_TIMER=setTimeout(poll,3000);
+  };await poll();
 }
 const INLINE_IMAGES=new Map();let IMAGE_OBSERVER=null;
 function clearInlineImages(){
@@ -4292,6 +4330,7 @@ document.addEventListener("click",async e=>{
     case "board":await selectTab("board");break;
     case "home":await selectTab("feed");break;
     case "member":await showMember(el.dataset.account);break;
+    case "progress":await showProgress(el.dataset.account);break;
     case "return":await returnView();break;
     case "reset-filters":resetFilters();await reload();break;
     case "retry-send":$("sendBtn").click();break;

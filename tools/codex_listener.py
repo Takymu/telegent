@@ -75,7 +75,7 @@ def observe(conf,mid):
     if (record.get('thread')!=binding['thread'] or receipt.get('status')!='accepted'
             or receipt.get('turn_id')!=transcript.turn or not transcript.busy):
         raise RuntimeError('No accepted dispatch in this active turn')
-    record.update(observed_at=time.time(),observed_turn=transcript.turn)
+    record.update(observed_at=time.time(),observed_turn=transcript.turn,observed_offset=transcript.offset)
     ipc.write_receipt(path,record)
     print('MODEL_RECEIPT_CONFIRMED',mid,transcript.turn)
 
@@ -140,6 +140,7 @@ def agent_step(conf,binding,folder,transcript,deliver=ipc.deliver):
                 else:held=True
             except (ipc.RpcError,OSError,subprocess.TimeoutExpired):held=True
     tg.codex_report_activity(conf,{'session_id':binding['thread']},bool(transcript.turn and transcript.busy),str(folder/'activity.json'))
+    bridge.forward_progress(conf,binding['thread'],transcript,folder,messages)
     ipc.write_receipt(folder/'status.json',{'status':'needs_attention' if attention else 'delivery_pending' if held else 'listening',
                       'pid':os.getpid(),'heartbeat':time.time(),'thread':binding['thread']})
     tg.api_retry(conf,'GET','/api/wait?after='+str(me['last_id'])+'&for_me=1&full=0&timeout=4',timeout=10)

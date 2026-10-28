@@ -145,6 +145,13 @@ CREATE TABLE IF NOT EXISTS reactions(
 CREATE TABLE IF NOT EXISTS board(
   project_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL, now TEXT, next TEXT, gpu_until TEXT, note TEXT, ts REAL,
   PRIMARY KEY(project_id, name));
+CREATE TABLE IF NOT EXISTS agent_progress(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL,
+  agent TEXT NOT NULL, message_id INTEGER NOT NULL, event_key TEXT NOT NULL,
+  body TEXT NOT NULL, state TEXT NOT NULL, ts REAL NOT NULL,
+  UNIQUE(agent,event_key));
+CREATE INDEX IF NOT EXISTS ix_progress_agent ON agent_progress(project_id,agent,id);
+CREATE INDEX IF NOT EXISTS ix_progress_message ON agent_progress(message_id);
 CREATE TABLE IF NOT EXISTS projects(
   id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
   created_by TEXT NOT NULL, created_ts REAL NOT NULL, archived INTEGER NOT NULL DEFAULT 0);
@@ -1052,6 +1059,15 @@ _UI_EN = {'упоминание недоступно в этом чате': 'Men
  ': битый base64': ': invalid base64',
  'у ': 'For '}
 _UI_EN.update({
+    "ход работы публикует только сам агент": "Only the agent itself can publish work progress",
+    "нужны message_id, key, body и state": "Use message_id, key, body and state",
+    "message_id: нужен номер исходного сообщения": "message_id: provide the source message number",
+    "key: до 100 букв, цифр, точек, двоеточий, дефисов или подчёркиваний": "key: up to 100 letters, digits, dots, colons, hyphens or underscores",
+    "нужен текст этапа, от 1 до 4000 символов": "Provide a step description of 1 to 4000 characters",
+    "неизвестное состояние этапа": "Unknown step state",
+    "нет доступного исходного сообщения": "Source message is not available",
+    "этот ключ уже использован для другого этапа": "This key has already been used for a different step",
+    "нет такого агента в проекте": "No such agent in this project",
     'Некорректный ключ устройства':'Invalid device key',
     'Некорректный адрес уведомлений устройства':'Invalid device notification address',
     'Фоновые уведомления на сервере ещё не настроены':'Background notifications are not configured on the server yet',
@@ -2256,7 +2272,8 @@ def page_sw(h, user, q, data):
 @route("GET", "/api/info", auth=False)
 def api_info(h, user, q, data):
     return {"version": VERSION, "server_time": iso(time.time()), "types": USER_TYPES, "states": STATES,
-            "result_fields": RESULT_FIELDS, "max_inline_bytes": Cfg.max_inline, "launcher_url": Cfg.launcher_url}
+            "result_fields": RESULT_FIELDS, "max_inline_bytes": Cfg.max_inline, "launcher_url": Cfg.launcher_url,
+            "agent_progress": True}
 
 
 def can_rename_project(p, user):
@@ -2704,7 +2721,7 @@ def api_project_delete(h, user, q, data):
         try:
             for table in ("attachments", "receipts", "waiting_dismissals", "approvals", "reactions", "secret_envelopes"):
                 con.execute(f"DELETE FROM {table} WHERE message_id IN (SELECT id FROM messages WHERE project_id = ?)", (pid,))
-            for table in ("messages", "board", "claims", "invites", "members", "conversations"):
+            for table in ("messages", "board", "claims", "invites", "members", "conversations", "agent_progress"):
                 con.execute(f"DELETE FROM {table} WHERE project_id = ?", (pid,))
             con.execute("DELETE FROM file_uploads WHERE project_id=?", (pid,))
             con.execute("DELETE FROM projects WHERE id = ?", (pid,))
@@ -3181,6 +3198,7 @@ def mutate_message(h,user,q,data,mid,deleting=False):
                         "SELECT message_id,?,user,decision,note,ts,? FROM approvals WHERE message_id=?",(message["revision"],digest,mid))
             con.execute("DELETE FROM approvals WHERE message_id=?",(mid,))
             if deleting:
+                con.execute('DELETE FROM agent_progress WHERE message_id=?',(mid,))
                 con.execute("INSERT OR IGNORE INTO pending_file_deletions(upload_id) SELECT upload_id FROM attachments WHERE message_id=? AND upload_id IS NOT NULL",(mid,))
                 con.execute("DELETE FROM attachments WHERE message_id=?",(mid,))
                 con.execute("UPDATE messages SET body='',subject='Сообщение удалено',topic='',result=NULL,needs_approval=0,"
@@ -3660,6 +3678,55 @@ def api_browser_download(h, user, q, data, aid):
         if not user:
             raise ApiError(401, _ui_text('вход больше не действителен'))
     stream_attachment(h, user, aid)
+
+
+@route("POST", "/api/progress")
+def api_progress_set(h, user, q, data):
+    if user['kind'] != 'agent':
+        raise ApiError(403, 'ход работы публикует только сам агент')
+    if set(data) - {'message_id','key','body','state'}:
+        raise ApiError(400, 'нужны message_id, key, body и state')
+    mid, key, body = data.get('message_id'), data.get('key'), data.get('body')
+    state = data.get('state', 'working')
+    if type(mid) is not int or mid <= 0 or mid >= 2**63:
+        raise ApiError(400, 'message_id: нужен номер исходного сообщения')
+    if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}',key):
+        raise ApiError(400, 'key: до 100 букв, цифр, точек, двоеточий, дефисов или подчёркиваний')
+    if not isinstance(body,str) or not body.strip() or len(body)>4000:
+        raise ApiError(400, 'нужен текст этапа, от 1 до 4000 символов')
+    if state not in ('started','working','waiting','completed','failed'):
+        raise ApiError(400, 'неизвестное состояние этапа')
+    p = project_for(h,user,q)
+    with DB_LOCK:
+        con = db()
+        source = con.execute('SELECT * FROM messages WHERE id=? AND project_id=?',(mid,p['id'])).fetchone()
+        if not can_read_message(source,user) or source['deleted_ts'] or source['type']=='secret':
+            raise ApiError(404, 'нет доступного исходного сообщения')
+        previous = con.execute('SELECT * FROM agent_progress WHERE agent=? AND event_key=?',(user['name'],key)).fetchone()
+        if previous:
+            if (previous['message_id'],previous['body'],previous['state']) != (mid,body.strip(),state):
+                raise ApiError(409, 'этот ключ уже использован для другого этапа')
+            return {'id':previous['id'],'duplicate':True}
+        cur = con.execute('INSERT INTO agent_progress(project_id,agent,message_id,event_key,body,state,ts) VALUES(?,?,?,?,?,?,?)',
+                          (p['id'],user['name'],mid,key,body.strip(),state,time.time()))
+        return {'id':cur.lastrowid,'duplicate':False}
+
+
+@route("GET", "/api/progress")
+def api_progress(h, user, q, data):
+    p = project_for(h,user,q)
+    agent = q.get('agent')
+    with DB_LOCK:
+        target = db().execute("SELECT * FROM users WHERE name=? AND kind='agent' AND revoked=0",(agent,)).fetchone()
+        if not target or not member_role(p['id'],agent):
+            raise ApiError(404, 'нет такого агента в проекте')
+        visible, params = message_visibility(user['name'])
+        rows = db().execute('SELECT e.*,m.subject,m.conversation_id FROM agent_progress e JOIN messages m ON m.id=e.message_id '
+                            'WHERE e.project_id=? AND m.project_id=e.project_id AND e.agent=? AND m.deleted_ts IS NULL AND '+visible+
+                            ' ORDER BY e.id DESC LIMIT 100',(p['id'],agent,*params)).fetchall()
+    return {'events':[{'id':r['id'],'agent_id':r['agent'],'message_id':r['message_id'],'subject':r['subject'],
+                       'private':bool(r['conversation_id']),'body':r['body'],'state':r['state'],'time':iso(r['ts'])} for r in reversed(rows)],
+            'limit':100,'presence':presence(target)}
 
 
 @route("GET", "/api/board")
