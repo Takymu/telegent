@@ -63,7 +63,9 @@ done
 ) &
 
 while true; do
-  cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 2>&1 | while IFS= read -r line; do
+  # Optional local Go TLS compatibility settings; data only, never sourced as shell code.
+  tunnel_godebug=$(cat ~/.telegent-cloudflared-godebug 2>/dev/null)
+  GODEBUG="${GODEBUG:+$GODEBUG,}$tunnel_godebug" cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 2>&1 | while IFS= read -r line; do
     echo "$line" >> "$LOG/tunnel.log"
     case "$line" in   # the tunnel is gone for good: don't wait for the watchdog
       *"Tunnel not found"*)
