@@ -5,6 +5,8 @@
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 LOG=~/telegent-logs
 PIDFILE=~/.telegent-start.pid
+SERVER_PIDFILE=~/.telegent-server.pid
+. "$REPO/termux/server_health.sh"
 CF="cloudflared tunnel --no-autoupdate --url"
 restart_tunnel() {   # ask nicely, then for real (a hung or stopped process ignores SIGTERM)
   pkill -f "$CF"; sleep 10; pkill -9 -f "$CF"
@@ -25,8 +27,13 @@ done
 
 (
   while true; do
-    python server.py serve --port 8765 >> "$LOG/server.log" 2>&1
-    echo "$(date '+%F %T') server exited with $?, restarting" >> "$LOG/server.log"
+    python server.py serve --port 8765 >> "$LOG/server.log" 2>&1 &
+    server_pid=$!
+    echo "$server_pid" > "$SERVER_PIDFILE"
+    wait "$server_pid"
+    server_status=$?
+    [ "$(cat "$SERVER_PIDFILE" 2>/dev/null)" = "$server_pid" ] && rm -f "$SERVER_PIDFILE"
+    echo "$(date '+%F %T') server exited with $server_status, restarting" >> "$LOG/server.log"
     sleep 3
   done
 ) &
@@ -39,6 +46,8 @@ done
   fails=0
   while true; do
     sleep 60
+    # A live tunnel cannot repair an unresponsive origin. Recover it even without internet.
+    if ! check_server; then fails=0; continue; fi
     url=$(cat ~/telegent-url.txt 2>/dev/null)
     [ -n "$url" ] || continue
     # -f: Cloudflare itself answers 502/530 for a dead tunnel, which plain curl counts as success
