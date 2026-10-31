@@ -63,6 +63,10 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await showShared();await login(TOKEN);
   check(!SHARED_LIBRARY&&!$('infoDialog').open,'re-authentication clears previous material metadata');
   localStorage.setItem('tg_language','en');await showShared();
+  document.querySelector('[data-kind="files"]').click();await wait(()=>SHARED_LIBRARY.kind==='files'&&SHARED_LIBRARY.items.length);
+  SHARED_LIBRARY.query=stem;SHARED_LIBRARY.extension='.md';$('sharedSearch').value=stem;await loadShared(false);
+  check($('sharedType').value==='.md'&&$('sharedTypeLabel').textContent.includes(tr('Тип файла')),'file-type choice and label remain localized');
+  check($('infoDialog').scrollWidth<=$('infoDialog').clientWidth,'file-type controls fit both viewports');
   await fetch('/debug/result',{method:'POST',body:JSON.stringify({ok:true,checks,viewport:VIEWPORT})});
  }catch(error){await fetch('/debug/result',{method:'POST',body:JSON.stringify({error:error.message,stack:error.stack,checks,viewport:VIEWPORT})})}
 })();

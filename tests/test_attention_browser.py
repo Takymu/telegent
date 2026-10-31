@@ -47,6 +47,17 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await loadWork();check($('waitChip').classList.contains('hidden')&&$('workBox').textContent.includes('Attention network fixture'),'failure explains unavailable list instead of retaining a stale count');
   api=(method,path,...args)=>path.startsWith('/api/wait?')?new Promise(()=>{}):real(method,path,...args);
   await loadWork();check(!$('waitChip').classList.contains('hidden')&&!!$('workBox').querySelector('[data-reminder]'),'retry restores count and rows together');
+  await selectTab('feed');await refresh();await refreshSide();
+  const realRender=render;render=()=>false;
+  await real('POST','/api/waiting/dismiss',{all:true});await refresh();
+  await wait(()=>$('waitChip').classList.contains('hidden'));render=realRender;
+  check($('waitChip').classList.contains('hidden'),'unchanged feed rendering still updates attention counts');
+  await actor({body:'Identity scoped attention',type:'question',to_ids:[ME.id]});await selectTab('work');await loadWork();
+  const savedProject=ME.project;ME={...ME,project:{...savedProject,id:savedProject.id+1000}};paintTab();
+  check($('waitChip').classList.contains('hidden')&&!$('workBox').children.length,'a recreated slug cannot inherit the previous project identity snapshot');
+  ME={...ME,project:savedProject};paintTab();await loadWork();
+  showNoProject();check($('waitChip').classList.contains('hidden')&&!$('workBox').children.length,'loss of project clears the previous attention list and counts');
+  await setProject('main');await selectTab('work');await loadWork();
   await real('POST','/api/waiting/dismiss',{all:true});await loadWork();
   await selectTab('feed');localStorage.setItem('tg_language','en');
   await fetch('/debug/result',{method:'POST',body:JSON.stringify({ok:true,checks,viewport:VIEWPORT})});

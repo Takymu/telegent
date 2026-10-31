@@ -2374,6 +2374,7 @@ function showNoProject() {
   CHAT_SWITCH++;CHAT_PAGE_KEY=null;
   READ_OBSERVER.disconnect(); READ_IDS.clear(); clearTimeout(READ_TIMER); READ_TIMER = null;
   PROJECT = null; st.set("tg_project", null);
+  syncAttentionScope();
   ACTIVE_DM=null;CONVERSATIONS=[];COMPOSE_SCOPE=null;closeSecret();
   $("projTitle").textContent = "";
   $("noProject").classList.remove("hidden");
@@ -4063,6 +4064,7 @@ function spanRu(sec) {
 }
 
 let ATTENTION_SCOPE=null,ATTENTION_REQUEST=0,ATTENTION_LATEST={},ATTENTION_COUNTS={waiting:null,approval:null};
+const attentionScope=()=>`${uiScope()}|${ME?.project?.id||''}`;
 function paintAttention(){
   const w=ATTENTION_COUNTS.waiting,n=ATTENTION_COUNTS.approval;
   $("pendingChip").classList.toggle("hidden",!n);
@@ -4074,15 +4076,15 @@ function paintAttention(){
   NTF.pending=n||0;ntfTitle();
 }
 function syncAttentionScope(){
-  const scope=uiScope();if(ATTENTION_SCOPE===scope)return;
+  const scope=attentionScope();if(ATTENTION_SCOPE===scope)return;
   ATTENTION_SCOPE=scope;ATTENTION_LATEST={};ATTENTION_COUNTS={waiting:null,approval:null};
   WORK_SCOPE=null;WORK_HTML=null;$("workBox").replaceChildren();paintAttention();
 }
 async function loadAttention(mode){
   syncAttentionScope();
-  const scope=uiScope(),request=++ATTENTION_REQUEST;
+  const scope=attentionScope(),request=++ATTENTION_REQUEST;
   ATTENTION_LATEST[mode]=request;
-  const current=()=>scope===uiScope()&&ATTENTION_SCOPE===scope&&ATTENTION_LATEST[mode]===request;
+  const current=()=>scope===attentionScope()&&ATTENTION_SCOPE===scope&&ATTENTION_LATEST[mode]===request;
   try{
     const query=mode==="approval"?"pending_approval="+(ME.kind==="human"?"mine":"1"):mode==="waiting"?"waiting_me=1":"open=1";
     const rows=(await api("GET","/api/messages?conversation=all&limit=1000&full=0&"+query)).messages;
