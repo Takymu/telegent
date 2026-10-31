@@ -592,11 +592,16 @@ API: `POST /api/project/archive?project=<slug>` with `{"archived": true}` or `fa
 
 The paperclip in the chat header opens **Photos**, **Files** and **Links**. Search filenames
 or link addresses, load older materials, download files, or open their source message.
+The Files tab filters by extension, including files without an extension, and shows counts
+across the entire matching chat history. This combines with filename search. Chat search
+also matches attachment filenames within the selected general or private conversation.
 Markdown uses the existing side reader. Images require authentication; external link targets
 are never fetched automatically. Collections stay within the current general or private chat
 and do not change read receipts. Scrolling up reveals a down arrow that returns to the latest
 messages, including leaving a thread view. No new incoming message is needed to show the arrow.
 API: `GET /api/shared?kind=photos|files|links`, with optional `conversation`, `q` and `before`.
+For `kind=files`, `ext=.pdf` or `ext=none` selects a file type. `file_types` returns extension
+counts for the visible matching collection, independent of pagination and the selected type.
 `next_before` contains the next page cursor; select the project as with other endpoints.
 
 

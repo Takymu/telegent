@@ -567,7 +567,7 @@ body.resizing-status, body.resizing-status * { cursor: col-resize !important; us
 .work-tabs button { min-height:44px; }
 .work-tabs .active { background:var(--accent);color:var(--accent-ink); }
 .shared-search { display:block;margin:14px 0; }
-.shared-search input { display:block;width:100%;margin-top:6px; }
+.shared-search input, .shared-search select { display:block;width:100%;margin-top:6px; }
 .shared-tabs button.active { border-color:var(--accent);background:var(--line); }
 .shared-item { overflow-wrap:anywhere; }
 .shared-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px; }
@@ -949,6 +949,9 @@ const UI_EN={
   "Файлы": "Files",
   "Ссылки": "Links",
   "Поиск по названию или ссылке": "Search by filename or link",
+  "Тип файла": "File type",
+  "Все типы": "All types",
+  "Без расширения": "No extension",
   "Загрузить ещё": "Load more",
   "Показано: ": "Showing: ",
   "Пока ничего не найдено.": "Nothing found yet.",
@@ -2893,9 +2896,10 @@ async function refresh() {
   LAST = Math.max(LAST, res.last_id);
   ntfNew(res.messages.filter(m => m.id > NTF.seen)); NTF.seen = Math.max(NTF.seen, res.last_id);
   online();
+  refreshSide();
   if (!render()) {rememberChat();return;}
   if (stick) toBottom(); else { restoreFeedAnchor(anchor); if(fresh) { UNSEEN += fresh; updateNewBtn(); } }
-  rememberChat();refreshSide();
+  rememberChat();
 }
 
 async function loadOlder() {
@@ -3274,6 +3278,7 @@ document.addEventListener("click", async e => {
 
 function paintTab() {
   paintOutgoing();
+  syncAttentionScope();
   if(statusDesktop()){projectsWidth(PROJECTS_WIDTH);statusWidth(STATUS_WIDTH);}
   document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===TAB));
   const feed=TAB==="feed" || TAB==="direct" && !!ACTIVE_DM;
@@ -4057,31 +4062,53 @@ function spanRu(sec) {
   return Math.round(sec / 86400) + tr(" дн");
 }
 
+let ATTENTION_SCOPE=null,ATTENTION_REQUEST=0,ATTENTION_LATEST={},ATTENTION_COUNTS={waiting:null,approval:null};
+function paintAttention(){
+  const w=ATTENTION_COUNTS.waiting,n=ATTENTION_COUNTS.approval;
+  $("pendingChip").classList.toggle("hidden",!n);
+  $("pendingChip").innerHTML=`<span class="lg">${ME?.kind==="human"?tr("ждут твоего решения"):tr("ждут одобрения")}: ${n||0}</span><span class="sm">⚠ ${n||0}</span>`;
+  $("pendingChip").title=(ME?.kind==="human"?tr("ждут твоего решения: "):tr("ждут одобрения человека: "))+(n||0);
+  $("waitChip").classList.toggle("hidden",ME?.kind!=="human"||!w);
+  $("waitChip").innerHTML=ui`<span class="lg">ждут твоего ответа: ${w||0}</span><span class="sm">? ${w||0}</span>`;
+  $("workBadge").textContent=(w||n)?`(${(w||0)+(n||0)})`:"";
+  NTF.pending=n||0;ntfTitle();
+}
+function syncAttentionScope(){
+  const scope=uiScope();if(ATTENTION_SCOPE===scope)return;
+  ATTENTION_SCOPE=scope;ATTENTION_LATEST={};ATTENTION_COUNTS={waiting:null,approval:null};
+  WORK_SCOPE=null;WORK_HTML=null;$("workBox").replaceChildren();paintAttention();
+}
+async function loadAttention(mode){
+  syncAttentionScope();
+  const scope=uiScope(),request=++ATTENTION_REQUEST;
+  ATTENTION_LATEST[mode]=request;
+  const current=()=>scope===uiScope()&&ATTENTION_SCOPE===scope&&ATTENTION_LATEST[mode]===request;
+  try{
+    const query=mode==="approval"?"pending_approval="+(ME.kind==="human"?"mine":"1"):mode==="waiting"?"waiting_me=1":"open=1";
+    const rows=(await api("GET","/api/messages?conversation=all&limit=1000&full=0&"+query)).messages;
+    while(NAV_TOUCH&&current()&&TAB==="work"&&WORK_MODE===mode)await new Promise(resolve=>setTimeout(resolve,50));
+    if(!current())return;
+    if(mode!=="taken"){ATTENTION_COUNTS[mode]=rows.length;paintAttention();}
+    // The visible list and its badge always use this same accepted snapshot.
+    if(TAB==="work"&&WORK_MODE===mode)renderWorkRows(rows,mode);
+  }catch(error){
+    if(!current())return;
+    if(mode!=="taken"){ATTENTION_COUNTS[mode]=null;paintAttention();}
+    if(TAB==="work"&&WORK_MODE===mode){WORK_HTML=null;$("workBox").innerHTML=ui`<p class="err">${esc(error.message)}</p><button data-ux="work-reload">Повторить</button>`;}
+  }
+}
 async function refreshSide() {
-  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`, extra=ACTIVE_DM?"&conversation="+encodeURIComponent(ACTIVE_DM.id):"";
+  syncAttentionScope();
+  const scope=`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`,extra=ACTIVE_DM?"&conversation="+encodeURIComponent(ACTIVE_DM.id):"";
   const valid=()=>scope===`${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}`;
-  try {
-    const all = await api("GET", "/api/messages?limit=1000&full=0"+extra);
+  const attention=Promise.all([loadAttention("approval"),...(ME.kind==="human"?[loadAttention("waiting")]:[])]);
+  try{
+    const all=await api("GET","/api/messages?limit=1000&full=0"+extra);
     if(!valid())return;
-    const topics = [...new Set(all.messages.map(m => m.topic).filter(Boolean))].sort();
-    const cur = $("fTopic").value;
-    $("fTopic").innerHTML = ui`<option value="">все топики</option>` + topics.map(t => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
-    $("topicList").innerHTML = topics.map(t => `<option value="${esc(t)}">`).join("");
-    const pend = await api("GET", "/api/messages?pending_approval=" + (ME.kind === "human" ? "mine" : "1") + "&limit=1000&full=0&conversation=all");
-    if(!valid())return;
-    const n = pend.messages.length;
-    $("pendingChip").classList.toggle("hidden", !n);
-    $("pendingChip").innerHTML = `<span class="lg">${ME.kind === "human" ? tr("ждут твоего решения") : tr("ждут одобрения")}: ${n}</span><span class="sm">⚠ ${n}</span>`;
-    $("pendingChip").title = (ME.kind === "human" ? tr("ждут твоего решения: ") : tr("ждут одобрения человека: ")) + n + tr(" (фильтр «ждут одобрения» в поиске)");
-    NTF.pending = n; ntfTitle();
-    if (ME.kind === "human") {
-      const w = (await api("GET", "/api/messages?waiting_me=1&limit=1000&full=0&conversation=all")).messages.length;
-      if(!valid())return;
-      $("waitChip").classList.toggle("hidden", !w);
-      $("waitChip").innerHTML = ui`<span class="lg">ждут твоего ответа: ${w}</span><span class="sm">? ${w}</span>`;
-      $("workBadge").textContent=(w+n)?`(${w+n})`:"";
-    }
-  } catch {}
+    const topics=[...new Set(all.messages.map(m=>m.topic).filter(Boolean))].sort(),cur=$("fTopic").value;
+    $("fTopic").innerHTML=ui`<option value="">все топики</option>`+topics.map(t=>`<option ${t===cur?"selected":""}>${esc(t)}</option>`).join("");
+    $("topicList").innerHTML=topics.map(t=>`<option value="${esc(t)}">`).join("");
+  }catch{}finally{await attention;}
 }
 
 let RES = [], RES_OPEN = new Set(), RES_F = {topic: "", metric: "", dataset: "", author: "", sort: "time"};
@@ -4251,22 +4278,20 @@ async function showSecretaries(){
   showInfo(tr('Секретари'),ui`<p>Секретарь участвует во всех твоих проектах с правами агента. Его доступ следует за твоим членством. Чужие личные чаты закрыты.</p><button class="primary" data-ux="secretary-create">Подключить секретаря</button>`+
     rows.map(u=>ui`<div class="ux-card"><b>${esc(u.name)}</b><p>${u.projects.length} проектов</p><button data-ux="secretary-revoke-confirm" data-account="${esc(u.id)}">Отключить секретаря</button></div>`).join(''));
 }
-let WORK_SCOPE=null,WORK_HTML=null,WORK_REQUEST=0,WORK_APPLIED=0;
-async function loadWork(){
-  const scope=uiScope(),mode=WORK_MODE,request=++WORK_REQUEST,key=`${scope}|${mode}`;
-  if(WORK_SCOPE!==key){WORK_SCOPE=key;WORK_HTML=null;$("workBox").innerHTML=tr('<p role="status">Загружаем…</p>');}
-  document.querySelectorAll('[data-ux="workmode"]').forEach(b=>b.classList.toggle("active",b.dataset.mode===mode));
-  try {
-    const query=mode==="approval"?"pending_approval=mine":mode==="waiting"?"waiting_me=1":"open=1";
-    let rows=(await api("GET","/api/messages?conversation=all&limit=1000&"+query)).messages;
-    while(NAV_TOUCH && scope===uiScope() && mode===WORK_MODE)await new Promise(resolve=>setTimeout(resolve,50));
-    if(scope!==uiScope() || mode!==WORK_MODE || request<WORK_APPLIED)return;
-    WORK_APPLIED=request;
+let WORK_SCOPE=null,WORK_HTML=null;
+function renderWorkRows(rows,mode){
     if(mode==="taken")rows=rows.filter(m=>m.status?.state==="taken"&&m.status.by_id===ME.id);
     const html=(mode==="waiting"&&ME.kind==="human"&&rows.length?ui`<div class="actions"><button data-ux="waiting-clear">Очистить список</button></div><p class="ux-muted">Убирается только ваше напоминание. Сообщение и статус поручения сохраняются.</p>`:"")+ (rows.map(m=>ui`<article class="ux-card ${mode==="waiting"&&ME.kind==="human"?'work-reminder':''}" ${mode==="waiting"&&ME.kind==="human"?`data-reminder="${m.id}"`:""}><div class="ux-muted">${esc(m.author)} · ${esc(m.conversation_id?tr("Личный чат"):tr("Общий чат"))} · ${esc(shortTime(m.time))}</div><p>${esc(m.subject)}</p><div class="actions"><button data-act="jump" data-id="${m.id}">Открыть сообщение</button>${mode==="approval"?ui`<button class="ok" data-act="approve" data-id="${m.id}">Одобрить</button><button class="bad" data-act="deny" data-id="${m.id}">Отказать</button>`:mode==="taken"?ui`<button data-act="st" data-st="done" data-id="${m.id}">Завершить просьбу</button>`:ui`<button data-ux="work-reply" data-id="${m.id}">Ответить</button>${ME.kind==="human"?ui`<button data-ux="waiting-dismiss" data-id="${m.id}">Убрать из списка</button>`:""}${m.status?.state==="open"?ui`<button data-act="st" data-st="taken" data-id="${m.id}">Взять в работу</button>`:""}`}</div></article>`).join("")||tr('<p class="muted">Здесь всё разобрано.</p>'));
     if(WORK_HTML!==html){$("workBox").innerHTML=html;WORK_HTML=html;}
-  }catch(err){if(scope===uiScope() && mode===WORK_MODE && request>=WORK_APPLIED){WORK_HTML=null;$("workBox").innerHTML=ui`<p class="err">${esc(err.message)}</p><button data-ux="work-reload">Повторить</button>`;}}
 }
+async function loadWork(){
+  syncAttentionScope();
+  const key=`${uiScope()}|${WORK_MODE}`;
+  if(WORK_SCOPE!==key){WORK_SCOPE=key;WORK_HTML=null;$("workBox").innerHTML=tr('<p role="status">Загружаем…</p>');}
+  document.querySelectorAll('[data-ux="workmode"]').forEach(b=>b.classList.toggle("active",b.dataset.mode===WORK_MODE));
+  await loadAttention(WORK_MODE);
+}
+
 let WAITING_SAVING=false;
 async function dismissWaiting(ids=null){
   if(WAITING_SAVING)return;
@@ -4313,13 +4338,14 @@ function stopShared(){
 }
 const sharedCurrent=state=>SHARED_LIBRARY===state&&state.scope===documentScope()&&state.version===INFO_VERSION&&$('infoDialog').open;
 function sharedPath(state,extra={}){
-  return '/api/shared?'+new URLSearchParams({kind:state.kind,q:state.query,...(state.conversation?{conversation:state.conversation}:{}),...extra});
+  return '/api/shared?'+new URLSearchParams({kind:state.kind,q:state.query,...(state.kind==='files'&&state.extension?{ext:state.extension}:{}),...(state.conversation?{conversation:state.conversation}:{}),...extra});
 }
 async function showShared(){
   if(!PROJECT||!feedVisible())return;
-  showInfo(tr('Вложения')+' · '+(ACTIVE_DM?.peer||tr('Общий чат')),ui`<div class="actions shared-tabs" role="group" aria-label="Раздел вложений"><button data-ux="shared-kind" data-kind="photos">Фото</button><button data-ux="shared-kind" data-kind="files">Файлы</button><button data-ux="shared-kind" data-kind="links">Ссылки</button></div><label class="shared-search">Поиск по названию или ссылке<input id="sharedSearch" type="search" maxlength="200" autocomplete="off"></label><div class="actions"><button data-ux="shared-refresh">Обновить</button></div><p id="sharedStatus" role="status"></p><div id="sharedItems"></div><button id="sharedMore" class="hidden" data-ux="shared-more">Загрузить ещё</button>`);
-  const state=SHARED_LIBRARY={scope:documentScope(),conversation:ACTIVE_DM?.id||null,version:INFO_VERSION,kind:'photos',query:'',items:[],urls:new Map(),request:0,abort:new AbortController()};
+  showInfo(tr('Вложения')+' · '+(ACTIVE_DM?.peer||tr('Общий чат')),ui`<div class="actions shared-tabs" role="group" aria-label="Раздел вложений"><button data-ux="shared-kind" data-kind="photos">Фото</button><button data-ux="shared-kind" data-kind="files">Файлы</button><button data-ux="shared-kind" data-kind="links">Ссылки</button></div><label class="shared-search">Поиск по названию или ссылке<input id="sharedSearch" type="search" maxlength="200" autocomplete="off"></label><label id="sharedTypeLabel" class="shared-search hidden">Тип файла<select id="sharedType"><option value="">Все типы</option></select></label><div class="actions"><button data-ux="shared-refresh">Обновить</button></div><p id="sharedStatus" role="status"></p><div id="sharedItems"></div><button id="sharedMore" class="hidden" data-ux="shared-more">Загрузить ещё</button>`);
+  const state=SHARED_LIBRARY={scope:documentScope(),conversation:ACTIVE_DM?.id||null,version:INFO_VERSION,kind:'photos',query:'',extension:'',items:[],urls:new Map(),request:0,abort:new AbortController()};
   $('sharedSearch').oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(()=>{if(sharedCurrent(state)){state.query=$('sharedSearch').value.trim();loadShared(false);}},300);};
+  $('sharedType').onchange=()=>{if(sharedCurrent(state)){state.extension=$('sharedType').value;loadShared(false);}};
   await loadShared(false);
   const check=async()=>{
     if(!sharedCurrent(state))return;
@@ -4333,10 +4359,17 @@ async function loadShared(more){
   const request=++state.request;
   if(!more){state.items=[];state.next=null;clearSharedImages(state);$('sharedItems').replaceChildren();}
   $('sharedStatus').textContent=tr('Загружаем…');$('sharedMore').disabled=true;
+  $('sharedTypeLabel').classList.toggle('hidden',state.kind!=='files');
   document.querySelectorAll('.shared-tabs button').forEach(button=>{button.classList.toggle('active',button.dataset.kind===state.kind);button.setAttribute('aria-pressed',String(button.dataset.kind===state.kind));});
   try{
     const data=await api('GET',sharedPath(state,more&&state.next?{before:String(state.next)}:{}));
     if(!sharedCurrent(state)||request!==state.request)return;
+    if(state.kind==='files'){
+      const types=data.file_types||[],options=types.map(t=>({value:t.extension||'none',label:(t.extension||tr('Без расширения'))+' ('+t.count+')'}));
+      if(state.extension&&!options.some(t=>t.value===state.extension))options.push({value:state.extension,label:state.extension==='none'?tr('Без расширения'):state.extension});
+      $('sharedType').innerHTML=`<option value="">${tr('Все типы')}</option>`+options.map(t=>`<option value="${esc(t.value)}">${esc(t.label)}</option>`).join('');
+      $('sharedType').value=state.extension;
+    }
     state.items.push(...data.items);state.next=data.next_before;state.revision=data.revision;
     renderShared(state);
     $('sharedStatus').textContent=state.items.length?tr('Показано: ')+state.items.length:tr('Пока ничего не найдено.');

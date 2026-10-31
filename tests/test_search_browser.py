@@ -49,6 +49,13 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
    check($('filterOptions').classList.contains('hidden'),'Ctrl+K opens plain search');
    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
    check(!$('filters').classList.contains('open')&&search.getAttribute('aria-expanded')==='false','Escape closes search and updates button state');
+   const filename='Отчёт-file-search-'+VIEWPORT+'-'+Date.now()+'.PDF';
+   const attachment={name:filename,content_b64:btoa('fixture')};
+   const fileMessage=(await api('POST','/api/messages',{body:'Neutral fixture',attachments:[attachment,attachment]})).id;
+   search.click();type(filename.toLowerCase());
+   await wait(()=>MSGS.size===1&&MSGS.has(fileMessage));
+   check(MSGS.get(fileMessage).attachments.length===2,'filename search finds one message despite multiple matching attachments');
+   resetFilters();setSearchOpen(false);
    const cid=(await api('POST','/api/conversations',{peer_id:'alice-agent'})).conversation.id;
    const privateText='private-search-'+Date.now();
    const publicId=(await api('POST','/api/messages',{body:privateText})).id;
@@ -56,6 +63,9 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
    await openDirect(cid);search.click();type(privateText);
    await wait(()=>MSGS.size===1&&MSGS.has(privateId));
    check(!MSGS.has(publicId)&&ACTIVE_DM?.id===cid,'header search stays inside the current private conversation');
+   const dmFile=(await api('POST','/api/messages',{body:'Private file fixture',conversation_id:cid,attachments:[attachment]})).id;
+   type(filename.toLowerCase());await wait(()=>MSGS.size===1&&MSGS.has(dmFile));
+   check(!MSGS.has(fileMessage),'filename search also stays inside the selected private conversation');
    check(document.documentElement.scrollWidth<=innerWidth,'search and filters fit the viewport');
    check($('filters').scrollWidth<=$('filters').clientWidth,'search controls do not overflow on mobile');
    resetFilters();setSearchOpen(false);await selectTab('feed');

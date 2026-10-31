@@ -249,6 +249,7 @@ def db():
             _db.execute("ALTER TABLE board ADD COLUMN back TEXT")
         migrate_identities(_db)
         _db.create_function("pylower", 1, lambda s: s.lower() if isinstance(s, str) else s)
+        _db.create_function("fileext", 1, lambda s: os.path.splitext(s)[1].lower() if isinstance(s, str) else '')
         ensure_default_project(_db)
         # messages used to have a separate subject; now it is the first line of the text (idempotent)
         _db.execute("UPDATE messages SET body = subject || CASE WHEN body = '' THEN '' ELSE char(10) || body END "
@@ -1930,8 +1931,9 @@ def list_messages(me, q, pid):
     if q.get("q"):
         pat = "%" + q["q"].lower() + "%"
         where.append("(pylower(m.subject) LIKE ? OR pylower(m.body) LIKE ? OR pylower(m.topic) LIKE ?"
-                     " OR pylower(COALESCE(m.result,'')) LIKE ? OR pylower(COALESCE(m.status_ref,'')) LIKE ?)")
-        args += [pat] * 5
+                     " OR pylower(COALESCE(m.result,'')) LIKE ? OR pylower(COALESCE(m.status_ref,'')) LIKE ?"
+                     " OR EXISTS(SELECT 1 FROM attachments a WHERE a.message_id=m.id AND instr(pylower(a.name),?)>0))")
+        args += [pat] * 5 + [q['q'].lower()]
     if q.get("for_me") == "1":
         where.append("m.author != ? AND (m.recipients = '' OR m.recipients LIKE ?)")
         args += [me["name"], f"%,{me['name']},%"]
@@ -3768,6 +3770,9 @@ def shared_urls(text):
 def api_shared(h,user,q,data):
     p = project_for(h,user,q)
     kind, query, cid = q.get('kind','photos'),q.get('q','').strip(),q.get('conversation')
+    extension = q.get('ext','').lower()
+    if extension and (kind!='files' or extension!='none' and not re.fullmatch(r'\.[^\s./\\\x00-\x1f]{1,199}',extension)):
+        raise ApiError(400,'ext: нужно расширение файла или none для файлов без расширения')
     if kind not in ('photos','files','links') or len(query)>200:
         raise ApiError(400,'нужен раздел photos, files или links и поиск до 200 символов')
     before = q.get('before','')
@@ -3784,11 +3789,18 @@ def api_shared(h,user,q,data):
         else:where.append('m.conversation_id IS NULL')
         revision = content_revision(p['id'],user['name'])
         if q.get('check')=='1':return {'revision':revision}
+        file_types = []
         if kind in ('photos','files'):
             photo = "((a.content IS NOT NULL OR a.upload_id IS NOT NULL) AND (lower(a.name) LIKE '%.png' OR lower(a.name) LIKE '%.jpg' OR lower(a.name) LIKE '%.jpeg' OR lower(a.name) LIKE '%.gif' OR lower(a.name) LIKE '%.webp'))"
             where.append(photo if kind=='photos' else 'NOT '+photo)
-            if before:where.append('a.id<?');args.append(int(before))
             if query:where.append('instr(pylower(a.name),?)>0');args.append(query.lower())
+            if kind=='files':
+                file_types = [{'extension':r[0],'count':r[1]} for r in db().execute(
+                    'SELECT fileext(a.name),COUNT(*) FROM attachments a JOIN messages m ON m.id=a.message_id WHERE '+
+                    ' AND '.join(where)+' GROUP BY fileext(a.name) ORDER BY fileext(a.name)',args)]
+                if extension:
+                    where.append('fileext(a.name)=?');args.append('' if extension=='none' else extension)
+            if before:where.append('a.id<?');args.append(int(before))
             rows = db().execute('SELECT a.id,a.name,a.size,a.md5,a.link,(a.content IS NOT NULL OR a.upload_id IS NOT NULL) AS inl,'
                                 'm.id AS mid,m.ts,m.author,m.subject FROM attachments a JOIN messages m ON m.id=a.message_id WHERE '+
                                 ' AND '.join(where)+' ORDER BY a.id DESC LIMIT 41',args).fetchall()
@@ -3807,7 +3819,8 @@ def api_shared(h,user,q,data):
                 urls = list(dict.fromkeys(url for text in texts for url in shared_urls(text) if not query or query.casefold() in url.casefold()))
                 if urls:items.append({'message_id':r['id'],'author':account_name(r['author']),'time':iso(r['ts']),'subject':r['subject'],'links':urls[:200],'truncated':len(urls)>200})
         page = 20 if kind=='links' else 40
-        return {'items':items,'next_before':rows[page-1]['id'] if len(rows)>page else None,'revision':revision}
+        return {'items':items,'next_before':rows[page-1]['id'] if len(rows)>page else None,'revision':revision,
+                'file_types':file_types}
 
 
 @route("GET", "/api/board")

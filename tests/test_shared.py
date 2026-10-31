@@ -2,6 +2,7 @@
 import base64
 import unittest
 import urllib.error
+import urllib.parse
 import test_attachments as fixture
 
 
@@ -80,12 +81,53 @@ class SharedTest(unittest.TestCase):
         self.shared(who='alice');self.shared();self.shared('photos');self.shared('links')
         self.assertEqual(before,[tuple(r) for r in self.s.db().execute('SELECT * FROM receipts WHERE message_id=?',(mid,))])
 
+    def test_chat_search_finds_filenames_once_and_respects_visibility(self):
+        name='Итоговый_100%-fixture.PDF'
+        public=self.send(name)
+        with self.s.DB_LOCK:
+            self.s.db().execute('INSERT INTO attachments(message_id,name,size,content) VALUES(?,?,?,?)',(public,name,1,b'x'))
+        cid=self.fx.api('POST','/api/conversations',{'peer_id':'bob-agent'},who='alice')['conversation']['id']
+        private=self.send(name,conversation_id=cid)
+        foreign=self.fx.api('POST','/api/messages?project=other',{'body':'Fixture','attachments':[
+            {'name':name,'content_b64':base64.b64encode(b'x').decode()}]},who='carol')['id']
+        q=urllib.parse.quote(name.lower())
+        def search(extra='',who='bob-agent'):
+            return [m['id'] for m in self.fx.api('GET','/api/messages?project=main&q='+q+extra,who=who)['messages']]
+        self.assertEqual(search(),[public])
+        self.assertEqual(search('&conversation='+cid),[private])
+        self.assertEqual(search('&conversation=all'),[public,private])
+        self.assertEqual(search('&conversation=all',who='alice-agent'),[public])
+        self.assertNotIn(foreign,search('&conversation=all'))
+        self.fx.api('POST',f'/api/messages/{public}/delete',{'revision':0},who='alice')
+        self.assertEqual(search(),[])
+
+    def test_extension_filter_facets_cover_history_and_remain_private(self):
+        pdf=self.send('ext-fixture.PDF');md=self.send('ext-fixture.md');plain=self.send('ext-fixture')
+        self.send('ext-fixture.png')
+        cid=self.fx.api('POST','/api/conversations',{'peer_id':'bob-agent'},who='alice')['conversation']['id']
+        private=self.send('ext-fixture.private',conversation_id=cid)
+        def page(extra=''):return self.shared('files','&q=ext-fixture'+extra)
+        selected=page('&ext=.PDF')
+        self.assertEqual([r['message_id'] for r in selected['items']],[pdf])
+        self.assertEqual({t['extension'] for t in selected['file_types']},{'.pdf','.md',''})
+        self.assertEqual([r['message_id'] for r in page('&ext=none')['items']],[plain])
+        self.assertEqual([r['message_id'] for r in page('&ext=.md')['items']],[md])
+        self.assertEqual(page('&ext=.zip')['items'],[])
+        self.assertEqual(page('&ext=.pdf&before=1')['file_types'],selected['file_types'])
+        self.assertIn(private,[r['message_id'] for r in page('&conversation='+cid+'&ext=.private')['items']])
+        self.assertNotIn('.private',[t['extension'] for t in page()['file_types']])
+        self.fx.api('POST',f'/api/messages/{md}/delete',{'revision':0},who='alice')
+        self.assertNotIn('.md',[t['extension'] for t in page()['file_types']])
+
     def test_validation(self):
         for extra in ('&before=-1','&before=0','&before=bad','&before='+str(2**63),'&before='+'9'*5000,'&q='+'a'*201):
             self.error(400,'/api/shared?project=main&kind=files'+extra)
         self.error(400,'/api/shared?project=main&kind=secret')
         self.error(404,'/api/shared?project=main&conversation=all')
         self.error(401,'/api/shared?project=main',who=None)
+        for suffix in ('&ext=pdf','&ext=../pdf','&ext=.tar.gz','&ext=.%00','&ext=.%20'):
+            self.error(400,'/api/shared?project=main&kind=files'+suffix)
+        self.error(400,'/api/shared?project=main&kind=photos&ext=.png')
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

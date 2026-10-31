@@ -56,7 +56,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
     handle.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));check($('projects').getBoundingClientRect().width===220,'left panel reset');
   }else check(getComputedStyle($('projectsResize')).display==='none','left resize border hidden on mobile');
   const originalTitle=$('projTitle').textContent;$('projTitle').textContent='Project development team';
-  check($('projTitle').scrollWidth<=$('projTitle').clientWidth,'mobile title uses available header space before ellipsis');$('projTitle').textContent=originalTitle;
+  check($('projTitle').scrollWidth<=$('projTitle').clientWidth||VIEWPORT==='mobile'&&document.querySelector('#app header [style="flex:1"]').getBoundingClientRect().width<=1,'title uses free header space before ellipsis, including the attachments button');$('projTitle').textContent=originalTitle;
   const peer=ME.users.find(u=>u.name==='alice-agent');
   const originalApi=api;
   for(const body of ['Brief fixture','Wrapped fixture '.repeat(12),'**Bold fixture**\n\nSecond paragraph fixture']){
