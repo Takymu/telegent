@@ -206,6 +206,7 @@ def db():
                                  ("users", "last_wait_ts", "REAL"), ("users", "pw_hash", "TEXT"),
                                  ("users", "last_check_ts", "REAL"),
                                  ("users", "agent_client", "TEXT"),
+                                 ("users", "agent_client_selected", "INTEGER NOT NULL DEFAULT 0"),
                                  ("users", "is_admin", "INTEGER NOT NULL DEFAULT 0"),
                                  ("users", "is_secretary", "INTEGER NOT NULL DEFAULT 0"),
                                  ("invites", "is_secretary", "INTEGER NOT NULL DEFAULT 0"),
@@ -224,6 +225,9 @@ def db():
                 if table=='users' and col=='agent_client':
                     # Historical Codex hook checks explicitly identified their client.
                     _db.execute("UPDATE users SET agent_client='codex' WHERE kind='agent' AND last_check_ts IS NOT NULL")
+                if table=='users' and col=='agent_client_selected':
+                    # Kimi was introduced only through an explicit client choice, never inferred.
+                    _db.execute("UPDATE users SET agent_client_selected=1 WHERE kind='agent' AND agent_client='kimi'")
         if "creator_unknown" not in {r[1] for r in _db.execute("PRAGMA table_info(projects)")}:
             _db.execute("BEGIN IMMEDIATE")
             try:
@@ -306,6 +310,8 @@ def migrate_identities(con):
         for trigger in ('member_identity_insert','member_identity_scope_insert','member_identity_scope_delete'):
             con.execute('DROP TRIGGER IF EXISTS '+trigger)
         statements = [
+            "CREATE TRIGGER IF NOT EXISTS revoked_agent_memberships AFTER UPDATE OF revoked ON users "
+            "WHEN NEW.kind='agent' AND NEW.revoked=1 BEGIN DELETE FROM members WHERE user=NEW.name; END",
             "CREATE TRIGGER IF NOT EXISTS account_identity_update BEFORE UPDATE OF name ON users "
             "WHEN NEW.name!=OLD.name BEGIN SELECT RAISE(ABORT,'account identity is immutable'); END",
             "CREATE TRIGGER IF NOT EXISTS member_identity_insert BEFORE INSERT ON members BEGIN "
@@ -355,6 +361,8 @@ def migrate_identities(con):
         ]
         for statement in statements:
             con.execute(statement)
+        # Older revocations left invisible memberships reserving the agent's old project name.
+        con.execute("DELETE FROM members WHERE user IN (SELECT name FROM users WHERE kind='agent' AND revoked=1)")
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -371,14 +379,21 @@ def account_name(key):
 def account_dict(row):
     return {"id": row["name"], "name": row["display_name"] or row["name"], "kind": row["kind"],
             "owner": account_name(row["owner"]), "owner_id": row["owner"], "is_secretary": bool(row["is_secretary"]),
-            "agent_client": row['agent_client'] if row['kind']=='agent' else None}
+            "agent_client": row['agent_client'] if row['kind']=='agent' else None,
+            "agent_client_selected": bool(row['kind']=='agent' and row['agent_client_selected'])}
 
 
-def report_agent_client(user, client):
+def report_agent_client(user, client, selected=False):
     # A self-reported display hint never changes identity, membership or authority.
-    if user['kind']=='agent' and client in ('codex','claude','kimi') and user['agent_client']!=client:
+    if user['kind']=='agent' and client in ('codex','claude','kimi'):
         with DB_LOCK:
-            db().execute('UPDATE users SET agent_client=? WHERE name=?', (client,user['name']))
+            current=db().execute('SELECT * FROM users WHERE name=?',(user['name'],)).fetchone()
+            # Ordinary reports from old hooks/watchers cannot undo a deliberate choice.
+            if selected or not current['agent_client_selected']:
+                locked=bool(selected or client=='kimi')
+                if current['agent_client']!=client or bool(current['agent_client_selected'])!=locked:
+                    db().execute('UPDATE users SET agent_client=?,agent_client_selected=? WHERE name=?',
+                                 (client,int(locked),user['name']))
             return db().execute('SELECT * FROM users WHERE name=?', (user['name'],)).fetchone()
     return user
 
@@ -2280,7 +2295,16 @@ def page_sw(h, user, q, data):
 def api_info(h, user, q, data):
     return {"version": VERSION, "server_time": iso(time.time()), "types": USER_TYPES, "states": STATES,
             "result_fields": RESULT_FIELDS, "max_inline_bytes": Cfg.max_inline, "launcher_url": Cfg.launcher_url,
-            "agent_progress": True}
+            "agent_progress": True, "agent_client_selection": True}
+
+
+@route('POST','/api/client')
+def api_client_select(h,user,q,data):
+    if user['kind']!='agent':raise ApiError(403,'тип клиента сообщает только агент')
+    if set(data)!={'client'} or data.get('client') not in ('codex','claude','kimi'):
+        raise ApiError(400,'client: codex, claude или kimi; выбор только для своего агента')
+    chosen=report_agent_client(user,data['client'],selected=True)
+    return {'ok':True,'agent_client':chosen['agent_client'],'agent_client_selected':bool(chosen['agent_client_selected'])}
 
 
 def can_rename_project(p, user):

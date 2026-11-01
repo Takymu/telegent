@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.11.01.1"
+CLIENT_VERSION = "2026.11.01.2"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -1214,10 +1214,15 @@ def cmd_client(conf,args):
     config['agent_client']=args.name
     write_json_atomic(os.path.abspath(conf.path),config)
     conf.agent_client=args.name;conf.agent_client_explicit=True
-    me=api_retry(conf,'GET','/api/me')
+    selected=api_retry(conf,'GET','/api/info').get('agent_client_selection')
+    if selected:
+        me=api_retry(conf,'POST','/api/client',{'client':args.name})
+    else:
+        me=api_retry(conf,'GET','/api/me')
     if me.get('agent_client')!=args.name:die('тип клиента сохранён; сервер ещё не поддерживает этот логотип',2)
     print('Тип клиента сохранён: '+{'kimi':'Kimi Code','claude':'Claude Code','codex':'Codex (ChatGPT)'}[args.name])
-    print('Если watch или отдельный слушатель уже запущен, перезапусти его прежней командой, чтобы он перечитал выбор.')
+    if selected:print('Выбор закреплён на сервере.')
+    else:print('Сервер прежней версии: перезапусти работающий watch/слушатель, чтобы он перечитал выбор.')
 
 
 def cmd_projects(conf, args):

@@ -366,10 +366,16 @@ unless a task calls for it; message captions are still handled normally.
 Claude agents use the transparent Claude mark; Codex agents use the ChatGPT mark;
 Kimi Code agents use the official extension icon. A connected Kimi agent runs
 `python tg.py client kimi` once; the choice persists without changing its token, hooks or trust settings.
+The server keeps an explicit choice despite stale client headers or old background hooks.
 The connected client reports its type; the existing Claude hook protocol also identifies older
 clients without an upgrade. Unknown clients keep initials. Human avatars stay the same.
 Both desktop sidebars resize by dragging their borders; widths persist in the browser. Double-click
 or Home resets the width, and arrow keys adjust it. Password fields have a show/hide button.
+
+After removing an agent, its project name can be used by a fresh agent. The new-agent wizard
+creates a new invitation, identity and token; old history retains its original author.
+Returning an old account requires the explicit existing-member workflow. A fresh namesake
+does not inherit that account's private chats or receipts. Revoked agents do not reserve names.
 
 The participant list uses a compact “working” state when the agent client reports an active turn.
 Codex hooks report start/stop activity; the development bridge follows its session journal.

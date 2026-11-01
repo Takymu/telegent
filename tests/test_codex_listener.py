@@ -67,6 +67,12 @@ class ReceiverTest(unittest.TestCase):
         for changed in ({'account_id':'alice-agent'},{'project_id':-1}):
             with self.assertRaises(RuntimeError):receiver.validate(self.conf,dict(self.binding,**changed))
 
+    def test_validate_keeps_explicit_kimi_hint_instead_of_forcing_codex(self):
+        doc=json.loads(self.config.read_text());doc['agent_client']='kimi';self.config.write_text(json.dumps(doc))
+        conf=receiver.tg.Conf(str(self.config))
+        self.assertEqual(receiver.validate(conf,self.binding)['agent_client'],'kimi')
+        self.assertEqual(conf.agent_client,'kimi')
+
     def test_notice_times_are_metadata_and_old_servers_do_not_invent_delivery(self):
         sent='2026-10-07T23:59:58+05:30'; received='2026-10-08T00:01:02+05:30'
         message={'id':42,'author_kind':'human','time':sent,'delivered_at':received}

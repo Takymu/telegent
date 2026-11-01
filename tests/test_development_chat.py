@@ -56,6 +56,16 @@ class DevelopmentChatTest(unittest.TestCase):
         incoming=self.api('GET','/api/messages?for_me=1&unacked=1',who=self.key)['messages']
         if incoming:self.api('POST','/api/receipts',{'kind':'ack','ids':[m['id'] for m in incoming]},who=self.key)
 
+    def test_validation_keeps_explicit_kimi_client(self):
+        doc=json.loads(self.config.read_text());doc['agent_client']='kimi'
+        path=self.folder/'kimi.json';path.write_text(json.dumps(doc))
+        conf=self.bridge.tg.Conf(str(path))
+        try:
+            self.assertEqual(self.bridge.validate_account(conf)['agent_client'],'kimi')
+            self.assertEqual(conf.agent_client,'kimi')
+        finally:
+            self.s.db().execute('UPDATE users SET agent_client=NULL,agent_client_selected=0 WHERE name=?',(self.key,))
+
     def test_only_server_admin_can_open_and_bind_chat(self):
         for who in ('bob','carol','alice-agent'):
             self.error(403,'POST','/api/admin/development-chat',{},who=who,project=False)

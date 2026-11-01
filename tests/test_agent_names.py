@@ -158,6 +158,51 @@ class AgentNamesTest(unittest.TestCase):
         self.assertEqual(self.api('GET','/api/me',who=self.first)['project']['slug'],self.a)
         self.assertIsNone(self.api('GET','/api/me',who=self.second)['project'])
 
+    def test_removed_agent_name_can_create_a_new_identity_without_old_private_access(self):
+        old=self.first;token=self.fx.tokens[old]
+        dm=self.api('POST','/api/conversations',{'peer_id':old},project=self.a)['conversation']['id']
+        private=self.api('POST','/api/messages',{'body':'Old private fixture','conversation_id':dm},project=self.a)['id']
+        history=self.api('POST','/api/messages',{'body':'Old author fixture'},who=old,project=self.a)['id']
+        self.api('POST','/api/members/remove',{'account_id':old},project=self.a)
+        new=self.agent(self.a,'worker')
+        self.assertNotEqual(new,old);self.assertNotEqual(self.fx.tokens[new],token)
+        self.assertEqual(self.api('GET',f'/api/messages/{history}',who=new,project=self.a)['message']['author_id'],old)
+        self.error(404,'GET',f'/api/messages/{private}',who=new,project=self.a)
+        self.error(404,'GET','/api/messages',who=old,project=self.a)
+        self.error(409,'POST','/api/members/add',{'account_id':old},project=self.a)
+        self.assertEqual(self.api('GET','/api/me',who=new)['project']['role'],'agent')
+
+    def test_revoked_agent_does_not_reserve_a_project_name(self):
+        history=self.api('POST','/api/messages',{'body':'Revoked author fixture'},who=self.first,project=self.a)['id']
+        self.s.db().execute('UPDATE users SET revoked=1 WHERE name=?',(self.first,))
+        self.assertIsNone(self.s.db().execute('SELECT 1 FROM members WHERE user=?',(self.first,)).fetchone())
+        self.assertIsNone(self.s.db().execute('SELECT agent_project_id FROM users WHERE name=?',(self.first,)).fetchone()[0])
+        new=self.agent(self.a,'WORKER');self.assertNotEqual(new,self.first)
+        self.error(401,'GET','/api/me',who=self.first)
+        self.assertEqual(self.api('GET',f'/api/messages/{history}',who=new,project=self.a)['message']['author_id'],self.first)
+
+    def test_migration_releases_a_legacy_revoked_membership_without_reusing_identity(self):
+        path=self.work/('revoked-'+self.a+'.db')
+        with closing(self.s.sqlite3.connect(path)) as target:self.s.db().backup(target)
+        with closing(self.s.sqlite3.connect(path)) as con:
+            con.execute('DROP TRIGGER revoked_agent_memberships')
+            con.execute('UPDATE users SET revoked=1 WHERE name=?',(self.first,));con.commit()
+            self.assertIsNotNone(con.execute('SELECT 1 FROM members WHERE user=?',(self.first,)).fetchone())
+            old=con.execute('SELECT name,token_hash,display_name FROM users WHERE name=?',(self.first,)).fetchone()
+        spec=importlib.util.spec_from_file_location('revoked_agent_migration',fixture.ROOT/'server.py')
+        server=importlib.util.module_from_spec(spec);spec.loader.exec_module(server);server.Cfg.db=str(path)
+        try:
+            con=server.db()
+            self.assertIsNone(con.execute('SELECT 1 FROM members WHERE user=?',(self.first,)).fetchone())
+            self.assertEqual(tuple(con.execute('SELECT name,token_hash,display_name FROM users WHERE name=?',(self.first,)).fetchone()),old)
+            new=server.new_account(con,'worker','agent','alice','replacement fixture')
+            server.add_member(con,self.projects[0]['id'],new,'agent','alice')
+            self.assertNotEqual(new,self.first)
+            server._db.close();server._db=None
+            self.assertIsNone(server.db().execute('SELECT 1 FROM members WHERE user=?',(self.first,)).fetchone())
+        finally:
+            if server._db:server._db.close()
+
     def test_human_login_is_global_but_agent_name_is_not(self):
         self.api('POST','/api/members/remove',{'name':'bob'},project=self.a)
         key=self.agent(self.a,'bob')

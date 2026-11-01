@@ -22,7 +22,7 @@ class AgentClientTest(unittest.TestCase):
 
     def setUp(self):
         with self.fx.s.DB_LOCK:
-            self.fx.s.db().execute('UPDATE users SET agent_client=NULL')
+            self.fx.s.db().execute('UPDATE users SET agent_client=NULL,agent_client_selected=0')
         config = json.loads(self.fx.config.read_text())
         config.pop('client', None); config.pop('agent_client',None); config['auto_update'] = False
         self.fx.config.write_text(json.dumps(config))
@@ -117,6 +117,31 @@ class AgentClientTest(unittest.TestCase):
         self.assertEqual(path.read_bytes(),before)
         self.assertIsNone(self.fx.api('GET','/api/me',who='alice')['agent_client'])
 
+    def test_selected_client_survives_stale_hook_and_watcher_reports(self):
+        stale=self.fx.s.db().execute("SELECT * FROM users WHERE name='bob-agent'").fetchone()
+        self.fx.api('POST','/api/client',{'client':'kimi'})
+        self.assertEqual(self.fx.s.report_agent_client(stale,'codex')['agent_client'],'kimi')
+        for hint in ('codex','claude','kimi','codex'):
+            me=self.fx.api('GET','/api/me',headers={'X-Telegent-Client':hint})
+            self.assertEqual(me['agent_client'],'kimi');self.assertTrue(me['agent_client_selected'])
+        self.fx.api('GET','/api/summary?metadata=1&client=codex')
+        self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'kimi')
+        self.fx.api('POST','/api/client',{'client':'claude'})
+        self.assertEqual(self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'kimi'})['agent_client'],'claude')
+
+    def test_old_kimi_report_recovers_a_client_previously_overwritten_by_codex(self):
+        self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'codex'})
+        self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'kimi'})
+        me=self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'codex'})
+        self.assertEqual(me['agent_client'],'kimi');self.assertTrue(me['agent_client_selected'])
+
+    def test_client_selection_is_self_only_and_does_not_accept_extra_authority(self):
+        for payload in ({'client':'kimi','account_id':'alice-agent'},{'client':'human'},{}, {'client':['kimi']}):
+            self.fx.error(400,'POST','/api/client',payload)
+        self.fx.error(403,'POST','/api/client',{'client':'kimi'},who='alice')
+        self.fx.error(401,'POST','/api/client',{'client':'kimi'},who=None)
+        self.assertIsNone(self.fx.api('GET','/api/me',who='alice-agent')['agent_client'])
+
     def test_unknown_or_ambiguous_environment_stays_unknown(self):
         spec=importlib.util.spec_from_file_location('avatar_client',fixture.ROOT/'tg.py')
         tg=importlib.util.module_from_spec(spec);spec.loader.exec_module(tg)
@@ -144,6 +169,25 @@ class AgentClientTest(unittest.TestCase):
             self.assertEqual([tuple(r) for r in con.execute('SELECT name,kind,owner,token_hash,created_ts,last_check_ts FROM users')],rows)
             server._db.close();server._db=None
             self.assertEqual(server.db().execute("SELECT agent_client FROM users WHERE name='alice-agent'").fetchone()[0],'codex')
+        finally:
+            if server._db:server._db.close()
+
+    def test_migration_keeps_existing_kimi_selection_and_authentication(self):
+        path=self.fx.work/'legacy-kimi.db'
+        con=sqlite3.connect(path);con.executescript(self.fx.s.SCHEMA)
+        con.execute('ALTER TABLE users ADD COLUMN agent_client TEXT')
+        con.executemany('INSERT INTO users(name,kind,owner,token_hash,created_ts) VALUES(?,?,?,?,?)',
+                        [('alice','human','alice','human-fixture',1),('worker','agent','alice','agent-fixture',1)])
+        con.execute("UPDATE users SET agent_client='kimi' WHERE name='worker'");con.commit();con.close()
+        spec=importlib.util.spec_from_file_location('kimi_selection_migration',fixture.ROOT/'server.py')
+        server=importlib.util.module_from_spec(spec);spec.loader.exec_module(server);server.Cfg.db=str(path)
+        try:
+            row=server.db().execute("SELECT * FROM users WHERE name='worker'").fetchone()
+            self.assertEqual(row['agent_client'],'kimi');self.assertEqual(row['agent_client_selected'],1)
+            self.assertEqual(row['token_hash'],'agent-fixture')
+            self.assertEqual(server.report_agent_client(row,'codex')['agent_client'],'kimi')
+            server._db.close();server._db=None
+            self.assertEqual(server.db().execute("SELECT agent_client_selected FROM users WHERE name='worker'").fetchone()[0],1)
         finally:
             if server._db:server._db.close()
 

@@ -85,7 +85,7 @@ def notice(message, config, session):
 
 
 def validate_account(conf):
-    conf.agent_client='codex'
+    if not getattr(conf,'agent_client_explicit',False):conf.agent_client='codex'
     me = tg.api_retry(conf, 'GET', '/api/me')
     if (me['kind'] != 'agent' or (me.get('project') or {}).get('kind') != 'development'
             or not me['project'].get('is_development_session')):

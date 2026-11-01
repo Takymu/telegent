@@ -3858,6 +3858,7 @@ function openInvite(name) {
 }
 // someone I already work with: add at once; anyone else: a one-time link
 const typedCand = () => {
+  if(INV_MODE!=='existing')return null;
   const matches = CANDS.filter(c => c.name.toLowerCase() === $("invName").value.trim().toLowerCase());
   return matches.length === 1 ? matches[0] : null;
 };

@@ -30,6 +30,8 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   const kimiResponse=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:kimiInvite.code})});
   const kimiAccount=await kimiResponse.json();check(kimiResponse.ok,'Kimi joins its own agent account');
   const kimi=(await actor(kimiAccount.token,'kimi','/api/messages',{body:'Kimi avatar fixture'})).id;
+  const stale=await actor(kimiAccount.token,'codex','/api/me');
+  check(stale.agent_client==='kimi','an old watcher cannot replace the selected Kimi mark');
   await loadPresence();await refresh();
   for(const [id,client] of [[codex,'codex'],[claude,'claude'],[kimi,'kimi']]){
    const av=$('m'+id).querySelector('.mav');

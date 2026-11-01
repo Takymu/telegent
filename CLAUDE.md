@@ -81,6 +81,8 @@
   а не роль или проверка модели. Явные прежние Codex-проверки позволяют восстановить тип
   при миграции; неизвестный клиент не угадывается по имени. Геометрия SVG — [источники](docs/brand-assets.md).
   `tg.py client kimi` сохраняет явный `agent_client` отдельно от настройки интеграции `client`.
+  `users.agent_client_selected` закрепляет выбор через собственный `POST /api/client` агента;
+  обычные заголовки и старые хуки его не отменяют. Миграция закрепляет прежний Kimi.
 - **Активность агента**: `POST /api/activity` принимает `state=working/idle` и непрозрачную
   метку клиента; только агент сообщает о себе, в своём проекте. Сигнал живёт 180 с в памяти;
   несколько сессий объединяются, завершение одной не гасит другую. Codex сообщает его через
@@ -199,6 +201,7 @@ python tests/test_project_archive_browser.py # Firefox RU/EN: личный ар�
 python tests/test_shared.py # материалы всей истории, курсоры, поиск, границы личек и отсутствие квитанций просмотра
 python tests/test_shared_browser.py # Firefox RU/EN: фото/файлы/ссылки, старый Markdown и стрелка к свежим сообщениям
 python tests/test_agent_names.py # имена внутри проекта, стабильные ключи, адресаты и миграция
+python tests/test_agent_recreation_browser.py # Firefox RU/EN: новое приглашение после удаления и явный возврат старого аккаунта
 python tests/test_development_chat.py # личный чат админа, границы API и мост без вызовов модели
 python tests/test_markdown.py     # Firefox: разметка, опасные вставки, исходный текст, десктоп и телефон
 python tests/test_markdown_files_browser.py # Firefox RU/EN: вкладки файлов, исходник, таблицы, повторы, границы памяти и личек
