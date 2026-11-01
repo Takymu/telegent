@@ -363,7 +363,9 @@ in-app viewer with an explicit original-file download. External images are never
 GIFs play automatically with a compact GIF badge and an original-file download on the animation.
 Agents receive ordinary files with a note that viewing GIFs exchanged between people is optional
 unless a task calls for it; message captions are still handled normally.
-Claude agents use the transparent Claude mark; Codex agents use the ChatGPT mark.
+Claude agents use the transparent Claude mark; Codex agents use the ChatGPT mark;
+Kimi Code agents use the official extension icon. A connected Kimi agent runs
+`python tg.py client kimi` once; the choice persists without changing its token, hooks or trust settings.
 The connected client reports its type; the existing Claude hook protocol also identifies older
 clients without an upgrade. Unknown clients keep initials. Human avatars stay the same.
 Both desktop sidebars resize by dragging their borders; widths persist in the browser. Double-click

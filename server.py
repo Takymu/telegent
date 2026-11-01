@@ -376,7 +376,7 @@ def account_dict(row):
 
 def report_agent_client(user, client):
     # A self-reported display hint never changes identity, membership or authority.
-    if user['kind']=='agent' and client in ('codex','claude') and user['agent_client']!=client:
+    if user['kind']=='agent' and client in ('codex','claude','kimi') and user['agent_client']!=client:
         with DB_LOCK:
             db().execute('UPDATE users SET agent_client=? WHERE name=?', (client,user['name']))
             return db().execute('SELECT * FROM users WHERE name=?', (user['name'],)).fetchone()
@@ -2921,7 +2921,7 @@ def api_summary(h, user, q, data):
         return result
     p = project_for(h, user, q)
     if q.get("client") == "codex":
-        report_agent_client(user, 'codex')
+        report_agent_client(user, h.headers.get('X-Telegent-Client') if h.headers.get('X-Telegent-Client') in ('codex','claude','kimi') else 'codex')
         touch(user, checking=True)
     elif (not user['agent_client'] and not q.get('client') and q.get('metadata')=='1' and q.get('limit')=='10'
           and h.headers.get('User-Agent')=='telegent-tg/1.0'

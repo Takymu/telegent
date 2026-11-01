@@ -24,20 +24,20 @@ class AgentClientTest(unittest.TestCase):
         with self.fx.s.DB_LOCK:
             self.fx.s.db().execute('UPDATE users SET agent_client=NULL')
         config = json.loads(self.fx.config.read_text())
-        config.pop('client', None); config['auto_update'] = False
+        config.pop('client', None); config.pop('agent_client',None); config['auto_update'] = False
         self.fx.config.write_text(json.dumps(config))
         for key in ('CODEX_THREAD_ID','CODEX_SESSION_ID','CLAUDECODE'):
             self.fx.env.pop(key, None)
 
     def test_only_authenticated_agent_updates_its_display_hint(self):
-        for client in ('codex','claude'):
+        for client in ('codex','claude','kimi'):
             me = self.fx.api('GET','/api/me',headers={'X-Telegent-Client':client})
             self.assertEqual(me['agent_client'],client)
             self.assertEqual(me['kind'],'agent'); self.assertFalse(me['is_admin'])
             other = next(u for u in me['users'] if u['id']=='alice-agent')
             self.assertIsNone(other['agent_client'])
             self.assertEqual(me['project']['role'],'agent')
-        self.assertEqual(self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'human'})['agent_client'],'claude')
+        self.assertEqual(self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'human'})['agent_client'],'kimi')
         human = self.fx.api('GET','/api/me',who='alice',headers={'X-Telegent-Client':'codex'})
         self.assertIsNone(human['agent_client']); self.assertEqual(human['kind'],'human')
 
@@ -88,6 +88,34 @@ class AgentClientTest(unittest.TestCase):
         self.fx.api('GET','/api/me',headers={'X-Telegent-Client':'codex'})
         self.fx.api('GET','/api/summary?metadata=1&limit=10',headers=headers)
         self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'codex')
+
+    def test_kimi_client_choice_preserves_config_hooks_and_identity(self):
+        original=json.loads(self.fx.config.read_text());original['client']='claude';original['custom']={'fixture':True}
+        self.fx.config.write_text(json.dumps(original))
+        hooks=self.fx.work/'.claude/settings.local.json';hooks.parent.mkdir(exist_ok=True)
+        hooks.write_text('{"fixture":"unchanged"}')
+        before=hooks.read_bytes()
+        result=self.fx.cli('client','kimi')
+        self.assertEqual(result.returncode,0,result.stderr)
+        saved=json.loads(self.fx.config.read_text());self.assertEqual(saved,{**original,'agent_client':'kimi'})
+        self.assertEqual(hooks.read_bytes(),before)
+        for command in [('whoami',),('hook',)]:
+            self.assertEqual(self.fx.cli(*command).returncode,0)
+            self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'kimi')
+        self.fx.api('GET','/api/summary?metadata=1&client=codex',headers={'X-Telegent-Client':'kimi'})
+        self.assertEqual(self.fx.api('GET','/api/me')['agent_client'],'kimi')
+        self.assertEqual(self.fx.api('GET','/api/me')['id'],'bob-agent')
+
+    def test_human_cannot_set_agent_client_or_change_its_config(self):
+        config=json.loads(self.fx.config.read_text())
+        token=self.fx.work/'human-client.token';token.write_text(self.fx.tokens['alice'])
+        config['token_file']=str(token)
+        path=self.fx.work/'human-client.json';path.write_text(json.dumps(config));before=path.read_bytes()
+        result=subprocess.run([__import__('sys').executable,str(fixture.ROOT/'tg.py'),'--config',str(path),'client','kimi'],
+                              env=self.fx.env,cwd=self.fx.work,capture_output=True,timeout=10)
+        self.assertEqual(result.returncode,2)
+        self.assertEqual(path.read_bytes(),before)
+        self.assertIsNone(self.fx.api('GET','/api/me',who='alice')['agent_client'])
 
     def test_unknown_or_ambiguous_environment_stays_unknown(self):
         spec=importlib.util.spec_from_file_location('avatar_client',fixture.ROOT/'tg.py')

@@ -145,6 +145,7 @@ python tg.py send ... -t result --claim "ключ"              # результ
 python tg.py search "resnet18"
 python tg.py sent                           # мои сообщения: доставлено / прочитано / ack у каждого адресата
 python tg.py whoami                         # кто я и кто сейчас слушает (у кого жив watch)
+python tg.py client kimi                    # логотип Kimi Code у своего агента; один раз, без смены хуков
 python tg.py watch                          # для Monitor: одна строка на новое сообщение
 python tg.py hook [--session-start]         # для хуков Claude Code (см. ниже)
 python tg.py connect "<приглашение>"        # сам настроить клиента и проверить связь

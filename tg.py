@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.10.28.1"
+CLIENT_VERSION = "2026.11.01.1"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -259,7 +259,8 @@ class Conf:
         self.share_progress = c.get('share_progress') is True
         codex = bool(os.environ.get('CODEX_THREAD_ID') or os.environ.get('CODEX_SESSION_ID'))
         claude = bool(os.environ.get('CLAUDECODE'))
-        self.agent_client = c.get('client') if c.get('client') in ('codex','claude') else (
+        self.agent_client_explicit = c.get('agent_client') in ('codex','claude','kimi')
+        self.agent_client = c['agent_client'] if self.agent_client_explicit else c.get('client') if c.get('client') in ('codex','claude') else (
             ('codex' if codex else 'claude') if codex != claude else None)
         # Secretaries aggregate incoming messages; writes still select a project explicitly.
         self.secretary = bool(c.get('is_secretary'))
@@ -346,7 +347,7 @@ def api(conf, method, path, data=None, timeout=30, raw=False, sink=None):
     req = urllib.request.Request(url, data=body, method=method, headers={
         "Authorization": f"Bearer {conf.token}", "X-Telegent-Host": host_tag(),
         "Content-Type": "application/octet-stream" if isinstance(data, bytes) else "application/json", "User-Agent": "telegent-tg/1.0",
-        **({"X-Telegent-Client": conf.agent_client} if getattr(conf,'agent_client',None) in ('codex','claude') else {}),
+        **({"X-Telegent-Client": conf.agent_client} if getattr(conf,'agent_client',None) in ('codex','claude','kimi') else {}),
         **({"X-Telegent-Project": conf.project} if conf.project else {})})
     try:
         with urllib.request.build_opener(NoApiRedirect).open(req, timeout=timeout) as r:
@@ -1205,6 +1206,20 @@ def cmd_whoami(conf, args):
         print(f"  {u['name']:<14} {u['kind']:<6} владелец {u['owner']:<8} {role:<9} {presence_str(u)}")
 
 
+def cmd_client(conf,args):
+    """Choose a display hint for this authenticated agent, preserving its integration."""
+    if get_me(conf)['kind']!='agent':die('тип клиента сообщает только агент',2)
+    if not conf.path:die('для сохранения типа клиента нужен файл конфигурации',2)
+    with open(conf.path,encoding='utf-8-sig') as stream:config=json.load(stream)
+    config['agent_client']=args.name
+    write_json_atomic(os.path.abspath(conf.path),config)
+    conf.agent_client=args.name;conf.agent_client_explicit=True
+    me=api_retry(conf,'GET','/api/me')
+    if me.get('agent_client')!=args.name:die('тип клиента сохранён; сервер ещё не поддерживает этот логотип',2)
+    print('Тип клиента сохранён: '+{'kimi':'Kimi Code','claude':'Claude Code','codex':'Codex (ChatGPT)'}[args.name])
+    print('Если watch или отдельный слушатель уже запущен, перезапусти его прежней командой, чтобы он перечитал выбор.')
+
+
 def cmd_projects(conf, args):
     if args.action == "rename":
         if args.title is None:
@@ -1256,7 +1271,7 @@ def cmd_hook(conf, args):
     user's prompt, i.e. with the user's authority, so it carries status only: whether watch listens, how many
     messages wait, their ids/authors/types. Never message text (subject, body, topic): peer text must not
     arrive dressed as the user. Silent when there is nothing to say; never fails the hook."""
-    conf.agent_client = 'claude'
+    if not conf.agent_client_explicit:conf.agent_client = 'claude'
     tg = shell_command(client_command(conf))
     tag = "[telegent]"
     try:
@@ -1494,7 +1509,7 @@ def cmd_codex_hook(args):
             if isinstance(event, dict):
                 with contextlib.redirect_stderr(io.StringIO()):
                     conf = Conf(args.config)
-                    conf.agent_client = 'codex'
+                    if not conf.agent_client_explicit:conf.agent_client = 'codex'
                     schedule_update(conf)
                     result = codex_hook_result(conf, event)
     except (Exception, SystemExit):
@@ -1825,6 +1840,8 @@ def main():
     s.add_argument("emoji", type=lambda emoji: {"+1": "👍", "❤": "❤️"}.get(emoji, emoji),
                    choices=("❤️", "🔥", "👍", "👎", "🤡", "😁", "😭"))
     s.add_argument("--remove", action="store_true", help="убрать свою реакцию")
+    s = sub.add_parser('client',help='сообщить свой клиент для логотипа; не меняет интеграцию или права')
+    s.add_argument('name',choices=('codex','claude','kimi'))
     s = sub.add_parser("ack", help="подтвердить: обработано, убрать из inbox")
     s.add_argument("ids", type=int, nargs="*")
     s.add_argument("--all", action="store_true")
@@ -1950,7 +1967,7 @@ def main():
     {
         "send": cmd_send, "reply": cmd_reply, "inbox": cmd_inbox, "read": cmd_read, "ack": cmd_ack,
         "watch": cmd_watch, "get": cmd_get, "board": cmd_board, "progress":cmd_progress, "results": cmd_results,
-        "search": cmd_search, "whoami": cmd_whoami, "sent": cmd_sent, "hook": cmd_hook, "projects": cmd_projects,
+        "search": cmd_search, "whoami": cmd_whoami, "client":cmd_client, "sent": cmd_sent, "hook": cmd_hook, "projects": cmd_projects,
         "react": cmd_react, "dm": cmd_dm, "secret": cmd_secret, "refresh": cmd_refresh, "update": cmd_update,
         "claim": cmd_claim, "claims": cmd_claims, "release": cmd_release,
         "take": lambda c, a: cmd_status(c, a, "taken"), "done": lambda c, a: cmd_status(c, a, "done"),

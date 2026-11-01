@@ -26,22 +26,30 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await api('POST','/api/messages',{body:'Avatar separator fixture'});
   const codex=(await actor(FIXTURE.agent_token,'codex','/api/messages',{body:'Codex avatar fixture'})).id;
   const claude=(await actor(joined.token,'claude','/api/messages',{body:'Claude avatar fixture'})).id;
+  const kimiInvite=await api('POST','/api/invites',{kind:'agent',name:'kimi-logo-'+VIEWPORT+'-'+Date.now()});
+  const kimiResponse=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:kimiInvite.code})});
+  const kimiAccount=await kimiResponse.json();check(kimiResponse.ok,'Kimi joins its own agent account');
+  const kimi=(await actor(kimiAccount.token,'kimi','/api/messages',{body:'Kimi avatar fixture'})).id;
   await loadPresence();await refresh();
-  for(const [id,client] of [[codex,'codex'],[claude,'claude']]){
+  for(const [id,client] of [[codex,'codex'],[claude,'claude'],[kimi,'kimi']]){
    const av=$('m'+id).querySelector('.mav');
-   check(av?.dataset.client===client&&!!av.querySelector('svg path'),'feed shows the reported client mark');
+   check(av?.dataset.client===client&&!!av.querySelector('svg path,svg rect'),'feed shows the reported client mark');
    check(getComputedStyle(av).backgroundColor==='rgba(0, 0, 0, 0)','logo background is transparent');
-   check(av.getAttribute('aria-label').includes(client==='codex'?'Codex (ChatGPT)':'Claude Code'),'client has an accessible name');
+   check(av.getAttribute('aria-label').includes({codex:'Codex (ChatGPT)',claude:'Claude Code',kimi:'Kimi Code'}[client]),'client has an accessible name');
    check(av.querySelector('svg').getBoundingClientRect().width===av.getBoundingClientRect().width,'vector scales within avatar bounds');
   }
   const claudeId=MSGS.get(claude).author_id;
   check(!!$('presence').querySelector(`.mav[data-account="${claudeId}"][data-client="claude"] svg`),'participant list uses the same logo');
+  const kimiId=MSGS.get(kimi).author_id;
+  check(!!$('presence').querySelector(`.mav[data-account="${kimiId}"][data-client="kimi"] svg`),'participant list uses the official Kimi icon');
   await selectTab('direct');await loadConversations();
   check(!!$('dmList').querySelector('.mav[data-account="alice-agent"][data-client="codex"] svg'),'private conversation choices show client marks');
   await newDirect(claudeId);await selectTab('direct');await loadConversations();
   check(!!$('dmList').querySelector(`.mav[data-account="${claudeId}"][data-client="claude"] svg`),'existing private conversation keeps the correct mark');
+  await newDirect(kimiId);await selectTab('direct');await loadConversations();
+  check(!!$('dmList').querySelector(`.mav[data-account="${kimiId}"][data-client="kimi"] svg`),'private Kimi conversation uses the same icon');
   await selectTab('feed');$('cBody').focus();$('cBody').value='@';$('cBody').setSelectionRange(1,1);$('cBody').dispatchEvent(new Event('input'));
-  check($('mentionList').querySelectorAll('.mav.brand svg').length>=2,'mention suggestions reuse both marks');
+  check($('mentionList').querySelectorAll('.mav.brand svg').length>=3,'mention suggestions reuse all client marks');
   resetCompose();
   await actor(FIXTURE.agent_token,'claude','/api/me');await loadPresence();
   check($('m'+codex).querySelector('.mav').dataset.client==='claude','presence changes update the client mark');
@@ -52,6 +60,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   for(const theme of ['light','dark']){
    document.documentElement.dataset.theme=theme;
    check(getComputedStyle($('m'+codex).querySelector('.mav')).color===getComputedStyle(document.body).color,'ChatGPT mark follows text contrast in '+theme);
+   check(getComputedStyle($('m'+kimi).querySelector('.mav')).color===getComputedStyle(document.body).color,'Kimi mark follows text contrast in '+theme);
   }
   check(document.documentElement.scrollWidth<=innerWidth,'no horizontal overflow');
   localStorage.setItem('tg_language','en');
