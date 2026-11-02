@@ -8,10 +8,10 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
  const pause=ms=>new Promise(r=>setTimeout(r,ms));let checks=0;
  const check=(ok,label)=>{if(!ok)throw Error(label);checks++};
  const wait=async fn=>{for(let i=0;i<400;i++){if(fn())return;await pause(20)}throw Error('render timeout')};
- const original=appFetch;let hold=false,pending=[];
+ const original=appFetch;let hold=false,holdMe=false,pending=[];
  appFetch=(url,options={})=>{
    const path=new URL(url,location.href);
-   if(hold&&(!options.method||options.method==='GET')&&(path.pathname==='/api/me'||path.pathname==='/api/messages'))
+   if((!options.method||options.method==='GET')&&((hold&&(path.pathname==='/api/me'||path.pathname==='/api/messages'))||(holdMe&&(path.pathname==='/api/me'||path.pathname==='/api/wait'))))
      return new Promise((resolve,reject)=>pending.push(()=>original(url,options).then(resolve,reject)));
    return original(url,options);
  };
@@ -50,10 +50,37 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   // Release the private response after leaving it: it must not overwrite the public feed.
   hold=false;release();await Promise.all([direct,back]);await pause(200);
   check(!ACTIVE_DM&&MSGS.has(publicId)&&!MSGS.has(privateId),'late private response cannot replace the current public view');
+  await openDirect(cid);
+  document.querySelector(`[data-act="proj"][data-slug="${main}"]`).click();await pause(0);
+  check(TAB==='feed'&&!ACTIVE_DM&&MSGS.has(publicId)&&!MSGS.has(privateId),'one click on the selected project opens its general chat from a private chat');
+  await selectTab('work');
+  document.querySelector(`[data-act="proj"][data-slug="${main}"]`).click();await pause(0);
+  check(TAB==='feed'&&MSGS.has(publicId),'one click on the selected project leaves another panel');
   hold=true;const away=setProject(other);await pause(0);const home=setProject(main);await pause(0);
   check(ME.project.slug===main&&MSGS.has(publicId),'rapid project switches paint the final selection immediately');
   hold=false;release();await Promise.all([away,home]);await pause(200);
   check(ME.project.slug===main&&PROJECT===main&&MSGS.has(publicId)&&!MSGS.has(secondId),'late project metadata cannot overwrite the final selection');
+  const evict=slug=>{const pid=PROJECTS.find(p=>p.slug===slug).id;for(const [key,row]of CHAT_PAGES)if(JSON.parse(key)[1]===pid){CHAT_BYTES-=row.size;CHAT_PAGES.delete(key);}};
+  await wait(()=>!CHAT_WARMING);CHAT_WARMING=true;evict(other);
+  holdMe=true;const uncached=setProject(other);
+  await wait(()=>MSGS.has(secondId));
+  check(PROJECT===other&&ME.project.slug===other&&!MSGS.has(publicId),'uncached history loads while metadata and polling are held');
+  holdMe=false;release();await uncached;
+  await setProject(main);evict(other);
+  const normal=appFetch;let failNavigation=true;
+  appFetch=(url,options={})=>{
+    const path=new URL(url,location.href),slug=path.searchParams.get('project')||options.headers?.['X-Telegent-Project'];
+    if(failNavigation&&slug===other&&(!options.method||options.method==='GET')&&['/api/me','/api/messages'].includes(path.pathname))
+      return Promise.resolve(new Response(JSON.stringify({error:'Fixture temporary failure'}),{status:503,headers:{'Content-Type':'application/json'}}));
+    return normal(url,options);
+  };
+  await setProject(other);
+  check(PROJECT===other&&!MSGS.has(secondId),'failed first load keeps the intended project selected');
+  failNavigation=false;
+  document.querySelector(`[data-act="proj"][data-slug="${other}"]`).click();
+  await wait(()=>MSGS.has(secondId));
+  check(PROJECT===other&&ME.project.slug===other&&!MSGS.has(publicId),'clicking the selected project retries its failed first load');
+  appFetch=normal;CHAT_WARMING=false;
   const oldId=ME.project.id;
   const oldPageKeys=[...CHAT_PAGES.keys()].filter(key=>JSON.parse(key)[1]===oldId);
   const projects=PROJECTS;PROJECTS=PROJECTS.filter(p=>p.id!==oldId);pruneChatCache();
@@ -63,7 +90,7 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   check(!Object.keys(localStorage).some(key=>key.startsWith('tg_chat_cache')),'message cache is not persisted to browser storage');
   localStorage.setItem('tg_language','en');
   await original('/debug/result',{method:'POST',body:JSON.stringify({ok:true,viewport:VIEWPORT,checks})});
- }catch(e){hold=false;release();await original('/debug/result',{method:'POST',body:JSON.stringify({error:e.message,stack:e.stack,viewport:VIEWPORT,checks})})}
+ }catch(e){hold=false;holdMe=false;release();await original('/debug/result',{method:'POST',body:JSON.stringify({error:e.message,stack:e.stack,viewport:VIEWPORT,checks})})}
 })();
 '''
 

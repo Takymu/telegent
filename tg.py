@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.11.02.1"
+CLIENT_VERSION = "2026.11.02.2"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -1860,10 +1860,10 @@ def main():
     s.add_argument("id", type=int)
     s.add_argument("--no-mark", action="store_true")
     s.add_argument("--no-thread", action="store_true")
-    s = sub.add_parser("react", help="реакция на сообщение: ❤️ 🔥 👍 👎 🤡 😁 😭")
+    s = sub.add_parser("react", help="реакция на сообщение: ❤️ 🔥 👍 👎 🤡 😁 😭 💯")
     s.add_argument("id", type=int)
     s.add_argument("emoji", type=lambda emoji: {"+1": "👍", "❤": "❤️"}.get(emoji, emoji),
-                   choices=("❤️", "🔥", "👍", "👎", "🤡", "😁", "😭"))
+                   choices=("❤️", "🔥", "👍", "👎", "🤡", "😁", "😭", "💯"))
     s.add_argument("--remove", action="store_true", help="убрать свою реакцию")
     s = sub.add_parser('client',help='сообщить свой клиент для логотипа; не меняет интеграцию или права')
     s.add_argument('name',choices=('codex','claude','kimi'))

@@ -1353,6 +1353,7 @@ const UI_EN={
   "Клоун": "Clown",
   "Улыбка": "Grin",
   "Плач": "Crying",
+  "Сто процентов": "One hundred percent",
   "Действия с проектом": "Project actions",
   "Действия с проектом «${esc(p.title)}»": "Actions for project “${esc(p.title)}”",
   "Реакция на сообщение": "React to message",
@@ -1783,7 +1784,7 @@ let NO_MORE = false, LOADING_OLDER = false, SIG = "", UNSEEN = 0;
 let REACTION_REVISION = null;
 const REACTION_PENDING = new Set();
 let ATTACHED = [], FILE_STORAGE = null, SENDING = false, UPLOAD_ABORT = null, COMPOSE_RETRY = null;
-const REACTIONS = [["❤️", tr("Сердечко")], ["🔥", tr("Огонёк")], ["👍", tr("Лайк")], ["👎", tr("Дизлайк")], ["🤡", tr("Клоун")], ["😁", tr("Улыбка")], ["😭", tr("Плач")]];
+const REACTIONS = [["❤️", tr("Сердечко")], ["🔥", tr("Огонёк")], ["👍", tr("Лайк")], ["👎", tr("Дизлайк")], ["🤡", tr("Клоун")], ["😁", tr("Улыбка")], ["😭", tr("Плач")], ["💯", tr("Сто процентов")]];
 const EXPANDED = new Set();
 
 const $ = id => document.getElementById(id);
@@ -2417,6 +2418,9 @@ async function setProject(slug) {
   renderConversations();renderProjects();
   const hit=restoreChat();if(!hit)loadingChat();
   const current=()=>TOKEN===token&&PROJECT===slug&&CHAT_SWITCH===navigation;
+  const failed=error=>{if(current()){if(error.status===403||error.status===404){CHAT_META.delete(chatMetaKey(p));showNoProject();loadProjects();}else{$('conn').className='dot off';$('connectionBanner').classList.remove('hidden');}}};
+  // Chat history must not wait for a slow metadata request.
+  const messages=(hit?refresh():reload()).then(()=>{if(current())queueChatWarmup();}).catch(failed);
   const update=(async()=>{
     try{
       const me=await api('GET','/api/me?project='+encodeURIComponent(slug));
@@ -2426,11 +2430,11 @@ async function setProject(slug) {
       saveDraft();ME={...me,project:preserveReadCursor(me.project,ME.project)};setupCompose();$('fType').value=filter;restoreDraft();paintTab();
       $('cBody').setSelectionRange(...selection);
       CHAT_META.set(chatMetaKey(p),{me,conversations:CONVERSATIONS,at:Date.now(),last:p.last_id||0,warmedAt:CHAT_META.get(chatMetaKey(p))?.warmedAt});
-      loadPresence(me);await (hit?refresh():reload());
+      loadPresence(me);
       if(current())queueChatWarmup();
-    }catch(error){if(current()){if(error.status===403||error.status===404){CHAT_META.delete(chatMetaKey(p));showNoProject();loadProjects();}else{$('conn').className='dot off';$('connectionBanner').classList.remove('hidden');}}}
+    }catch(error){failed(error);}
   })();
-  if(!hit)await update;
+  if(!hit)await Promise.all([messages,update]);
 }
 
 const feedCursor = () => ACTIVE_DM ? ACTIVE_DM.read_upto || 0 : ME.project?.read_upto || 0;
@@ -3252,7 +3256,7 @@ document.addEventListener("click", async e => {
       case "projmenu": openProjectMenu(el.dataset.slug, el); break;
       case "parchivefolder":PROJECT_ARCHIVE_OPEN=!PROJECT_ARCHIVE_OPEN;renderProjects();break;
       case "parchive":await archiveProject(el.dataset.slug);break;
-      case "proj": if (el.dataset.slug !== PROJECT) await setProject(el.dataset.slug); else {$("projects").classList.remove("open");resetEmptyRecipient();} break;
+      case "proj": await setProject(el.dataset.slug); break;
       case "prename": case "pleave": case "pdelete": await projectAction(el.dataset.act, el.dataset.slug); break;
       case "mrole": case "mremove": case "mreset": case "mrename": case "madd":
         await memberAction(el.dataset.act, el.dataset.name, el.dataset.role, el.dataset.account); break;
