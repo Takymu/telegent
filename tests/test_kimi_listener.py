@@ -153,6 +153,23 @@ class ReceiverTest(unittest.TestCase):
         text = next(x[1] for x in self.calls if x[0] == 'prompt' and '#' + str(private) in x[1])
         self.assertIn('#' + str(private), text)
 
+    def test_reminder_reaches_kimi_and_does_not_spam(self):
+        self.conf.remind_after_minutes = 0.001
+        self.conf.remind_interval_minutes = 60
+        self.incoming(type='question')
+        self.step()
+        reminders = [x for x in self.calls if x[0] == 'prompt' and 'напоминание:' in x[1]]
+        self.assertEqual(len(reminders), 1)
+        self.step()
+        reminders = [x for x in self.calls if x[0] == 'prompt' and 'напоминание:' in x[1]]
+        self.assertEqual(len(reminders), 1)
+
+    def test_reminder_can_be_disabled(self):
+        self.conf.remind_after_minutes = 0
+        self.incoming()
+        self.step()
+        self.assertEqual([x for x in self.calls if x[0] == 'prompt' and 'напоминание:' in x[1]], [])
+
     def test_acp_start_uses_initialize_and_session_resume(self):
         replies = [
             {'jsonrpc': '2.0', 'id': 1, 'result': {'agentInfo': {'name': 'Kimi Code CLI'}}},

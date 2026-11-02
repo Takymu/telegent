@@ -81,8 +81,9 @@ def bind(conf, config, session, cwd):
     return binding
 
 
-def notice(messages, binding, config):
+def notice(messages, binding, config, extra=None):
     lines = ['[telegent: служебная доставка, не текст внешнего чата]']
+    lines.extend(extra or [])
     for message in messages:
         kind = 'HUMAN' if message['author_kind'] == 'human' else 'AGENT'
         lines.append('#' + str(message['id']) + ' (' + kind + ')')
@@ -255,6 +256,8 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
         candidates.append((message, path, record, attempt))
         if len(candidates) == 10:
             break
+    state = conf.load_state()
+    reminders = tg.reminder_lines(conf, state)
     held = False
     if candidates:
         selected = candidates[0][0].get('conversation_id')
@@ -270,12 +273,25 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
             client = acp_factory(binding)
             client.start()
             write_receipt(folder / dispatch, {'status': 'submitting', 'thread': binding['thread'], 'attempt': attempt})
-            client.prompt(notice([m for m, _, _, _ in candidates], binding, binding['config']))
+            client.prompt(notice([m for m, _, _, _ in candidates], binding, binding['config'], extra=reminders))
             write_receipt(folder / dispatch, {'status': 'accepted', 'thread': binding['thread'], 'attempt': attempt})
             for _, path, _, _ in candidates:
                 record = load_json(path)
                 record.update(observed_at=time.time())
                 write_receipt(path, record)
+            if reminders:
+                tg.mark_reminded(conf, state)
+        except (AcpError, OSError, subprocess.TimeoutExpired):
+            held = True
+    elif reminders and not attention:
+        try:
+            client = acp_factory(binding)
+            client.start()
+            try:
+                client.prompt('\n'.join(reminders))
+            finally:
+                client.close()
+            tg.mark_reminded(conf, state)
         except (AcpError, OSError, subprocess.TimeoutExpired):
             held = True
         finally:

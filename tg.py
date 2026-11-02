@@ -853,6 +853,28 @@ def waiting_lines(res):
     return out
 
 
+def reminder_lines(conf, state):
+    """Time-based reminders, throttled per state file and never containing message text."""
+    after = float(getattr(conf, 'remind_after_minutes', 60))
+    interval = float(getattr(conf, 'remind_interval_minutes', 60))
+    if after <= 0 or interval <= 0:
+        return []
+    now = time.time()
+    if now - state.get('waiting_reminder_at', 0) < interval * 60:
+        return []
+    res = api_retry(conf, 'GET', '/api/summary?limit=1')
+    ages = [(res.get('waiting_me') or {}).get('oldest_age') or 0,
+            (res.get('taken_open') or {}).get('oldest_age') or 0]
+    if max(ages) < after * 60:
+        return []
+    return ['напоминание: ' + line for line in waiting_lines(res)]
+
+
+def mark_reminded(conf, state):
+    state['waiting_reminder_at'] = time.time()
+    conf.save_state(state)
+
+
 def print_waiting(conf):
     try:
         for line in waiting_lines(api_retry(conf, "GET", "/api/summary?limit=1")):
@@ -1019,6 +1041,11 @@ def cmd_watch(conf, args):
             for m in msgs:
                 if args.include_own or m["author"] != me["name"]:
                     print(oneline(m), flush=True)
+            reminders = reminder_lines(conf, st)
+            for line in reminders:
+                print(line, flush=True)
+            if reminders:
+                mark_reminded(conf, st)
             # empty answer = nothing for me up to last_id, so the cursor can jump there
             cursor = msgs[-1]["id"] if msgs else max(cursor, res["last_id"])
             st[key] = cursor
