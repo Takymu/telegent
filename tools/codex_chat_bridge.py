@@ -118,7 +118,8 @@ def observe(conf, session, mid):
     if (record.get('thread') != session or receipt.get('status') != 'accepted'
             or receipt.get('turn_id') != transcript.turn or not transcript.busy):
         raise RuntimeError('No matching accepted dispatch in this active session turn')
-    record.update(observed_at=time.time(), observed_turn=transcript.turn, observed_offset=transcript.offset)
+    record.update(observed_at=time.time(), observed_turn=transcript.turn, observed_offset=transcript.offset,
+                  reply_pending=not bool(record.get('reply_id')))
     ipc.write_receipt(path, record)
     print('MODEL_RECEIPT_CONFIRMED', mid, transcript.turn)
 
@@ -216,9 +217,36 @@ def forward_completed(conf, session, transcript, folder, me, messages):
             plan.update(reply_id=response['id'], replied_at=time.time())
             ipc.write_receipt(path, plan)
         for message, record_path, record in items:
-            record.update(reply_id=plan['reply_id'], replied_at=plan.get('replied_at', time.time()))
+            record.update(reply_id=plan['reply_id'], replied_at=plan.get('replied_at', time.time()), reply_pending=False)
             ipc.write_receipt(record_path, record)
         tg.api_retry(conf, 'POST', '/api/receipts', {'kind': 'ack', 'ids': [m['id'] for m, _, _ in items]})
+
+
+def reply_sources(conf, session, transcript, folder, me, messages):
+    sources = {message['id']: message for message in messages}
+    for path in folder.glob('message-*.json'):
+        record = ipc.load_json(path)
+        if not record.get('reply_pending') or record.get('reply_id'):
+            continue
+        if record.get('thread') != session or record.get('owner') != me['owner_id']:
+            raise RuntimeError('Pending reply binding mismatch')
+        mid, turn = record.get('message_id'), record.get('observed_turn')
+        if (type(mid) is not int or mid <= 0 or path.name != 'message-'+str(mid)+'.json'
+                or not record.get('observed_at') or not isinstance(turn, str) or not turn):
+            raise RuntimeError('Invalid pending reply receipt')
+        if mid in sources or not (transcript.completed.get(turn) or turn == transcript.turn and transcript.busy):
+            continue
+        # ack hides an inbox item; it must not erase the explicitly observed reply obligation.
+        # A bounded list query also rechecks visibility without turning an HTTP refusal into success.
+        rows = tg.api_retry(conf, 'GET', '/api/messages?for_me=1&conversation=all&after='+str(mid-1)
+                            +'&before='+str(mid+1)+'&limit=1')['messages']
+        message = next((message for message in rows if message['id'] == mid), None)
+        if not message or message.get('deleted') or not command_authorized(conf, me, message):
+            record.update(reply_pending=False, reply_unavailable=True)
+            ipc.write_receipt(path, record)
+            continue
+        sources[mid] = message
+    return list(sources.values())
 
 
 def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
@@ -227,7 +255,7 @@ def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
     tg.codex_report_activity(conf, {'session_id':session}, bool(transcript.turn and transcript.busy), str(folder/'activity.json'))
     messages = tg.api_retry(conf, 'GET', '/api/messages?for_me=1&unacked=1&limit=1000')['messages']
     wanted = [m for m in messages if command_authorized(conf, me, m)
-              and m['type'] not in ('status', 'approval')]
+              and not m.get('deleted') and m['type'] not in ('status', 'approval')]
     held = False
     for message in wanted:
         mid = message['id']
@@ -256,11 +284,14 @@ def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
                 ipc.write_receipt(folder/'turn-scope.json', {'turn': receipt.get('turn_id'),
                                   'conversation_id': message.get('conversation_id')})
     # IPC acceptance is not a model read. Only explicit observation enables forwarding.
-    forward_completed(conf, session, transcript, folder, me, wanted)
-    forward_progress(conf, session, transcript, folder, wanted)
+    sources = reply_sources(conf, session, transcript, folder, me, wanted)
+    forward_completed(conf, session, transcript, folder, me, sources)
+    forward_progress(conf, session, transcript, folder, sources)
     ipc.write_receipt(folder/'status.json', {'status': 'delivery_pending' if held else 'listening',
                       'pid': os.getpid(), 'thread': session, 'heartbeat': time.time(),
-                      'pending': [m['id'] for m in wanted]})
+                      'pending': [m['id'] for m in wanted],
+                      'pending_replies': [m['id'] for m in sources if ipc.load_json(
+                          folder/('message-'+str(m['id'])+'.json')).get('reply_pending')]})
     # Keep presence alive during active turns and while awaiting actual model observation.
     tg.api_retry(conf, 'GET', '/api/wait?after='+str(me['last_id'])+'&for_me=1&full=0&timeout=4', timeout=10)
 

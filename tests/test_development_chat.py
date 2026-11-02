@@ -208,6 +208,76 @@ class DevelopmentChatTest(unittest.TestCase):
         self.run_step(lambda *a:self.fail('duplicate'))
         self.assertFalse(self.api('GET',f'/api/messages/{mid}',who=self.key)['message']['acked'])
 
+    def test_early_ack_and_restart_preserve_one_final_for_the_whole_turn(self):
+        mids=[self.incoming() for _ in range(2)]
+        self.event('task_started',turn_id='turn-fixture');self.run_step(self.accept)
+        with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+            for mid in mids:self.bridge.observe(self.conf,self.session,mid)
+        self.api('POST','/api/receipts',{'kind':'ack','ids':mids},who=self.key)
+        self.assertEqual(self.api('GET','/api/messages?for_me=1&unacked=1',who=self.key)['messages'],[])
+        self.run_step(lambda *a:self.fail('acked message was injected again'))
+        status=json.loads(self.state.read_text())
+        self.assertEqual(status['pending'],[]);self.assertCountEqual(status['pending_replies'],mids)
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Answer after early ack')
+        self.transcript=self.bridge.Transcript(self.journal)
+        self.run_step(lambda *a:self.fail('acked message was injected again'))
+        self.run_step(lambda *a:self.fail('acked message was injected again'))
+        answers=[m for m in self.api('GET','/api/messages?limit=1000')['messages'] if m['body']=='Answer after early ack']
+        self.assertEqual(len(answers),1);self.assertEqual(answers[0]['reply_to'],mids[-1])
+        for mid in mids:
+            record=json.loads((self.folder/f'message-{mid}.json').read_text())
+            self.assertEqual(record['reply_id'],answers[0]['id']);self.assertFalse(record['reply_pending'])
+
+    def test_pending_acked_reply_survives_network_failure_and_lost_send_response(self):
+        mid=self.incoming();self.event('task_started',turn_id='turn-fixture');self.run_step(self.accept)
+        with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+            self.bridge.observe(self.conf,self.session,mid)
+        self.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who=self.key)
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Durable acked answer')
+        api_retry=self.bridge.tg.api_retry
+        def fail_lookup(conf,method,path,*args,**kwargs):
+            if '&before=' in path:raise SystemExit(3)
+            return api_retry(conf,method,path,*args,**kwargs)
+        with mock.patch.object(self.bridge.tg,'api_retry',side_effect=fail_lookup):
+            with self.assertRaises(SystemExit):self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        self.assertTrue(json.loads((self.folder/f'message-{mid}.json').read_text())['reply_pending'])
+        def lose_response(conf,method,path,*args,**kwargs):
+            result=api_retry(conf,method,path,*args,**kwargs)
+            if method=='POST' and path=='/api/messages':raise SystemExit(3)
+            return result
+        with mock.patch.object(self.bridge.tg,'api_retry',side_effect=lose_response):
+            with self.assertRaises(SystemExit):self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        self.transcript=self.bridge.Transcript(self.journal)
+        self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        answers=[m for m in self.api('GET','/api/messages?limit=1000')['messages'] if m['body']=='Durable acked answer']
+        self.assertEqual(len(answers),1)
+
+    def test_acked_deleted_source_does_not_publish_its_pending_final(self):
+        mid=self.incoming();self.event('task_started',turn_id='turn-fixture');self.run_step(self.accept)
+        with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+            self.bridge.observe(self.conf,self.session,mid)
+        self.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who=self.key)
+        message=self.api('GET',f'/api/messages/{mid}')['message']
+        self.api('POST',f'/api/messages/{mid}/delete',{'revision':message['revision']})
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Deleted source answer')
+        self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        self.assertFalse(json.loads((self.folder/f'message-{mid}.json').read_text())['reply_pending'])
+        self.assertFalse(any(m['body']=='Deleted source answer' for m in self.api('GET','/api/messages?limit=1000')['messages']))
+
+    def test_pending_reply_rechecks_author_membership_after_ack(self):
+        self.api('POST','/api/members/add',{'account_id':'bob'})
+        try:
+            mid=self.api('POST','/api/messages',{'body':'colleague pending fixture','to_ids':[self.key]},who='bob')['id']
+            self.event('task_started',turn_id='turn-fixture');self.run_step(self.accept)
+            with mock.patch.object(self.bridge,'session_transcript',return_value=self.journal),mock.patch.object(self.bridge,'runtime',return_value=self.folder):
+                self.bridge.observe(self.conf,self.session,mid)
+            self.api('POST','/api/receipts',{'kind':'ack','ids':[mid]},who=self.key)
+        finally:self.api('POST','/api/members/remove',{'account_id':'bob'})
+        self.event('task_complete',turn_id='turn-fixture',last_agent_message='Former member answer')
+        self.run_step(lambda *a:self.fail('duplicate dispatch'))
+        self.assertFalse(json.loads((self.folder/f'message-{mid}.json').read_text())['reply_pending'])
+        self.assertFalse(any(m['body']=='Former member answer' for m in self.api('GET','/api/messages?limit=1000')['messages']))
+
     def test_one_final_for_a_batch_of_observed_messages_and_authors(self):
         self.api('POST','/api/members/add',{'account_id':'bob'})
         try:
