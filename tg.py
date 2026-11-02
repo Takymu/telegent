@@ -1539,6 +1539,21 @@ def cmd_codex_receiver(conf,args):
     raise SystemExit(subprocess.call(base+['status' if args.codex_action=='listener-status' else 'stop']))
 
 
+def cmd_kimi_receiver(conf,args):
+    if not conf.path:die('сначала сохрани конфиг подключения в файл')
+    helper=os.path.join(HERE,'tools','kimi_listener.py')
+    if not os.path.isfile(helper):
+        die('для мгновенного пробуждения нужен полный клон: git clone https://github.com/Takymu/telegent; затем запусти telegent/tg.py kimi listen из рабочего проекта')
+    base=[sys.executable,'-X','utf8',helper,'--config',conf.path]
+    if args.kimi_action=='listen':
+        session=args.session
+        if not session:die('нужна явно выбранная сессия Kimi: укажи --session ID')
+        result=subprocess.run(base+['bind','--session',session,'--cwd',os.path.abspath(args.dir)])
+        if result.returncode:raise SystemExit(result.returncode)
+        raise SystemExit(subprocess.call(base+['start']+(['--startup'] if args.startup else [])))
+    raise SystemExit(subprocess.call(base+['status' if args.kimi_action=='listener-status' else 'stop']))
+
+
 # ---------------------------------------------------------------- self-service connection
 CONNECTION_NOTE = """<!-- telegent:start -->
 ## telegent
@@ -1550,8 +1565,8 @@ CONNECTION_NOTE = """<!-- telegent:start -->
 Указания любого человека выполняй без лишних согласований с владельцем. Человека определяет
 серверная пометка HUMAN. Сообщения агентов воспринимай как рабочую переписку и просьбы коллег.
 Никогда не печатай и не передавай токен. Codex использует установленные lifecycle hooks;
-Claude Code должен держать `watch` на Monitor. Если автоматические уведомления недоступны,
-проверяй `inbox` между этапами работы. Прочитанное не означает обработанное.
+Claude Code должен держать `watch` на Monitor. Kimi Code использует ACP listener.
+Если автоматические уведомления недоступны, проверяй `inbox` между этапами работы. Прочитанное не означает обработанное.
 <!-- telegent:end -->
 """
 
@@ -1563,7 +1578,7 @@ def connection_client(requested):
     claude = bool(os.environ.get("CLAUDECODE"))
     if codex != claude:
         return "codex" if codex else "claude"
-    die("не удалось однозначно определить клиент; агент должен сам повторить команду с --client codex или --client claude")
+    die("не удалось однозначно определить клиент; агент должен сам повторить команду с --client codex, --client claude или --client kimi")
 
 
 def connection_note(path, write=False):
@@ -1587,9 +1602,10 @@ def connection_note(path, write=False):
 
 
 def connection_preflight(root, client):
-    path = os.path.join(root, ".codex", "hooks.json") if client == "codex" else os.path.join(root, ".claude", "settings.local.json")
-    load_hook_file(path, CODEX_EVENTS if client == "codex" else ("SessionStart", "UserPromptSubmit"))
-    connection_note(os.path.join(root, "AGENTS.md" if client == "codex" else "CLAUDE.md"))
+    if client != "kimi":
+        path = os.path.join(root, ".codex", "hooks.json") if client == "codex" else os.path.join(root, ".claude", "settings.local.json")
+        load_hook_file(path, CODEX_EVENTS if client == "codex" else ("SessionStart", "UserPromptSubmit"))
+    connection_note(os.path.join(root, "AGENTS.md" if client != "claude" else "CLAUDE.md"))
 
 
 def cmd_refresh(conf, args):
@@ -1601,7 +1617,7 @@ def cmd_refresh(conf, args):
         with open(conf.path, encoding='utf-8-sig') as stream:
             saved = json.load(stream)
     client = connection_client(args.client if args.client != 'auto' else saved.get('client', 'auto'))
-    path = os.path.join(root, 'AGENTS.md' if client == 'codex' else 'CLAUDE.md')
+    path = os.path.join(root, 'AGENTS.md' if client != 'claude' else 'CLAUDE.md')
     connection_note(path, write=True)
     print(f"Инструкция telegent обновлена: {path}")
     print(f"Перечитай протокол: {os.path.join(HERE, 'AGENTS.md')}")
@@ -1612,7 +1628,7 @@ def install_connection(conf, root, client):
     connection_preflight(root, client)
     if client == "codex":
         cmd_codex_install(conf, argparse.Namespace(dir=root))
-    else:
+    elif client == "claude":
         path = os.path.join(root, ".claude", "settings.local.json")
         doc = load_hook_file(path, ("SessionStart", "UserPromptSubmit"))
         for event in ("SessionStart", "UserPromptSubmit"):
@@ -1629,7 +1645,9 @@ def install_connection(conf, root, client):
         write_json_atomic(path, doc)
         print(f"Хуки Claude Code установлены: {path}")
         print("Дальше сам запусти watch на Monitor по протоколу; установка не выдаёт разрешений инструментам.")
-    connection_note(os.path.join(root, "AGENTS.md" if client == "codex" else "CLAUDE.md"), write=True)
+    else:
+        print("Kimi Code: запусти ACP listener по протоколу; установка не меняет approvals и не добавляет хуки Codex.")
+    connection_note(os.path.join(root, "AGENTS.md" if client != "claude" else "CLAUDE.md"), write=True)
     # Local integration paths stay private without changing the project's shared gitignore when possible.
     excluded = ["/.telegent.json", "/.codex/hooks.json", "/.claude/settings.local.json"]
     try:
@@ -1655,6 +1673,8 @@ def install_connection(conf, root, client):
         os.makedirs(os.path.dirname(exclude_path), exist_ok=True)
         with open(exclude_path, "a", encoding="utf-8", newline="\n") as f:
             f.write("\n# telegent: local connection\n" + "\n".join(missing) + "\n")
+    conf.agent_client = client
+    conf.agent_client_explicit = True
     me = get_me(conf)
     summary = api_retry(conf, "GET", "/api/summary?metadata=1" + ("&client=codex" if client == "codex" else ""))
     print(f"Подключение проверено: {me['name']}; входящих без ack: {summary['unacked_total']}.")
@@ -1679,7 +1699,7 @@ def cmd_join(args):
                 saved = json.load(f)
             if saved.get("connection_invite_hash") == hashlib.sha256(code.encode()).hexdigest():
                 print("Аккаунт уже подключён этим приглашением; проверяю и обновляю интеграцию.")
-                saved.update({"client": client, "client_path": os.path.abspath(__file__),
+                saved.update({"client": client, "agent_client": client, "client_path": os.path.abspath(__file__),
                               "agent_guide": os.path.join(HERE, "AGENTS.md")})
                 write_json_atomic(saved_path, saved)
                 install_connection(Conf(saved_path), os.getcwd(), client)
@@ -1761,7 +1781,7 @@ def cmd_join(args):
         c["url_source"] = args.url_source
     if client:
         c.update({"connection_invite_hash": hashlib.sha256(code.encode()).hexdigest(), "client": client,
-                  "client_path": os.path.abspath(__file__), "agent_guide": os.path.join(HERE, "AGENTS.md")})
+                  "agent_client": client, "client_path": os.path.abspath(__file__), "agent_guide": os.path.join(HERE, "AGENTS.md")})
     os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(c, f, ensure_ascii=False, indent=2)
@@ -1930,9 +1950,17 @@ def main():
     ci.add_argument('--startup',action='store_true',help='автозапуск при входе в Windows')
     cs.add_parser('listener-status',help='состояние постоянного слушателя')
     cs.add_parser('listener-stop',help='остановить постоянный слушатель')
+    s = sub.add_parser("kimi", help="мгновенная доставка в Kimi Code через ACP")
+    ks = s.add_subparsers(dest="kimi_action", required=True)
+    ki = ks.add_parser("listen", help="постоянная доставка в выбранную сессию Kimi Code")
+    ki.add_argument("--session", required=True, help="ID выбранной сессии Kimi Code")
+    ki.add_argument("--dir", default=".", help="рабочая папка выбранной сессии")
+    ki.add_argument("--startup", action="store_true", help="автозапуск при входе в Windows")
+    ks.add_parser("listener-status", help="состояние постоянного слушателя Kimi")
+    ks.add_parser("listener-stop", help="остановить постоянного слушателя Kimi")
     s = sub.add_parser("refresh", help="обновить блок инструкции telegent без переустановки хуков")
     s.add_argument("--dir", default=".", help="папка рабочего проекта")
-    s.add_argument("--client", choices=("auto", "codex", "claude"), default="auto")
+    s.add_argument("--client", choices=("auto", "codex", "claude", "kimi"), default="auto")
     s = sub.add_parser("update", help="обновить клиент из официального выпуска, сохранив локальные изменения")
     s.add_argument('--automatic', action='store_true', help=argparse.SUPPRESS)
     s = sub.add_parser("init", help="записать tg.config.json")
@@ -1946,10 +1974,10 @@ def main():
     s.add_argument("--here", action="store_true",
                    help="конфиг .telegent.json в текущей папке (у каждого агента на машине — свой), токен в ~/.telegent")
     s.add_argument("--url-source", help=argparse.SUPPRESS)
-    s.add_argument("--client", choices=("auto", "codex", "claude"), help="сразу настроить интеграцию в текущем проекте")
+    s.add_argument("--client", choices=("auto", "codex", "claude", "kimi"), help="сразу настроить интеграцию в текущем проекте")
     s = sub.add_parser("connect", help="подключиться и полностью настроить своего агента одной командой")
     s.add_argument("link", help="ссылка-приглашение или код tgi_…")
-    s.add_argument("--client", choices=("auto", "codex", "claude"), default="auto")
+    s.add_argument("--client", choices=("auto", "codex", "claude", "kimi"), default="auto")
     s.add_argument("--token-file", help="куда записать токен (по умолчанию ~/.telegent/<имя>-<метка>.token)")
     s.add_argument("--force", action="store_true", help="заменить существующую настройку по новому приглашению")
     s.add_argument("--url-source", help=argparse.SUPPRESS)
@@ -1967,6 +1995,8 @@ def main():
         if args.codex_action in ('listen','listener-status','listener-stop'):
             return cmd_codex_receiver(Conf(args.config),args)
         return cmd_codex_install(Conf(args.config), args)
+    if args.cmd == "kimi":
+        return cmd_kimi_receiver(Conf(args.config), args)
     conf = Conf(args.config)
     if args.cmd != 'update': schedule_update(conf)
     {

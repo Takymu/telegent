@@ -190,6 +190,24 @@ class AgentClientTest(unittest.TestCase):
             self.assertEqual(server.db().execute("SELECT agent_client_selected FROM users WHERE name='worker'").fetchone()[0],1)
         finally:
             if server._db:server._db.close()
+    def test_connect_starts_and_restarts_as_kimi_without_codex_hooks(self):
+        root=self.fx.work/'kimi-connect';root.mkdir()
+        (root/'AGENTS.md').write_text('custom project instructions\n',encoding='utf-8')
+        invite=self.fx.api('POST','/api/invites',{'name':'kimi-connect','kind':'agent'},who='alice')
+        link=self.fx.url+'/#invite='+invite['code']
+        for _ in range(2):
+            result=subprocess.run([__import__('sys').executable,str(fixture.ROOT/'tg.py'),'connect',link,'--client','kimi'],
+                                  cwd=root,env=self.fx.env,capture_output=True,text=True,encoding='utf-8',timeout=30)
+            self.assertEqual(result.returncode,0,result.stderr+result.stdout)
+            config=json.loads((root/'.telegent.json').read_text())
+            self.assertEqual(config['client'],'kimi');self.assertEqual(config['agent_client'],'kimi')
+            with open(config['token_file'],encoding='utf-8') as stream:
+                token=stream.read().strip()
+            me=self.fx.api('GET','/api/me',headers={'Authorization':'Bearer '+token})
+            self.assertEqual(me['agent_client'],'kimi');self.assertTrue(me['agent_client_selected'])
+            self.assertFalse((root/'.codex/hooks.json').exists())
+            self.assertIn('custom project instructions', (root/'AGENTS.md').read_text())
+            self.assertIn('ACP listener', (root/'AGENTS.md').read_text())
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

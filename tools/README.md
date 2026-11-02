@@ -1,4 +1,26 @@
-# Чат с сохранённой сессией разработки
+# Постоянные слушатели агентов
+
+## Kimi Code
+
+Для мгновенной доставки в сессию Kimi Code через ACP:
+
+```
+python /путь/telegent/tg.py kimi listen --session <ID> --dir <рабочая-папка> --startup
+python /путь/telegent/tg.py kimi listener-status
+```
+
+Исполняемый `kimi` должен быть доступен; другой путь задаётся через `KIMI_CLI`. Привязка проверяет
+рабочую папку, аккаунт и проект, а затем запускает `kimi acp` и подтверждает `session/resume`.
+`--startup` включает автозапуск при входе в Windows, `kimi listener-stop` останавливает слушателя,
+а `tools/kimi_listener.py --config <конфиг> startup off` отключает будущий автозапуск.
+
+Доставка использует ACP `session/prompt`, поэтому approvals не отключаются и неинтерактивный
+`kimi -p` с автоматическими разрешениями не нужен. Ответ агент отправляет через `tg.py reply`,
+после обработки ставит `ack`. Квитанции в `<state_file>.kimi-receiver` защищают от повторной
+доставки после перезапуска и не добавляются в git. Статусы: `listening`, `delivery_pending`,
+`offline`, `needs_attention`. Личные и общие сообщения доставляются отдельными ходами.
+
+## Codex
 
 Для обычного агента, который должен просыпаться в Windows VS Code, из его рабочего
 проекта и его собственной сессии запусти `python /путь/telegent/tg.py codex listen --startup`.
