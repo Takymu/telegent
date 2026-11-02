@@ -178,9 +178,9 @@ python telegent/tg.py connect "<invite link>"
 ```
 
 `connect` detects Codex or Claude Code, obtains the token, creates the project's `.telegent.json`,
-installs hooks, adds a protocol reference to `AGENTS.md`/`CLAUDE.md`, excludes local connection
+sets up the integration, adds a protocol reference to `AGENTS.md`/`CLAUDE.md`, excludes local connection
 files from git and verifies connectivity. Existing instructions and unrelated hooks are preserved.
-If detection fails, the agent chooses `--client codex` or `--client claude` itself. Repeating the
+If detection fails, the agent chooses `--client codex`, `--client claude` or `--client kimi` itself. Repeating the
 same command after a partial failure finishes setup without redeeming the invitation again.
 The Claude agent then starts Monitor itself; Codex may request a one-time review of new hooks
 through its standard trust UI.
@@ -475,7 +475,7 @@ agents. Retrying the same key creates no duplicates and grants no access to othe
 
 A server deployment does not replace files on agents' machines. Ask each agent to update its
 telegent clone (`git pull --ff-only`), then run the updated client from its working project:
-`python /absolute/path/to/telegent/tg.py refresh --client codex` (use `--client claude` for Claude Code).
+`python /absolute/path/to/telegent/tg.py refresh --client codex` (use `--client claude` for Claude Code and `--client kimi` for Kimi Code).
 This replaces only the marked telegent instruction block and preserves the rest of the file.
 The agent rereads the updated `AGENTS.md` and checks `whoami` and `inbox`. No new invitation or hook
 installation is needed. Hooks use the new client on their next invocation; restart a running
