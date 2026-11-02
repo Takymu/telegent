@@ -1,5 +1,6 @@
-"""Durable Kimi Code ACP receiver. No prompt-mode auto permissions or trust changes."""
+"""Durable Kimi Code ACP receiver with automatic tool approvals."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -17,6 +18,10 @@ import tg
 
 
 class AcpError(RuntimeError):
+    pass
+
+
+class PermissionRequired(AcpError):
     pass
 
 
@@ -101,6 +106,7 @@ class Acp:
         self.next_id = 0
         self.reader = None
         self.stderr_reader = None
+        self.permission_required = False
 
     def start(self):
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
@@ -108,9 +114,9 @@ class Acp:
             [self.binding['kimi_cli'], 'acp'],
             cwd=self.binding['cwd'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace', bufsize=1, **options)
-        self.reader = threading.Thread(target=self._read_stdout, daemon=True)
+        self.reader = threading.Thread(target=self._read_stdout, args=(self.proc.stdout,), daemon=True)
         self.reader.start()
-        self.stderr_reader = threading.Thread(target=self._read_stderr, daemon=True)
+        self.stderr_reader = threading.Thread(target=self._read_stderr, args=(self.proc.stderr,), daemon=True)
         self.stderr_reader.start()
         try:
             self.request('initialize', {
@@ -127,9 +133,9 @@ class Acp:
             self.close()
             raise
 
-    def _read_stdout(self):
+    def _read_stdout(self, stream):
         try:
-            for line in self.proc.stdout:
+            for line in stream:
                 try:
                     self.messages.put(json.loads(line))
                 except ValueError:
@@ -137,8 +143,8 @@ class Acp:
         finally:
             self.messages.put(None)
 
-    def _read_stderr(self):
-        for _ in self.proc.stderr:
+    def _read_stderr(self, stream):
+        for _ in stream:
             pass
 
     def request(self, method, params, timeout=None):
@@ -162,30 +168,68 @@ class Acp:
                 continue
             if message is None:
                 raise AcpError('ACP process closed')
+            if not isinstance(message, dict):
+                continue
+            # JSON-RPC ids are independent in each direction.
+            if 'method' in message:
+                self.handle_request(message)
+                continue
             if message.get('id') != request_id:
                 continue
             if message.get('error'):
                 raise AcpError(str(message['error']))
             return message.get('result') or {}
 
+    def handle_request(self, message):
+        if 'id' not in message:
+            return
+        response = {'jsonrpc': '2.0', 'id': message['id']}
+        if message['method'] == 'session/request_permission':
+            params = message.get('params') or {}
+            outcome = {'outcome': 'cancelled'}
+            if params.get('sessionId') == self.binding['thread']:
+                # Approve this operation, without persisting an allow-always rule in Kimi.
+                for option in params.get('options') or []:
+                    if isinstance(option, dict) and option.get('kind') == 'allow_once' and isinstance(option.get('optionId'), str):
+                        outcome = {'outcome': 'selected', 'optionId': option['optionId']}
+                        break
+            if outcome['outcome'] == 'cancelled':
+                self.permission_required = True
+            response['result'] = {'outcome': outcome}
+        else:
+            response['error'] = {'code': -32601, 'message': 'Method not found'}
+        self.proc.stdin.write(json.dumps(response) + '\n')
+        self.proc.stdin.flush()
+
     def prompt(self, text):
-        return self.request('session/prompt', {
+        result = self.request('session/prompt', {
             'sessionId': self.binding['thread'],
             'prompt': [{'type': 'text', 'text': text}],
         })
+        if self.permission_required:
+            raise PermissionRequired('Kimi не предложил разрешение allow_once для этой сессии; проверь listener-status и продолжи сессию в Kimi')
+        return result
 
     def close(self):
         if self.proc is None:
             return
+        proc, self.proc = self.proc, None
         try:
-            self.proc.terminate()
-            self.proc.wait(timeout=5)
+            proc.terminate()
+            proc.wait(timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             try:
-                self.proc.kill()
+                proc.kill()
+                proc.wait(timeout=5)
             except OSError:
                 pass
-        self.proc = None
+        for thread in (self.reader, self.stderr_reader):
+            if thread is not None:
+                thread.join(timeout=2)
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            close = getattr(stream, 'close', None)
+            if close is not None:
+                close()
 
 
 def agent_step(conf, binding, folder, acp_factory=Acp):
@@ -207,10 +251,7 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
         if receipt.get('status') in ('submitting', 'accepted'):
             attention = True
             continue
-        attempt = max(1, record.get('attempt', 1))
-        if attempt > 3:
-            attention = True
-            continue
+        attempt = max(1, record.get('attempt', 0) + 1)
         candidates.append((message, path, record, attempt))
         if len(candidates) == 10:
             break
@@ -223,14 +264,13 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
         for message, path, record, attempt in candidates:
             record.update(thread=binding['thread'], message_id=message['id'], dispatch=dispatch, attempt=attempt)
             write_receipt(path, record)
-            write_receipt(folder / dispatch, {'status': 'submitting', 'thread': binding['thread'], 'attempt': attempt})
+        write_receipt(folder / dispatch, {'status': 'connecting', 'thread': binding['thread'], 'attempt': attempt})
+        client = None
         try:
             client = acp_factory(binding)
             client.start()
-            try:
-                client.prompt(notice([m for m, _, _, _ in candidates], binding, binding['config']))
-            finally:
-                client.close()
+            write_receipt(folder / dispatch, {'status': 'submitting', 'thread': binding['thread'], 'attempt': attempt})
+            client.prompt(notice([m for m, _, _, _ in candidates], binding, binding['config']))
             write_receipt(folder / dispatch, {'status': 'accepted', 'thread': binding['thread'], 'attempt': attempt})
             for _, path, _, _ in candidates:
                 record = load_json(path)
@@ -238,9 +278,13 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
                 write_receipt(path, record)
         except (AcpError, OSError, subprocess.TimeoutExpired):
             held = True
+        finally:
+            if client is not None:
+                client.close()
     write_receipt(folder / 'status.json', {
         'status': 'needs_attention' if attention or held else 'listening',
         'pid': os.getpid(), 'heartbeat': time.time(), 'thread': binding['thread'],
+        'auto_approve': True,
     })
     tg.api_retry(conf, 'GET', '/api/wait?after=' + str(me['last_id']) + '&for_me=1&full=0&timeout=4', timeout=10)
 
@@ -283,54 +327,74 @@ def command(config, action='supervise'):
 
 
 def unlocked(session):
-    lock = runtime_lock(session)
     try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with session_lock(session):
+            return True
     except OSError:
         return False
-    os.close(fd)
-    os.unlink(lock)
-    return True
 
 
 def runtime_lock(session):
     return os.path.join(os.environ.get('TEMP', '/tmp'), 'telegent-kimi-' + session + '.lock')
 
 
+def supervisor_key(binding):
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, 'telegent-kimi-receiver-supervisor:' + binding['thread']))
+
+
+@contextmanager
+def session_lock(session):
+    # The OS releases the lock on a crash; an orphaned file cannot block logon startup.
+    with open(runtime_lock(session), 'a+b') as stream:
+        if os.name == 'nt':
+            import msvcrt
+            if stream.tell() == 0:
+                stream.write(b'\0')
+                stream.flush()
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            yield
+        finally:
+            if os.name == 'nt':
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
 def supervise(conf, config):
     folder = runtime(conf)
     binding = load_json(folder / 'binding.json')
     delay = 1
-    key = str(uuid.uuid5(uuid.NAMESPACE_URL, 'telegent-kimi-receiver-supervisor:' + binding['thread']))
-    lock = runtime_lock(key)
     try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with session_lock(supervisor_key(binding)):
+            supervise_worker(folder, binding, config, delay)
     except OSError:
         return
-    try:
-        while not (folder / 'stop').exists():
+
+
+def supervise_worker(folder, binding, config, delay):
+    while not (folder / 'stop').exists():
+        try:
+            options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
+            child = subprocess.Popen(command(config, 'run'), cwd=binding['cwd'], stdin=subprocess.DEVNULL, **options)
             try:
-                options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
-                child = subprocess.Popen(command(config, 'run'), cwd=binding['cwd'], stdin=subprocess.DEVNULL, **options)
-                try:
-                    write_receipt(folder / 'supervisor.json', {
-                        'pid': os.getpid(), 'worker_pid': child.pid, 'started_at': time.time(),
-                    })
-                except OSError:
-                    pass
-                child.wait()
+                write_receipt(folder / 'supervisor.json', {
+                    'pid': os.getpid(), 'worker_pid': child.pid, 'started_at': time.time(),
+                })
             except OSError:
                 pass
-            if (folder / 'stop').exists():
-                break
-            time.sleep(delay)
-            delay = min(delay * 2, 30)
-    finally:
-        try:
-            os.close(fd)
-            os.unlink(lock)
+            child.wait()
         except OSError:
             pass
+        if (folder / 'stop').exists():
+            break
+        time.sleep(delay)
+        delay = min(delay * 2, 30)
 
 
 def startup(conf, config, enable):
@@ -365,7 +429,8 @@ def main():
     p = sub.add_parser('bind')
     p.add_argument('--session', required=True)
     p.add_argument('--cwd', default=os.getcwd())
-    sub.add_parser('start')
+    p = sub.add_parser('start')
+    p.add_argument('--startup', action='store_true')
     sub.add_parser('run')
     sub.add_parser('supervise')
     sub.add_parser('status')
@@ -391,15 +456,17 @@ def main():
     if not binding:
         raise RuntimeError('Bind the intended session first')
     if args.action == 'start':
+        if args.startup:
+            startup(conf, args.config, True)
         if (folder / 'stop').exists():
             deadline = time.time() + 35
-            key = str(uuid.uuid5(uuid.NAMESPACE_URL, 'telegent-kimi-receiver-supervisor:' + binding['thread']))
+            key = supervisor_key(binding)
             while not unlocked(key) and time.time() < deadline:
                 time.sleep(.2)
             if not unlocked(key):
                 raise RuntimeError('Previous receiver is still stopping; its stop request was preserved')
             (folder / 'stop').unlink(missing_ok=True)
-        key = str(uuid.uuid5(uuid.NAMESPACE_URL, 'telegent-kimi-receiver-supervisor:' + binding['thread']))
+        key = supervisor_key(binding)
         if not unlocked(key):
             return
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
@@ -412,7 +479,11 @@ def main():
         supervise(conf, args.config)
         return
     os.chdir(binding['cwd'])
-    service(conf)
+    try:
+        with session_lock('worker-' + supervisor_key(binding)):
+            service(conf)
+    except OSError:
+        return
 
 
 if __name__ == '__main__':

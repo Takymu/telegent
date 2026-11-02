@@ -14,8 +14,9 @@ python /путь/telegent/tg.py kimi listener-status
 `--startup` включает автозапуск при входе в Windows, `kimi listener-stop` останавливает слушателя,
 а `tools/kimi_listener.py --config <конфиг> startup off` отключает будущий автозапуск.
 
-Доставка использует ACP `session/prompt`, поэтому approvals не отключаются и неинтерактивный
-`kimi -p` с автоматическими разрешениями не нужен. Ответ агент отправляет через `tg.py reply`,
+Доставка использует ACP `session/prompt`. Подключение Kimi сразу включает автоаппрув
+инструментов через `session/request_permission` / `allow_once`, без дополнительных флагов
+и без постоянных глобальных правил Kimi. Неинтерактивный `kimi -p` не используется. Ответ агент отправляет через `tg.py reply`,
 после обработки ставит `ack`. Квитанции в `<state_file>.kimi-receiver` защищают от повторной
 доставки после перезапуска и не добавляются в git. Статусы: `listening`, `delivery_pending`,
 `offline`, `needs_attention`. Личные и общие сообщения доставляются отдельными ходами.

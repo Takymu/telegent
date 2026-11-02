@@ -1,7 +1,8 @@
-"""Kimi ACP delivery, approval preservation and restart recovery."""
+"""Kimi ACP delivery, default tool approvals and restart recovery."""
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import types
 import unittest
@@ -123,12 +124,21 @@ class ReceiverTest(unittest.TestCase):
             self.assertEqual(self.calls, [])
             self.assertEqual(receiver.load_json(self.folder / 'status.json')['status'], 'needs_attention')
 
-    def test_failure_is_not_blindly_replayed(self):
+    def test_connect_failure_recovers_before_any_prompt_was_sent(self):
         self.incoming()
         self.step(fail=True)
         self.step()
-        self.assertEqual(len(self.calls), 1)
-        self.assertEqual([x for x in self.calls if x[0] == 'prompt'], [])
+        self.assertEqual(len([x for x in self.calls if x[0] == 'start']), 2)
+        self.assertEqual(len([x for x in self.calls if x[0] == 'prompt']), 1)
+        self.assertEqual(receiver.load_json(self.folder / 'status.json')['status'], 'listening')
+
+    def test_ambiguous_prompt_failure_is_not_replayed(self):
+        mid = self.incoming()
+        with mock.patch.object(FakeAcp, 'prompt', side_effect=receiver.AcpError('connection lost')):
+            self.step()
+        self.step()
+        self.assertEqual(len([x for x in self.calls if x[0] == 'start']), 1)
+        self.assertFalse(receiver.load_json(self.folder / ('message-' + str(mid) + '.json')).get('observed_at'))
         self.assertEqual(receiver.load_json(self.folder / 'status.json')['status'], 'needs_attention')
 
     def test_public_and_private_messages_use_separate_turns(self):
@@ -180,6 +190,112 @@ class ReceiverTest(unittest.TestCase):
         result = client.request('session/prompt', {'prompt': []})
         self.assertEqual(result, {'ok': True})
         self.assertEqual(client.messages.qsize(), 0)
+
+    def permission_client(self, session=None, options=None):
+        client = receiver.Acp(dict(self.binding))
+        client.proc = types.SimpleNamespace(stdin=io.StringIO())
+        client.messages.put({
+            'jsonrpc': '2.0', 'id': 1, 'method': 'session/request_permission',
+            'params': {'sessionId': session or self.session, 'options': options or [
+                {'optionId': 'persist', 'kind': 'allow_always'},
+                {'optionId': 'deny', 'kind': 'reject_once'},
+                {'optionId': 'run', 'kind': 'allow_once'},
+            ]},
+        })
+        client.messages.put({'jsonrpc': '2.0', 'id': 1, 'result': {'stopReason': 'end_turn'}})
+        return client
+
+    def test_tool_approval_is_automatic_by_default_despite_colliding_rpc_ids(self):
+        client = self.permission_client()
+        self.assertEqual(client.prompt('notice'), {'stopReason': 'end_turn'})
+        written = [json.loads(line) for line in client.proc.stdin.getvalue().splitlines()]
+        self.assertEqual(len(written), 2)
+        self.assertEqual(written[1], {'jsonrpc': '2.0', 'id': 1, 'result': {
+            'outcome': {'outcome': 'selected', 'optionId': 'run'},
+        }})
+        self.assertNotIn('auto_approve', self.binding)
+
+    def test_foreign_session_permissions_are_cancelled(self):
+        client = self.permission_client(session='another-session')
+        with self.assertRaises(receiver.PermissionRequired):
+            client.prompt('notice')
+        written = [json.loads(line) for line in client.proc.stdin.getvalue().splitlines()]
+        self.assertEqual(written[1]['result']['outcome'], {'outcome': 'cancelled'})
+
+    def test_unrecognized_permission_options_are_cancelled_without_hanging(self):
+        client = self.permission_client(options=[{'optionId': 'persist', 'kind': 'allow_always'}])
+        with self.assertRaises(receiver.PermissionRequired):
+            client.prompt('notice')
+
+    def test_old_lock_file_does_not_block_recovery_and_live_lock_excludes_duplicate(self):
+        key = receiver.supervisor_key(self.binding)
+        Path(receiver.runtime_lock(key)).touch()
+        self.assertTrue(receiver.unlocked(key))
+        with receiver.session_lock(key):
+            self.assertFalse(receiver.unlocked(key))
+        self.assertTrue(receiver.unlocked(key))
+
+    def test_process_crash_releases_supervisor_lock(self):
+        key = receiver.supervisor_key(self.binding)
+        script = (
+            'import importlib.util,sys,time\n'
+            's=importlib.util.spec_from_file_location("receiver",sys.argv[1])\n'
+            'r=importlib.util.module_from_spec(s);s.loader.exec_module(r)\n'
+            'with r.session_lock(sys.argv[2]):\n'
+            ' print("locked",flush=True)\n'
+            ' time.sleep(60)\n'
+        )
+        child = subprocess.Popen([sys.executable, '-u', '-c', script, receiver.__file__, key],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'locked')
+            self.assertFalse(receiver.unlocked(key))
+            child.kill()
+            child.communicate(timeout=5)
+            self.assertTrue(receiver.unlocked(key))
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=5)
+
+    def test_real_pipe_protocol_runs_only_after_automatic_permission_response(self):
+        script = self.root / 'acp_fixture.py'
+        script.write_text('''import json, sys
+def send(value):
+    print(json.dumps(value), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['method'] != 'session/prompt':
+        send({'jsonrpc': '2.0', 'id': request['id'], 'result': {}})
+        continue
+    send({'jsonrpc': '2.0', 'id': request['id'], 'method': 'session/request_permission',
+          'params': {'sessionId': request['params']['sessionId'], 'options': [
+              {'optionId': 'run', 'kind': 'allow_once'}]}})
+    response = json.loads(sys.stdin.readline())
+    assert response['result']['outcome'] == {'outcome': 'selected', 'optionId': 'run'}
+    send({'jsonrpc': '2.0', 'method': 'session/update', 'params': {}})
+    send({'jsonrpc': '2.0', 'id': request['id'], 'result': {'stopReason': 'end_turn'}})
+''', encoding='utf-8')
+        real_popen = subprocess.Popen
+        def start_fixture(argv, **kwargs):
+            self.assertEqual(argv, ['kimi', 'acp'])
+            return real_popen([sys.executable, '-u', str(script)], **kwargs)
+        client = receiver.Acp(self.binding, prompt_timeout=5)
+        try:
+            with mock.patch.object(receiver.subprocess, 'Popen', side_effect=start_fixture):
+                client.start()
+                self.assertEqual(client.prompt('notice'), {'stopReason': 'end_turn'})
+        finally:
+            client.close()
+
+    def test_startup_flag_is_accepted_and_forwarded_without_extra_modes(self):
+        (self.folder / 'stop').touch()
+        fake_child = types.SimpleNamespace(pid=123)
+        with mock.patch.object(sys, 'argv', ['kimi_listener.py', '--config', str(self.config), 'start', '--startup']), \
+             mock.patch.object(receiver, 'startup') as startup, \
+             mock.patch.object(receiver.subprocess, 'Popen', return_value=fake_child):
+            receiver.main()
+        self.assertEqual(startup.call_args.args[1:], (str(self.config), True))
 
     def test_supervisor_restarts_crashed_worker(self):
         children = []

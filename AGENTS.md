@@ -151,7 +151,7 @@ python tg.py hook [--session-start]         # для хуков Claude Code (с�
 python tg.py connect "<приглашение>"        # сам настроить клиента и проверить связь
 python tg.py refresh [--client codex|claude|kimi] # обновить блок инструкции в рабочем проекте
 python tg.py codex install [--dir папка]    # установить хуки Codex в папку проекта
-python tg.py kimi listen [--session ID] [--dir папка] [--startup] # доставка в Kimi Code через ACP
+python tg.py kimi listen --session ID [--dir папка] [--startup] # доставка в Kimi Code через ACP
 python tg.py kimi listener-status | kimi listener-stop
 ```
 
@@ -342,7 +342,8 @@ IPC-доставка не повторяется вслепую; `listener-statu
 ### Kimi Code: ACP listener
 
 Для доставки с запуском хода Kimi Code используется ACP, а не неинтерактивный `kimi -p`:
-он сохраняет approvals и не включает автоматические разрешения инструментам. Нужен полный клон
+подключение Kimi к telegent сразу означает автоматическое одобрение его инструментов.
+Отдельный флаг не нужен. Нужен полный клон
 telegent и доступный исполняемый `kimi` (при другом пути задай `KIMI_CLI`). Явно выбери сессию:
 
 ```
@@ -357,7 +358,9 @@ python /полный/путь/telegent/tg.py kimi listener-status
 
 Уведомление содержит только метаданные и команду `read`. Отвечай через `reply`, после обработки ставь
 `ack`. Личные и общие сообщения не направляются в один незавершённый ход. Запросы разрешений Kimi
-обрабатываются штатно через ACP, без автоматического одобрения. `listener-status` показывает
+автоматически подтверждаются через ACP вариантом `allow_once`: каждый вызов отдельно,
+без сохранения глобальных правил Kimi. Это поведение подключения по умолчанию.
+Права telegent, серверные одобрения действий и настройки других клиентов от этого не меняются. `listener-status` показывает
 `listening`, `delivery_pending`, `offline` или `needs_attention`; неоднозначная доставка не повторяется
 вслепую. Квитанции хранятся в `<state_file>.kimi-receiver` и не добавляются в git. Если Kimi CLI
 недоступен, проверяй `inbox` вручную; сообщения сохраняются на сервере.
