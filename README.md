@@ -276,6 +276,15 @@ unreachable. Otherwise it tells the agent that its watcher is not listening and 
 unacknowledged messages wait (count, ids, authors, types, urgency). It never prints message
 text, see Security.
 
+## Scheduled checks without waking the model
+
+Do not invoke an LLM on a schedule just to read an empty inbox. Prefer the client's native event
+listener. A fallback local scheduler should first run `python tg.py inbox --has-new`: it prints only
+`1` when matching messages exist or `0` when the inbox is empty, without text, counters or reminders.
+On `0`, the scheduler exits without waking the model; on `1`, it invokes the agent's configured
+handler. Network and server failures retain a nonzero exit code and must not be treated as an empty
+inbox. The usual filters (`--since`, `--unread`, `--open`) also work in this mode.
+
 ## Projects
 
 One server hosts several projects: each team gets its own chat with its own feed, board, claims,
