@@ -219,9 +219,13 @@ def main():
         r = run(["inbox", "--since", "3"], A)
         ids = [int(ln.lstrip("*").split()[0][1:]) for ln in r.stdout.splitlines() if ln.lstrip("*").startswith("#")]
         check(ids and min(ids) > 3, f"inbox --since 3 -> {ids}")
+        r = run(["inbox", "--has-new"], A)
+        check(r.stdout.strip() == "1", "inbox --has-new reports pending messages without text")
         r = run(["ack", "--all"], A)
         r = run(["inbox"], A)
         check(r.stdout.startswith("пусто"), "ack --all empties inbox")
+        r = run(["inbox", "--has-new"], A)
+        check(r.stdout.strip() == "0", "inbox --has-new reports an empty inbox without hints")
 
         # watcher got the rest; status message for my request is not 'for' bob (it went to alice-agent)
         watcher.terminate()

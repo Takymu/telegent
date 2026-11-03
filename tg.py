@@ -903,6 +903,9 @@ def cmd_inbox(conf, args):
         q["open"] = "1"
     res = api_retry(conf, "GET", "/api/messages?" + urllib.parse.urlencode(q))
     msgs = res["messages"]
+    if args.has_new:
+        print("1" if msgs else "0")
+        return
     if not msgs:
         print("пусто" + ("" if args.all or args.since is not None else " (всё подтверждено ack)"))
         print_expired_hint(expired_mine(conf))
@@ -2205,6 +2208,8 @@ def main():
     s.add_argument("--author")
     s.add_argument("--open", action="store_true", help="только открытые/взятые просьбы и тревоги")
     s.add_argument("--full", action="store_true", help="печатать сообщения целиком")
+    s.add_argument("--has-new", action="store_true",
+                   help="только 1/0 для локального планировщика, без текста и вызова модели")
     s.add_argument("--limit", type=int, default=50)
     s = sub.add_parser("read", help="прочитать целиком (+ ветка), отмечает прочитанным")
     s.add_argument("id", type=int)
