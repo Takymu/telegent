@@ -152,7 +152,7 @@ class ClientUpdatesTest(unittest.TestCase):
 
     def test_watch_restarts_after_saving_cursor_and_drops_original_since(self):
         saved={}
-        conf=argparse.Namespace(project=None,secretary=False,server='https://chat.example',
+        conf=argparse.Namespace(project=None,secretary=False,server='https://chat.example',remind_after_minutes=0,
                                 load_state=lambda:{},save_state=lambda value:saved.update(value))
         args=argparse.Namespace(since=3,all=False,include_own=False,max_burst=30,config=None)
         def restart(executable,arguments):

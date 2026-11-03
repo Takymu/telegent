@@ -1,5 +1,6 @@
 """Kimi ACP delivery, default tool approvals and restart recovery."""
 import io
+import queue
 import json
 from pathlib import Path
 import subprocess
@@ -100,6 +101,29 @@ class ReceiverTest(unittest.TestCase):
         self.assertNotIn('kimi -p', text)
         self.assertNotIn('--auto', text)
 
+    def test_native_quota_posts_as_agent_without_observing_incoming(self):
+        mid = self.incoming()
+        outer = self
+        class QuotaAcp(FakeAcp):
+            def __init__(self, binding):
+                super().__init__(binding, outer.calls)
+                self.quota_signals = queue.Queue()
+            def prompt(self, text):
+                self.quota_signals.put({'provider':'kimi','state':'limited','reset_at':None,'window':''})
+                raise receiver.AcpError('PRIVATE_PROVIDER_ERROR_DO_NOT_EXPORT')
+        original = receiver.tg.api_retry
+        def api(conf, method, path, *args, **kwargs):
+            return {'messages':[]} if path.startswith('/api/wait') else original(conf,method,path,*args,**kwargs)
+        with mock.patch.object(receiver.tg,'api_retry',side_effect=api):
+            receiver.agent_step(self.conf,self.binding,self.folder,acp_factory=QuotaAcp)
+        messages = self.fx.api('GET','/api/messages?limit=1000',who='alice')['messages']
+        notice = next(m for m in reversed(messages) if 'исчерпал лимит использования Kimi Code' in m['body'])
+        self.assertEqual(notice['author_id'],'bob-agent')
+        self.assertNotIn('PRIVATE_PROVIDER_ERROR',notice['body'])
+        self.assertFalse(receiver.load_json(self.folder/('message-'+str(mid)+'.json')).get('observed_at'))
+        incoming = self.fx.api('GET',f'/api/messages/{mid}',who='bob-agent')['message']
+        self.assertFalse(incoming['read']); self.assertFalse(incoming['acked'])
+
     def test_success_marks_observed_once_and_never_replays(self):
         mid = self.incoming()
         self.step()
@@ -156,7 +180,9 @@ class ReceiverTest(unittest.TestCase):
     def test_reminder_reaches_kimi_and_does_not_spam(self):
         self.conf.remind_after_minutes = 0.001
         self.conf.remind_interval_minutes = 60
-        self.incoming(type='question')
+        mid = self.incoming(type='question')
+        # Server ages are rounded to seconds; use an actually overdue fixture.
+        self.fx.s.db().execute('UPDATE messages SET ts=ts-120 WHERE id=?', (mid,))
         self.step()
         reminders = [x for x in self.calls if x[0] == 'prompt' and 'напоминание:' in x[1]]
         self.assertEqual(len(reminders), 1)

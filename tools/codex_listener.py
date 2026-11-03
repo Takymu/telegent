@@ -103,6 +103,8 @@ def probe(conf,nonce=None):
 
 def agent_step(conf,binding,folder,transcript,deliver=ipc.deliver):
     me=validate(conf,binding);transcript.poll()
+    tg.quota_bind(conf, 'codex', {'session_id':binding['thread'], 'cwd':binding['cwd'],
+                                'transcript_path':str(transcript.path)})
     candidates=[];attention=False
     # Unread/unacked is authoritative, rather than a volatile last-id cursor.
     messages=tg.api_retry(conf,'GET','/api/messages?for_me=1&unacked=1&conversation=all&limit=1000')['messages']

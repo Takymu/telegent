@@ -252,6 +252,8 @@ def reply_sources(conf, session, transcript, folder, me, messages):
 def step(conf, config, session, transcript, folder, deliver=ipc.deliver):
     me = validate_account(conf)
     transcript.poll()
+    tg.quota_bind(conf, 'codex', {'session_id':session, 'cwd':os.getcwd(),
+                                'transcript_path':str(transcript.path)})
     tg.codex_report_activity(conf, {'session_id':session}, bool(transcript.turn and transcript.busy), str(folder/'activity.json'))
     messages = tg.api_retry(conf, 'GET', '/api/messages?for_me=1&unacked=1&limit=1000')['messages']
     wanted = [m for m in messages if command_authorized(conf, me, m)

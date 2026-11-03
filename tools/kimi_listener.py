@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import queue
 import random
+import re
 import subprocess
 import sys
 import threading
@@ -18,7 +19,9 @@ import tg
 
 
 class AcpError(RuntimeError):
-    pass
+    def __init__(self, message, payload=None):
+        super().__init__(message)
+        self.payload = payload
 
 
 class PermissionRequired(AcpError):
@@ -108,6 +111,8 @@ class Acp:
         self.reader = None
         self.stderr_reader = None
         self.permission_required = False
+        self.quota_signals = queue.Queue()
+        self.response_seen = False
 
     def start(self):
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
@@ -145,8 +150,17 @@ class Acp:
             self.messages.put(None)
 
     def _read_stderr(self, stream):
-        for _ in stream:
-            pass
+        for line in stream:
+            # Some Kimi versions swallow provider errors and return an empty ACP end_turn.
+            # Only the native LLM error record is inspected; never retain/export stderr.
+            if ('llm request failed' not in line or 'errorName=APIStatusError' not in line
+                    or not re.search(r'\bstatusCode=(402|403|429)\b', line)):
+                continue
+            match = re.search(r'\berrorMessage=("(?:[^"\\]|\\.)*")', line[:16384])
+            if not match: continue
+            try: signal = tg.quota_error('kimi', {'message':json.loads(match.group(1))})
+            except ValueError: continue
+            if signal: self.quota_signals.put(signal)
 
     def request(self, method, params, timeout=None):
         self.next_id += 1
@@ -178,10 +192,16 @@ class Acp:
             if message.get('id') != request_id:
                 continue
             if message.get('error'):
-                raise AcpError(str(message['error']))
+                signal = tg.quota_error('kimi', message['error'])
+                if signal: self.quota_signals.put(signal)
+                raise AcpError('Kimi ACP request failed', message['error'])
             return message.get('result') or {}
 
     def handle_request(self, message):
+        if message.get('method') == 'session/update':
+            params = message.get('params') or {}
+            if params.get('sessionId') == self.binding['thread'] and (params.get('update') or {}).get('sessionUpdate') == 'agent_message_chunk':
+                self.response_seen = True
         if 'id' not in message:
             return
         response = {'jsonrpc': '2.0', 'id': message['id']}
@@ -233,8 +253,21 @@ class Acp:
                 close()
 
 
+def record_quota(conf, client):
+    limited = False
+    signals = getattr(client, 'quota_signals', None)
+    if signals is not None:
+        while True:
+            try: signal = signals.get_nowait()
+            except queue.Empty: break
+            tg.quota_record(conf, signal)
+            limited = True
+    return limited
+
+
 def agent_step(conf, binding, folder, acp_factory=Acp):
     me = validate(conf, binding)
+    tg.quota_flush(conf)
     messages = tg.api_retry(
         conf, 'GET', '/api/messages?for_me=1&unacked=1&conversation=all&limit=1000')['messages']
     candidates = []
@@ -273,7 +306,11 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
             client = acp_factory(binding)
             client.start()
             write_receipt(folder / dispatch, {'status': 'submitting', 'thread': binding['thread'], 'attempt': attempt})
-            client.prompt(notice([m for m, _, _, _ in candidates], binding, binding['config'], extra=reminders))
+            client.prompt(notice([m for m, _, _, _ in candidates], binding, binding['config'],
+                                 extra=reminders if selected is None else []))
+            client.close()  # Drain native stderr before treating an empty end_turn as delivery.
+            if record_quota(conf, client): raise AcpError('Kimi usage allowance exhausted')
+            if getattr(client, 'response_seen', False): tg.quota_record(conf, {'provider':'kimi', 'state':'ok'})
             write_receipt(folder / dispatch, {'status': 'accepted', 'thread': binding['thread'], 'attempt': attempt})
             for _, path, _, _ in candidates:
                 record = load_json(path)
@@ -283,7 +320,13 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
                 tg.mark_reminded(conf, state)
         except (AcpError, OSError, subprocess.TimeoutExpired):
             held = True
+        finally:
+            if client is not None:
+                client.close()
+                record_quota(conf, client)
+            tg.quota_flush(conf)
     elif reminders and not attention:
+        client = None
         try:
             client = acp_factory(binding)
             client.start()
@@ -291,12 +334,16 @@ def agent_step(conf, binding, folder, acp_factory=Acp):
                 client.prompt('\n'.join(reminders))
             finally:
                 client.close()
+            if record_quota(conf, client): raise AcpError('Kimi usage allowance exhausted')
+            if getattr(client, 'response_seen', False): tg.quota_record(conf, {'provider':'kimi', 'state':'ok'})
             tg.mark_reminded(conf, state)
         except (AcpError, OSError, subprocess.TimeoutExpired):
             held = True
         finally:
             if client is not None:
                 client.close()
+                record_quota(conf, client)
+            tg.quota_flush(conf)
     write_receipt(folder / 'status.json', {
         'status': 'needs_attention' if attention or held else 'listening',
         'pid': os.getpid(), 'heartbeat': time.time(), 'thread': binding['thread'],

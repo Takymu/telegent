@@ -33,7 +33,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INLINE_LIMIT = 2 * 1024 * 1024
@@ -46,7 +46,7 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.11.02.2"
+CLIENT_VERSION = "2026.11.03.1"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
@@ -257,6 +257,9 @@ class Conf:
         self.state_path = resolve(c.get("state_file") or "tg.state.json", base)
         self.watch_cmd = (c.get("watch_cmd") or "").strip() or None
         self.share_progress = c.get('share_progress') is True
+        self.quota_notifications = c.get('quota_notifications') is not False
+        self.remind_after_minutes = c.get('remind_after_minutes', 60)
+        self.remind_interval_minutes = c.get('remind_interval_minutes', 60)
         codex = bool(os.environ.get('CODEX_THREAD_ID') or os.environ.get('CODEX_SESSION_ID'))
         claude = bool(os.environ.get('CLAUDECODE'))
         self.agent_client_explicit = c.get('agent_client') in ('codex','claude','kimi')
@@ -1298,12 +1301,330 @@ def hook_message_label(m, conf):
             + ' [' + message_times(m) + ']')
 
 
+def quota_reset(value):
+    """Provider timestamps only; never infer a subscription reset from a plan name."""
+    try:
+        if isinstance(value, bool): return None
+        if isinstance(value, (int, float)):
+            return float(value) if 0 < value < 10**11 else None
+        if isinstance(value, str):
+            stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return stamp.timestamp() if stamp.tzinfo is not None else None
+    except (ValueError, OverflowError, OSError):
+        pass
+    return None
+
+
+def quota_error(provider, error, now=None):
+    """Only call for a native API error, never for user text or model output."""
+    now = time.time() if now is None else now
+    if not isinstance(error, dict): return None
+    text = ' '.join(str(error.get(k, '')) for k in ('message', 'error', 'error_details', 'last_assistant_message')).lower()
+    data = error.get('data') or {}
+    if isinstance(data, dict):
+        text += ' ' + ' '.join(str(data.get(k, '')) for k in ('error', 'message')).lower()
+    # A transient HTTP 429 / requests-per-minute cap is not an exhausted usage allowance.
+    if any(x in text for x in ('not your usage limit', 'requests per minute', 'tokens per minute', 'temporarily limiting')):
+        return None
+    code = error.get('codex_error_info') or error.get('code')
+    if isinstance(code, dict): code = next(iter(code), '')
+    explicit = str(code).lower() in ('usagelimitexceeded', 'usage_limit_exceeded', 'insufficient_quota')
+    explicit = explicit or any(x in text for x in (
+        "you've hit your usage limit", "you have hit your usage limit", "you've hit your session limit",
+        "you've reached your usage limit", 'usage limit has been reached', 'usage limit exceeded',
+        'weekly usage limit', 'monthly usage limit', 'quota exhausted', 'insufficient_quota'))
+    if provider == 'claude' and "you've hit your limit" in text: explicit = True
+    if not explicit: return None
+    reset = None
+    for source in (error, data if isinstance(data, dict) else {}):
+        for key in ('resets_at', 'resetsAt', 'reset_at', 'resetAt', 'reset_time', 'resetTime'):
+            reset = quota_reset(source.get(key)) or reset
+    if reset is None:
+        match = re.search(r'\breset(?:s)?(?:\s+(?:at|on))?[:\s]+(\d{4}-\d\d-\d\d[t ]\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:z|[+-]\d\d:\d\d))', text)
+        if match: reset = quota_reset(match.group(1).replace('z', 'Z'))
+    if reset is not None and reset <= now: return None
+    return {'state': 'limited', 'provider': provider, 'reset_at': reset, 'window': ''}
+
+
+def quota_signal(provider, event, now=None):
+    """Reduce allowlisted native telemetry to non-sensitive availability metadata."""
+    now = time.time() if now is None else now
+    if not isinstance(event, dict): return None
+    if provider == 'codex' and event.get('type') == 'event_msg':
+        payload = event.get('payload') or {}
+        if not isinstance(payload, dict): return None
+        if payload.get('type') == 'error': return quota_error(provider, payload, now)
+        if payload.get('type') != 'token_count': return None
+        limits = payload.get('rate_limits') or {}
+        if not isinstance(limits, dict): return None
+        if limits.get('limit_id', limits.get('limitId')) not in (None, 'codex'): return None
+        credits = limits.get('credits') or {}
+        if not isinstance(credits, dict): return None
+        if credits.get('unlimited') or credits.get('has_credits'): return None
+        exhausted, available = [], False
+        for name in ('primary', 'secondary'):
+            window = limits.get(name)
+            if not isinstance(window, dict): continue
+            used = window.get('used_percent', window.get('usedPercent'))
+            if not isinstance(used, (int, float)) or isinstance(used, bool): continue
+            reset = quota_reset(window.get('resets_at', window.get('resetsAt')))
+            if reset is not None and reset <= now: continue
+            if used >= 100:
+                exhausted.append((reset, window.get('window_minutes', window.get('windowDurationMins'))))
+            else: available = True
+        if exhausted:
+            # Every blocking window must reset. Unknown beats a misleading earlier date.
+            reset = max(x[0] for x in exhausted) if all(x[0] is not None for x in exhausted) else None
+            longest = max((x[1] for x in exhausted if isinstance(x[1], (int, float))), default=0)
+            return {'state': 'limited', 'provider': provider, 'reset_at': reset,
+                    'window': {300:'пятичасовой', 10080:'недельный', 43200:'месячный'}.get(longest, '')}
+        if available: return {'state': 'ok', 'provider': provider}
+    elif provider == 'claude':
+        if event.get('type') == 'rate_limit_event':
+            info = event.get('rate_limit_info') or {}
+            if not isinstance(info, dict): return None
+            if info.get('status') != 'rejected': return None
+            kind = info.get('rateLimitType', info.get('rate_limit_type'))
+            if kind not in ('five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'overage'): return None
+            reset = quota_reset(info.get('resetsAt', info.get('resets_at')))
+            if reset is not None and reset <= now: return None
+            return {'state':'limited', 'provider':provider, 'reset_at':reset,
+                    'window': 'пятичасовой' if kind == 'five_hour' else 'недельный' if kind.startswith('seven_day') else ''}
+        if event.get('hook_event_name') == 'StopFailure': return quota_error(provider, event, now)
+        if event.get('type') == 'assistant' and event.get('isApiErrorMessage') is True:
+            failure = dict(event)
+            failure['message'] = ' '.join(x.get('text', '') for x in (event.get('message') or {}).get('content', [])
+                                          if isinstance(x, dict) and x.get('type') == 'text')
+            return quota_error(provider, failure, now)
+        if (event.get('type') == 'assistant' and not event.get('isApiErrorMessage')
+                and (event.get('message') or {}).get('model') not in (None, '<synthetic>')):
+            return {'state':'ok', 'provider':provider}
+    return None
+
+
+@contextlib.contextmanager
+def quota_lock(path, wait=False):
+    """OS-owned lock: crashes release it; no stale-file expiration races."""
+    with open(path, 'a+b') as stream:
+        if os.name == 'nt':
+            import msvcrt
+            if stream.tell() == 0: stream.write(b'\0'); stream.flush()
+            stream.seek(0)
+            acquire = lambda: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            acquire = lambda: fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        deadline = time.monotonic() + (2 if wait else 0)
+        while True:
+            try: acquire(); break
+            except OSError:
+                if time.monotonic() >= deadline: raise
+                time.sleep(.02)
+        try: yield
+        finally:
+            if os.name == 'nt':
+                stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else: fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def quota_load(path):
+    try:
+        with open(path, encoding='utf-8') as stream:
+            value = json.load(stream)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError): return {}
+
+
+def quota_identity(conf):
+    return hashlib.sha256((conf.token + '\n' + (conf.project or '')).encode()).hexdigest()
+
+
+def quota_record(conf, signal=None):
+    """Durable per-account outbox. Payloads contain no native error text or conversation data."""
+    if not getattr(conf, 'quota_notifications', True): return
+    path = conf.state_path + '.quota.json'
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with quota_lock(path + '.lock', wait=True):
+        state = quota_load(path)
+        identity = quota_identity(conf)
+        if state.get('identity') != identity: state = {'identity':identity, 'providers':{}}
+        providers = state.setdefault('providers', {})
+        if signal and signal.get('provider') in ('codex', 'claude', 'kimi'):
+            provider = signal['provider']
+            old = providers.get(provider) or {}
+            if signal.get('state') == 'ok':
+                # Discard an obsolete unsent notice after actual recovery; keep sent keys.
+                old.pop('active', None); old.pop('pending', None); old.pop('queued', None)
+            elif signal.get('state') == 'limited':
+                reset = signal.get('reset_at')
+                if reset is not None and reset <= time.time(): return
+                episode = 'reset:' + str(int(reset)) if reset is not None else old.get('active') or uuid.uuid4().hex
+                old['active'] = episode
+                outstanding = [old['pending']] if old.get('pending') else []
+                outstanding += old.get('queued', [])
+                if episode not in old.get('sent', []) and not any(x['episode'] == episode for x in outstanding):
+                    notice = {'episode':episode, 'reset_at':reset,
+                              'window':signal.get('window') if signal.get('window') in ('пятичасовой','недельный','месячный') else '',
+                              'key':'quota-' + uuid.uuid4().hex}
+                    if not old.get('pending'): old['pending'] = notice
+                    else: old['queued'] = (old.get('queued', []) + [notice])[-8:]
+            providers[provider] = old
+        # Commit before attempting HTTP, including when a previous response was lost.
+        write_json_atomic(path, state)
+
+
+def quota_flush(conf):
+    if not getattr(conf, 'quota_notifications', True): return
+    path = conf.state_path + '.quota.json'
+    if not os.path.isfile(path): return
+    # Never hold the local outbox lock during network I/O. Concurrent senders share
+    # the persisted idempotency key; native observers can always persist new signals.
+    for provider in ('codex', 'claude', 'kimi'):
+        while True:
+            with quota_lock(path + '.lock', wait=True):
+                state = quota_load(path)
+                if state.get('identity') != quota_identity(conf): return
+                value = state.get('providers', {}).get(provider) or {}
+                if not value.get('pending') and value.get('queued'):
+                    value['pending'] = value['queued'].pop(0)
+                    write_json_atomic(path, state)
+                pending = value.get('pending')
+                if not pending: break
+                reset = pending.get('reset_at')
+                if reset is not None and reset <= time.time():
+                    value.pop('pending'); write_json_atomic(path, state); continue
+            me = api(conf, 'GET', '/api/me', timeout=5)
+            if me.get('kind') != 'agent': raise ValueError('Only an agent can report its own quota')
+            projects = me.get('projects', []) if me.get('is_secretary') and not conf.project else [me.get('project') or {}]
+            label = {'codex':'Codex','claude':'Claude Code','kimi':'Kimi Code'}[provider]
+            body = 'Агент исчерпал лимит использования ' + label
+            if pending.get('window'): body += ' (' + pending['window'] + ')'
+            body += '. Восстановление: ' + (datetime.fromtimestamp(reset, timezone.utc).strftime('%d.%m.%Y %H:%M UTC') if reset else 'сервис не сообщил время') + '.'
+            if not projects or any(not project.get('id') or not project.get('slug') for project in projects):
+                raise ValueError('No authorized project for quota notification')
+            for project in projects:
+                selected = conf.project
+                try:
+                    conf.project = project['slug']
+                    api(conf, 'POST', '/api/messages', {'type':'info', 'body':body,
+                        'idem_key':pending['key'] + '-' + str(project['id'])}, timeout=5)
+                finally: conf.project = selected
+            with quota_lock(path + '.lock', wait=True):
+                state = quota_load(path)
+                if state.get('identity') != quota_identity(conf): return
+                value = state.setdefault('providers', {}).setdefault(provider, {})
+                value['sent'] = list(dict.fromkeys(value.get('sent', []) + [pending['episode']]))[-32:]
+                if (value.get('pending') or {}).get('key') == pending['key']: value.pop('pending')
+                write_json_atomic(path, state)
+
+
+def quota_bind(conf, provider, event):
+    """Observe only the concrete native session supplied by its hook or bound listener."""
+    if not getattr(conf, 'quota_notifications', True) or not conf.path: return
+    session, path, cwd = event.get('session_id'), event.get('transcript_path'), event.get('cwd')
+    if not all(isinstance(x, str) and x for x in (session, path, cwd)): return
+    if provider not in ('codex','claude') or not re.fullmatch(r'[a-zA-Z0-9-]{1,200}', session): return
+    path, cwd = os.path.realpath(path), os.path.realpath(cwd)
+    if os.path.normcase(cwd) != os.path.normcase(os.path.realpath(os.getcwd())): return
+    if session not in os.path.basename(path) or not path.endswith('.jsonl') or not os.path.isdir(os.path.dirname(path)): return
+    key = hashlib.sha256((quota_identity(conf) + provider + session).encode()).hexdigest()[:24]
+    binding_path = conf.state_path + '.quota-session-' + key + '.json'
+    with quota_lock(binding_path + '.lock'):
+        binding = quota_load(binding_path)
+        expected = {'provider':provider, 'session':session, 'path':path, 'cwd':cwd, 'identity':quota_identity(conf)}
+        if binding and any(binding.get(k) != v for k,v in expected.items()): return
+        if not binding:
+            binding = dict(expected, offset=os.path.getsize(path) if os.path.isfile(path) else 0, created=time.time())
+            write_json_atomic(binding_path, binding)
+    # Child holds a separate OS lock throughout its lifetime. Repeated hooks are harmless.
+    try:
+        with quota_lock(binding_path + '.process.lock'):
+            pass
+    except OSError: return
+    options = {'creationflags':subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session':True}
+    command = client_command(conf) + ['quota-monitor', '--binding', binding_path]
+    if os.name == 'nt':
+        hidden = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+        if os.path.isfile(hidden): command[0] = hidden
+    subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
+
+
+def quota_poll(conf, binding_path):
+    """Checkpoint only after durably recording each signal; partial JSONL lines wait."""
+    with quota_lock(binding_path + '.lock'):
+        binding = quota_load(binding_path)
+        if binding.get('identity') != quota_identity(conf): raise ValueError('Quota binding changed')
+        path = binding['path']
+        if not os.path.isfile(path): return
+        if os.path.getsize(path) < binding['offset']: raise ValueError('Native session journal replaced')
+        with open(path, 'rb') as stream:
+            previous_offset = binding['offset']
+            stream.seek(binding['offset'])
+            for _ in range(1000):
+                start = stream.tell(); line = stream.readline(1024*1024+1)
+                if len(line) > 1024*1024:
+                    while line and not line.endswith(b'\n'):
+                        line = stream.readline(1024*1024)
+                    if not line: stream.seek(start); break
+                    binding['offset'] = stream.tell(); continue
+                if not line or not line.endswith(b'\n'):
+                    stream.seek(start); break
+                try: event = json.loads(line)
+                except (ValueError, UnicodeError): event = {}
+                if not isinstance(event, dict): event = {}
+                signal = quota_signal(binding['provider'], event)
+                payload = event.get('payload') or {}
+                if not isinstance(payload, dict): payload = {}
+                if binding['provider'] == 'codex' and event.get('type') == 'event_msg':
+                    if payload.get('type') == 'task_started': binding['turn_failed'] = False
+                    elif payload.get('type') == 'error': binding['turn_failed'] = True
+                    elif (payload.get('type') == 'task_complete' and payload.get('last_agent_message')
+                          and not binding.get('turn_failed', True)):
+                        signal = {'state':'ok', 'provider':'codex'}
+                if signal: quota_record(conf, signal)
+                binding['offset'] = stream.tell()
+            if binding['offset'] != previous_offset: write_json_atomic(binding_path, binding)
+    quota_flush(conf)
+
+
+def cmd_quota_monitor(conf, args):
+    path = os.path.realpath(args.binding)
+    if not path.startswith(os.path.realpath(conf.state_path) + '.quota-session-'): return
+    try:
+        with quota_lock(path + '.process.lock'):
+            source_stamp = os.stat(__file__).st_mtime_ns
+            while True:
+                binding = quota_load(path)
+                if binding.get('identity') != quota_identity(conf) or not conf.quota_notifications: return
+                # Quiet stale sessions stop. Their next native hook starts the same durable cursor.
+                if time.time() - max(os.path.getmtime(binding['path']) if os.path.isfile(binding['path']) else binding['created'], binding['created']) > 7*86400: return
+                try:
+                    quota_poll(conf, path)
+                except (NetError, SystemExit):
+                    with contextlib.redirect_stderr(io.StringIO()): discover_server(conf)
+                except (ValueError, KeyError): return
+                except OSError: pass
+                time.sleep(3)
+                conf = Conf(conf.path)
+                if os.stat(__file__).st_mtime_ns != source_stamp:
+                    os.execv(sys.executable, client_command(conf) + ['quota-monitor','--binding',path])
+    except OSError: return
+
+
 def cmd_hook(conf, args):
     """For Claude Code hooks (SessionStart, UserPromptSubmit). Hook stdout reaches the agent next to the
     user's prompt, i.e. with the user's authority, so it carries status only: whether watch listens, how many
     messages wait, their ids/authors/types. Never message text (subject, body, topic): peer text must not
     arrive dressed as the user. Silent when there is nothing to say; never fails the hook."""
     if not conf.agent_client_explicit:conf.agent_client = 'claude'
+    try:
+        if not sys.stdin.isatty():
+            event = json.loads(sys.stdin.read(1024*1024+1))
+            if isinstance(event, dict):
+                quota_bind(conf, 'claude', event)
+                signal = quota_signal('claude', event)
+                if signal: quota_record(conf, signal)
+    except (Exception, SystemExit): pass
     tg = shell_command(client_command(conf))
     tag = "[telegent]"
     try:
@@ -1444,6 +1765,8 @@ def codex_hook_result(conf, event):
     session = event.get("session_id")
     if kind not in CODEX_EVENTS or not isinstance(session, str) or not session or len(session) > 200:
         return {}
+    try: quota_bind(conf, 'codex', event)
+    except (Exception, SystemExit): pass
     key = hashlib.sha256((session + "\n" + conf.token + "\n" + (conf.project or "")).encode()).hexdigest()[:24]
     state_path = conf.state_path + ".codex-" + key + ".json"
     lock = state_path + ".lock"
@@ -1631,7 +1954,7 @@ def connection_note(path, write=False):
 def connection_preflight(root, client):
     if client != "kimi":
         path = os.path.join(root, ".codex", "hooks.json") if client == "codex" else os.path.join(root, ".claude", "settings.local.json")
-        load_hook_file(path, CODEX_EVENTS if client == "codex" else ("SessionStart", "UserPromptSubmit"))
+        load_hook_file(path, CODEX_EVENTS if client == "codex" else ("SessionStart", "UserPromptSubmit", "StopFailure"))
     connection_note(os.path.join(root, "AGENTS.md" if client != "claude" else "CLAUDE.md"))
 
 
@@ -1657,8 +1980,8 @@ def install_connection(conf, root, client):
         cmd_codex_install(conf, argparse.Namespace(dir=root))
     elif client == "claude":
         path = os.path.join(root, ".claude", "settings.local.json")
-        doc = load_hook_file(path, ("SessionStart", "UserPromptSubmit"))
-        for event in ("SessionStart", "UserPromptSubmit"):
+        doc = load_hook_file(path, ("SessionStart", "UserPromptSubmit", "StopFailure"))
+        for event in ("SessionStart", "UserPromptSubmit", "StopFailure"):
             parts = client_command(conf) + ["hook"] + (["--session-start"] if event == "SessionStart" else [])
             groups = []
             for group in doc["hooks"].get(event, []):
@@ -1966,6 +2289,8 @@ def main():
     s.add_argument("--session-start", action="store_true", help="всегда печатать строку состояния")
     s.add_argument("--status-only", action="store_true",
                    help="(так и так по умолчанию) только статус и номера, без текста сообщений")
+    s = sub.add_parser('quota-monitor', help='служебное наблюдение квоты выбранной сессии')
+    s.add_argument('--binding', required=True)
     s = sub.add_parser("codex", help="подключение Codex: установка хуков и проверка входящих")
     cs = s.add_subparsers(dest="codex_action", required=True)
     ci = cs.add_parser("install", help="добавить хуки в .codex/hooks.json, сохранив существующие")
@@ -2031,7 +2356,7 @@ def main():
         "watch": cmd_watch, "get": cmd_get, "board": cmd_board, "progress":cmd_progress, "results": cmd_results,
         "search": cmd_search, "whoami": cmd_whoami, "client":cmd_client, "sent": cmd_sent, "hook": cmd_hook, "projects": cmd_projects,
         "react": cmd_react, "dm": cmd_dm, "secret": cmd_secret, "refresh": cmd_refresh, "update": cmd_update,
-        "claim": cmd_claim, "claims": cmd_claims, "release": cmd_release,
+        "claim": cmd_claim, "claims": cmd_claims, "release": cmd_release, "quota-monitor":cmd_quota_monitor,
         "take": lambda c, a: cmd_status(c, a, "taken"), "done": lambda c, a: cmd_status(c, a, "done"),
         "reject": lambda c, a: cmd_status(c, a, "rejected"), "reopen": lambda c, a: cmd_status(c, a, "open"),
         "approve": lambda c, a: cmd_approve(c, a, "approve"), "deny": lambda c, a: cmd_approve(c, a, "deny"),

@@ -229,6 +229,7 @@ python tests/test_chat_switch_browser.py # Firefox: мгновенный пер�
 python tests/test_sharing_browser.py # Firefox RU/EN: кнопки Android, исходный текст, файл, границы личек и секретов
 python android/test.py --java-home <JDK> # JVM: адреса навигации/скачивания и имена файлов; сборка APK — android/README.md
 python tests/test_client_updates.py # обновление файлов и настоящих Git-историй, сохранение локальных правок
+python tests/test_quota_notifications.py # нативные квоты, фоновая отправка без модели, идемпотентность и границы проектов
 python tests/test_app_download_browser.py # Firefox RU/EN: скачивание APK на входе и в настройках, десктоп/телефон
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
