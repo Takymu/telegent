@@ -222,6 +222,16 @@ class ReceiverTest(unittest.TestCase):
         self.assertEqual(methods, ['initialize', 'session/resume'])
         client.close()
 
+    def test_vscode_session_lock_has_actionable_russian_error(self):
+        error = receiver.AcpError('Kimi ACP request failed', {
+            'code': -32603, 'message': 'Internal error',
+            'data': {'details': 'This session is in use by another Kimi Code for VS Code instance.'},
+        })
+        text = receiver.acp_error_text(error)
+        self.assertIn('VS Code', text)
+        self.assertIn('отдельную CLI-сессию', text)
+        self.assertNotIn('Internal error', text)
+
     def test_permission_notification_is_not_auto_answered(self):
         binding = dict(self.binding)
         client = receiver.Acp(binding)

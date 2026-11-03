@@ -28,6 +28,17 @@ class PermissionRequired(AcpError):
     pass
 
 
+def acp_error_text(error):
+    payload = getattr(error, 'payload', None) or {}
+    details = (payload.get('data') or {}).get('details', '')
+    if 'in use by another Kimi Code for VS Code instance' in details:
+        return ('Сессия уже занята Kimi Code для VS Code. Останови её там или выбери отдельную '
+                'CLI-сессию; активную VS Code-сессию нельзя привязать к ACP-listener.')
+    code = payload.get('code')
+    message = payload.get('message') or str(error)
+    return f'Kimi ACP: ошибка запроса' + (f' (код {code})' if code is not None else '') + f': {message}'
+
+
 def load_json(path):
     try:
         with open(path, encoding='utf-8') as stream:
@@ -504,7 +515,11 @@ def main():
     conf = tg.Conf(args.config)
     folder = runtime(conf)
     if args.action == 'bind':
-        print(json.dumps(bind(conf, args.config, args.session, args.cwd), ensure_ascii=False))
+        try:
+            binding = bind(conf, args.config, args.session, args.cwd)
+        except AcpError as error:
+            parser.exit(1, acp_error_text(error) + '\n')
+        print(json.dumps(binding, ensure_ascii=False))
         return
     if args.action == 'status':
         print(json.dumps(load_json(folder / 'status.json'), ensure_ascii=False))
