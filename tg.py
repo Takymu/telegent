@@ -2241,7 +2241,9 @@ def join_connection(args):
                 with open(path,encoding='utf-8-sig') as stream:saved=json.load(stream)
                 if saved.get('connection_invite_hash') == invite_hash: matched=path;break
         if not args.config:
-            args.config=matched or (os.path.join(root,'.telegent.json') if not os.path.exists(os.path.join(root,'.telegent.json')) and not registry['connections']
+            # A reset/explicit replacement targets this session, never the first roommate.
+            replace=repo_config(client=client,workspace=root,strict=True) if args.force and connection_root(root)==root else None
+            args.config=matched or replace or (os.path.join(root,'.telegent.json') if not os.path.exists(os.path.join(root,'.telegent.json')) and not registry['connections']
                                    else os.path.join(root,'.telegent','agents',invite_hash+'.json'))
         if not connection_file(root,os.path.relpath(os.path.abspath(args.config),root)):
             die('connect сохраняет подключение в рабочей папке; используй её .telegent.json или автоматический путь')
@@ -2321,6 +2323,7 @@ def join_connection(args):
     if os.path.exists(cfg_path):
         with open(cfg_path, encoding="utf-8-sig") as f:
             c = json.load(f)
+    reset_state=c.get('state_file') if res.get('purpose')=='reset' and c.get('account_id')==res.get('id') else None
     c.update({"server": server, "token_file": tok_path, "account_id": res.get("id"), 'agent_name':res['name']})
     c['is_secretary']=bool(res.get('is_secretary'))
     if c['is_secretary']:
@@ -2328,7 +2331,7 @@ def join_connection(args):
     elif res.get("project"):
         c["project"] = res["project"]
     if args.here:
-        c["state_file"] = os.path.join(home, file_tag + ".state.json")
+        c["state_file"] = reset_state or os.path.join(home, file_tag + ".state.json")
         c['connection_invite_hash']=invite_hash
         context=session_context(client)
         if not client and len(context)==1:c['client']=context[0][0]

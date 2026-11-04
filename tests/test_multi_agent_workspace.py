@@ -192,6 +192,25 @@ class MultiAgentWorkspaceTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(set(result.stdout.splitlines()),set(paths))
 
+    def test_token_reset_updates_its_session_without_touching_the_other_agent(self):
+        first=self.connect('codex');second=self.connect('codex')
+        original=(self.root/first['path']).read_bytes()
+        old_token=Path(second['config']['token_file']).read_text()
+        invite=self.fx.api('POST','/api/reset',{'account_id':second['id']},who='alice')
+        result=self.cli('connect',self.fx.url+'/#invite='+invite['code'],'--client','codex','--force',
+                        '--url-source','',env=second['env'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.root/first['path']).read_bytes(),original)
+        registry=json.loads((self.root/'.telegent/connections.json').read_text())
+        self.assertEqual(len(registry['connections']),2)
+        saved=json.loads((self.root/second['path']).read_text())
+        self.assertEqual(saved['state_file'],second['config']['state_file'])
+        self.assertNotEqual(Path(saved['token_file']).read_text(),old_token)
+        for actor in (first,second):
+            result=self.cli('whoami',env=actor['env'])
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn(actor['name'],result.stdout)
+
     def test_validated_listener_can_register_a_session_from_a_subdirectory(self):
         first=self.connect('codex');self.connect('codex')
         spec=fixture.importlib.util.spec_from_file_location('workspace_client',fixture.ROOT/'tg.py')
