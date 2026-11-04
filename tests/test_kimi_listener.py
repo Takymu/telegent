@@ -340,6 +340,7 @@ for line in sys.stdin:
         real_popen = subprocess.Popen
         def start_fixture(argv, **kwargs):
             self.assertEqual(argv, ['kimi', 'acp'])
+            self.assertEqual(kwargs['env']['TELEGENT_CONFIG'], self.binding['config'])
             return real_popen([sys.executable, '-u', str(script)], **kwargs)
         client = receiver.Acp(self.binding, prompt_timeout=5)
         try:

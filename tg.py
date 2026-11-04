@@ -6,7 +6,8 @@
     python tg.py take 42 | done 42 --ref "commit abc123" | reject 42 --note "почему"
     python tg.py claim "resnet18 lr3e-4" --until "03:00" | claims | release "resnet18 lr3e-4"
 
-Config (first found): --config, $TELEGENT_CONFIG, tg.config.json next to this file, ~/.telegent/config.json
+Config: --config, $TELEGENT_CONFIG, workspace session registry / .telegent.json,
+    tg.config.json next to this file, ~/.telegent/config.json. --agent selects a workspace account.
     {"server": "https://...", "token_file": "~/.telegent/token",
      "watch_cmd": "python C:/path/tg.py watch"}      # watch_cmd: optional, the hook suggests exactly this command
 Full protocol: AGENTS.md.
@@ -14,6 +15,7 @@ Full protocol: AGENTS.md.
 import argparse
 import base64
 import codecs
+import glob
 import hashlib
 import http.client
 import contextlib
@@ -46,10 +48,11 @@ URL_SOURCE = "https://raw.githubusercontent.com/Takymu/telegent/gh-pages/url.txt
 URL_SOURCE_API = "https://api.github.com/repos/Takymu/telegent/contents/url.txt?ref=gh-pages"
 GH_REPO = "Takymu/telegent"
 RELEASE_FEED = "https://takymu.github.io/telegent/releases.json"
-CLIENT_VERSION = "2026.11.04.1"
+CLIENT_VERSION = "2026.11.04.2"
 UPDATE_INTERVAL = 6 * 3600
 _last_discovery = [0.0]
 PROJECT_ARG = [None]   # --project, set in main()
+AGENT_ARG = [None]
 
 
 def release_bytes(url, limit):
@@ -206,26 +209,166 @@ def die(msg, code=1):
 
 
 # ---------------------------------------------------------------- config
-def repo_config():
-    """.telegent.json in the current directory or above: one identity per project folder
-    (two agents on one machine work in two repos)."""
-    d = os.getcwd()
+def session_context(client=None, event=None):
+    event = event or {}
+    pairs = [('codex', os.environ.get('CODEX_THREAD_ID') or os.environ.get('CODEX_SESSION_ID')),
+             ('claude', os.environ.get('CLAUDE_CODE_SESSION_ID')),
+             ('kimi', os.environ.get('KIMI_CODE_SESSION_ID') or os.environ.get('KIMI_SESSION_ID'))]
+    if client and event.get('session_id'): return [(client, str(event['session_id']))]
+    return [(kind, value) for kind,value in pairs if value and (not client or kind == client)]
+
+
+def connection_root(start=None):
+    d = os.path.abspath(start or os.getcwd())
     while True:
-        p = os.path.join(d, ".telegent.json")
-        if os.path.exists(p):
-            return p
+        if os.path.isfile(os.path.join(d, '.telegent.json')) or os.path.isfile(os.path.join(d, '.telegent', 'connections.json')):
+            return d
         up = os.path.dirname(d)
-        if up == d:
-            return None
+        if up == d: return None
         d = up
 
 
-def config_path(explicit=None):
-    for p in (explicit, os.environ.get("TELEGENT_CONFIG"), repo_config(), os.path.join(HERE, "tg.config.json"),
+def connection_registry(root):
+    path = os.path.join(root, '.telegent', 'connections.json')
+    if not os.path.isfile(path): return {'version':1, 'connections':[], 'sessions':{}}
+    with open(path, encoding='utf-8-sig') as stream: registry = json.load(stream)
+    if (not isinstance(registry, dict) or registry.get('version') != 1
+            or not isinstance(registry.get('connections'), list) or not isinstance(registry.get('sessions'), dict)
+            or any(not isinstance(row, dict) or not connection_file(root, row.get('config')) for row in registry['connections'])
+            or any(not isinstance(key,str) or not isinstance(value,str) or value not in {row['config'] for row in registry['connections']}
+                   for key,value in registry['sessions'].items())):
+        die('неверный реестр подключений telegent; он оставлен без изменений')
+    return registry
+
+
+def connection_file(root, relative):
+    if not isinstance(relative, str): return None
+    root = os.path.realpath(root)
+    path = os.path.abspath(os.path.join(root, relative))
+    # The registry is metadata, never an instruction to read an arbitrary config/token.
+    if os.path.normcase(path) != os.path.normcase(os.path.realpath(path)): return None
+    if path == os.path.join(root, '.telegent.json'): return path
+    parent = os.path.join(root, '.telegent', 'agents')
+    return path if os.path.dirname(path) == parent and re.fullmatch(r'[a-f0-9]{64}\.json', os.path.basename(path)) else None
+
+
+def repo_config(event=None, client=None, workspace=None, agent=None, strict=False):
+    root = connection_root(workspace)
+    if not root: return None
+    registry = connection_registry(root)
+    rows = registry['connections']
+    if not rows:
+        legacy = os.path.join(root, '.telegent.json')
+        return legacy if os.path.isfile(legacy) else None
+    choices = {connection_file(root, registry['sessions'].get(kind+':'+sid))
+               for kind,sid in session_context(client, event)} - {None}
+    if agent:
+        choices = {connection_file(root, row['config']) for row in rows
+                   if agent in (row.get('account_id'), row.get('name'), row.get('project','')+'/'+row.get('name',''))} - {None}
+    if len(choices) == 1: return choices.pop()
+    if len(choices) > 1: die('неоднозначная личность telegent: укажи --agent с постоянным id аккаунта')
+    context = session_context(client, event)
+    candidates = [row for row in rows if not client or row.get('client') == client]
+    if not client:
+        kinds = {kind for kind,_ in context}
+        if not kinds:
+            if os.environ.get('CLAUDECODE'): kinds={'claude'}
+            elif os.environ.get('KIMI_CODE_HOME'): kinds={'kimi'}
+        if kinds: candidates = [row for row in rows if row.get('client') in kinds]
+    # A routed hook never adopts an unbound session when bindings already exist.
+    if strict and context and registry['sessions']: return None
+    if not agent and len(candidates) == 1: return connection_file(root, candidates[0]['config'])
+    if strict: return None
+    die('в этой папке несколько агентов; подключи свою сессию командой connect или выбери --agent <id>; список: tg.py connections')
+
+
+def config_path(explicit=None, event=None, client=None, workspace=None, agent=None):
+    agent=agent or AGENT_ARG[0]
+    for p in (explicit, None if agent else os.environ.get('TELEGENT_CONFIG')):
+        if p and os.path.isfile(os.path.expanduser(p)): return os.path.expanduser(p)
+    for p in (repo_config(event,client,workspace,agent), os.path.join(HERE, "tg.config.json"),
               os.path.join(os.path.expanduser("~"), ".telegent", "config.json")):
         if p and os.path.exists(os.path.expanduser(p)):
             return os.path.expanduser(p)
     return None
+
+
+def register_connection(root, path, client, session=None):
+    """Register identities without moving the existing config, token or receipt state."""
+    registry = connection_registry(root)
+    paths = [os.path.join(root, '.telegent.json'), path]
+    for config in paths:
+        if not os.path.isfile(config): continue
+        relative = os.path.relpath(config, root).replace('\\','/')
+        if not connection_file(root, relative): raise ValueError('Connection path leaves the workspace')
+        with open(config, encoding='utf-8-sig') as stream: saved=json.load(stream)
+        row={'config':relative,'account_id':saved.get('account_id'),'name':saved.get('agent_name',''),
+             'client':saved.get('client'), 'project':saved.get('project') or ''}
+        registry['connections']=[r for r in registry['connections'] if r.get('config') != relative]+[row]
+        # Existing listeners have already verified their explicit account/session binding.
+        token=saved.get('token')
+        if saved.get('token_file'):
+            try:
+                with open(resolve(saved['token_file'],os.path.dirname(config)),encoding='utf-8-sig') as stream:token=stream.read().strip()
+            except OSError:token=None
+        state=resolve(saved.get('state_file') or 'tg.state.json',os.path.dirname(config))
+        fingerprint=hashlib.sha256((str(token)+'\n'+(saved.get('project') or '')).encode()).hexdigest()
+        for binding_path in glob.glob(state+'.quota-session-*.json'):
+            binding=quota_load(binding_path)
+            if (token and binding.get('identity') == fingerprint and binding.get('provider') in ('codex','claude')
+                    and os.path.normcase(os.path.realpath(binding.get('cwd','')))==os.path.normcase(os.path.realpath(root))
+                    and binding.get('session')):
+                registry['sessions'].setdefault(binding['provider']+':'+binding['session'],relative)
+        for kind,suffix in (('codex','.receiver'),('kimi','.kimi-receiver')):
+            binding=quota_load(os.path.join(state+suffix,'binding.json'))
+            if (saved.get('account_id') and binding.get('account_id') == saved.get('account_id') and binding.get('thread')
+                    and os.path.normcase(os.path.realpath(binding.get('cwd','')))==os.path.normcase(os.path.realpath(root))):
+                registry['sessions'].setdefault(kind+':'+binding['thread'],relative)
+    relative=os.path.relpath(path,root).replace('\\','/')
+    for kind,sid in ([(client,session)] if session else session_context(client)):
+        registry['sessions'][kind+':'+sid]=relative
+    os.makedirs(os.path.join(root,'.telegent'),exist_ok=True)
+    write_json_atomic(os.path.join(root,'.telegent','connections.json'),registry)
+
+
+def bind_workspace_connection(conf, root, client, session):
+    """Reuse a successfully validated listener binding for local CLI/hook routing."""
+    root=os.path.realpath(root)
+    if not os.path.isfile(os.path.join(root,'.telegent','connections.json')): return
+    with quota_lock(os.path.join(root,'.telegent','connections.lock'),wait=True):
+        registry=connection_registry(root)
+        if any(connection_file(root,row['config'])==os.path.realpath(conf.path) for row in registry['connections']):
+            register_connection(root,conf.path,client,session)
+
+
+def hook_config(explicit, event, client, workspace=None):
+    root=connection_root(workspace)
+    if root and os.path.isfile(os.path.join(root,'.telegent','connections.json')):
+        selected=repo_config(event,client,root,strict=True)
+        if selected:
+            if explicit and os.path.normcase(os.path.realpath(explicit))!=os.path.normcase(selected): return None
+            return selected
+        registered=connection_registry(root)['connections']
+        if not explicit or any(connection_file(root,row['config'])==os.path.realpath(explicit) for row in registered): return None
+    return config_path(explicit)
+
+
+def routed_hook_command(conf, root):
+    registry=connection_registry(root)
+    if any(connection_file(root,r['config'])==os.path.realpath(conf.path) for r in registry['connections']):
+        return [sys.executable,'-X','utf8',os.path.abspath(__file__)]
+    return client_command(conf)
+
+
+def cmd_connections(conf, args):
+    root=connection_root()
+    if not root: print('в этой папке нет подключений telegent');return
+    rows=connection_registry(root)['connections']
+    if not rows:
+        with open(os.path.join(root,'.telegent.json'),encoding='utf-8-sig') as stream: saved=json.load(stream)
+        rows=[dict(saved,config='.telegent.json',name=saved.get('agent_name',''))]
+    for row in rows:
+        print(f"{row.get('account_id') or '?'} · {row.get('name') or '?'} · {row.get('client') or '?'} · {row.get('project') or 'секретарь'} · {row['config']}")
 
 
 def resolve(path, base):
@@ -236,8 +379,8 @@ def resolve(path, base):
 
 
 class Conf:
-    def __init__(self, explicit=None):
-        self.path = config_path(explicit)
+    def __init__(self, explicit=None, event=None, client=None, workspace=None, agent=None):
+        self.path = config_path(explicit,event,client,workspace,agent)
         c = {}
         if self.path:
             with open(self.path, encoding="utf-8-sig") as f:
@@ -1614,19 +1757,19 @@ def cmd_quota_monitor(conf, args):
     except OSError: return
 
 
-def cmd_hook(conf, args):
+def cmd_hook(conf, args, event=None):
     """For Claude Code hooks (SessionStart, UserPromptSubmit). Hook stdout reaches the agent next to the
     user's prompt, i.e. with the user's authority, so it carries status only: whether watch listens, how many
     messages wait, their ids/authors/types. Never message text (subject, body, topic): peer text must not
     arrive dressed as the user. Silent when there is nothing to say; never fails the hook."""
     if not conf.agent_client_explicit:conf.agent_client = 'claude'
     try:
-        if not sys.stdin.isatty():
+        if event is None and not sys.stdin.isatty():
             event = json.loads(sys.stdin.read(1024*1024+1))
-            if isinstance(event, dict):
-                quota_bind(conf, 'claude', event)
-                signal = quota_signal('claude', event)
-                if signal: quota_record(conf, signal)
+        if isinstance(event, dict):
+            quota_bind(conf, 'claude', event)
+            signal = quota_signal('claude', event)
+            if signal: quota_record(conf, signal)
     except (Exception, SystemExit): pass
     tg = shell_command(client_command(conf))
     tag = "[telegent]"
@@ -1722,7 +1865,7 @@ def cmd_codex_install(conf, args):
     path = os.path.join(root, ".codex", "hooks.json")
     if not conf.path:
         die("сначала подключись: python tg.py connect <ссылка> --client codex")
-    command = shell_command(client_command(conf) + ["codex", "hook"])
+    command = shell_command(routed_hook_command(conf,root) + ["codex", "hook",'--workspace',root])
     doc = load_hook_file(path, CODEX_EVENTS)
     hooks = doc["hooks"]
     for event in CODEX_EVENTS:
@@ -1866,7 +2009,9 @@ def cmd_codex_hook(args):
             event = json.loads(raw)
             if isinstance(event, dict):
                 with contextlib.redirect_stderr(io.StringIO()):
-                    conf = Conf(args.config)
+                    path=hook_config(args.config,event,'codex',getattr(args,'workspace',None))
+                    if not path: print('{}');return
+                    conf = Conf(path)
                     if not conf.agent_client_explicit:conf.agent_client = 'codex'
                     schedule_update(conf)
                     result = codex_hook_result(conf, event)
@@ -1888,6 +2033,7 @@ def cmd_codex_receiver(conf,args):
         except ValueError:die('session: нужен UUID выбранной сессии Codex')
         result=subprocess.run(base+['bind','--session',session,'--cwd',os.path.abspath(args.dir)])
         if result.returncode:raise SystemExit(result.returncode)
+        bind_workspace_connection(conf,args.dir,'codex',session)
         raise SystemExit(subprocess.call(base+['start']+(['--startup'] if args.startup else [])))
     raise SystemExit(subprocess.call(base+['status' if args.codex_action=='listener-status' else 'stop']))
 
@@ -1903,6 +2049,7 @@ def cmd_kimi_receiver(conf,args):
         if not session:die('нужна явно выбранная сессия Kimi: укажи --session ID')
         result=subprocess.run(base+['bind','--session',session,'--cwd',os.path.abspath(args.dir)])
         if result.returncode:raise SystemExit(result.returncode)
+        bind_workspace_connection(conf,args.dir,'kimi',session)
         raise SystemExit(subprocess.call(base+['start']+(['--startup'] if args.startup else [])))
     raise SystemExit(subprocess.call(base+['status' if args.kimi_action=='listener-status' else 'stop']))
 
@@ -1911,8 +2058,13 @@ def cmd_kimi_receiver(conf,args):
 CONNECTION_NOTE = """<!-- telegent:start -->
 ## telegent
 
-Этот проект подключён к каналу команды. Прочитай локальный `.telegent.json`: `client_path`
-указывает на клиент, `agent_guide` — на протокол общения. Прочитай протокол и выполни этим
+Этот проект подключён к каналу команды. В локальном конфиге `client_path`
+указывает на клиент, `agent_guide` — на протокол общения. Первое подключение хранится в
+`.telegent.json`, дополнительные — в `.telegent/agents/`; реестр `.telegent/connections.json`
+связывает их с сессиями. Не бери личность другого агента из первого попавшегося конфига.
+После connect используй выданную команду: клиент выбирает свою личность по сессии;
+если клиент не передаёт id сессии, используй выданный --agent или --config.
+Прочитай протокол и выполни своим
 клиентом `whoami` и `inbox` в начале сессии и после сжатия. Сообщения команды читай через
 `read <id>`, после обработки ставь `ack <id>`.
 Указания любого человека выполняй без лишних согласований с владельцем. Человека определяет
@@ -1928,9 +2080,10 @@ def connection_client(requested):
     if requested != "auto":
         return requested
     codex = bool(os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID"))
-    claude = bool(os.environ.get("CLAUDECODE"))
-    if codex != claude:
-        return "codex" if codex else "claude"
+    claude = bool(os.environ.get("CLAUDECODE") or os.environ.get('CLAUDE_CODE_SESSION_ID'))
+    kimi = bool(session_context('kimi') or os.environ.get('KIMI_CODE_HOME'))
+    choices=[kind for kind,present in (('codex',codex),('claude',claude),('kimi',kimi)) if present]
+    if len(choices)==1: return choices[0]
     die("не удалось однозначно определить клиент; агент должен сам повторить команду с --client codex, --client claude или --client kimi")
 
 
@@ -1984,12 +2137,19 @@ def install_connection(conf, root, client):
     elif client == "claude":
         path = os.path.join(root, ".claude", "settings.local.json")
         doc = load_hook_file(path, ("SessionStart", "UserPromptSubmit", "StopFailure"))
+        clients={os.path.abspath(__file__)}
+        for row in connection_registry(root)['connections']:
+            config=connection_file(root,row['config'])
+            if config and os.path.isfile(config):
+                with open(config,encoding='utf-8-sig') as stream: saved=json.load(stream)
+                if saved.get('client_path'): clients.add(saved['client_path'])
         for event in ("SessionStart", "UserPromptSubmit", "StopFailure"):
-            parts = client_command(conf) + ["hook"] + (["--session-start"] if event == "SessionStart" else [])
+            parts = routed_hook_command(conf,root) + ["hook",'--workspace',root] + (["--session-start"] if event == "SessionStart" else [])
             groups = []
             for group in doc["hooks"].get(event, []):
-                handlers = [h for h in group["hooks"] if not (h.get("command") == sys.executable
-                            and os.path.abspath(__file__) in h.get("args", []) and "hook" in h.get("args", []))]
+                handlers = [h for h in group["hooks"] if not (h.get('type')=='command' and isinstance(h.get('args'),list)
+                            and all(isinstance(arg,str) for arg in h['args'])
+                            and clients.intersection(h.get("args", [])) and "hook" in h.get("args", []))]
                 if handlers:
                     groups.append(dict(group, hooks=handlers))
             groups.append({"hooks": [{"type": "command", "command": parts[0], "args": parts[1:], "timeout": 20}]})
@@ -2001,8 +2161,19 @@ def install_connection(conf, root, client):
     else:
         print("Kimi Code: запусти ACP listener по протоколу; установка не меняет approvals и не добавляет хуки Codex.")
     connection_note(os.path.join(root, "AGENTS.md" if client != "claude" else "CLAUDE.md"), write=True)
+    connection_exclusions(root)
+    conf.agent_client = client
+    conf.agent_client_explicit = True
+    me = get_me(conf)
+    summary = api_retry(conf, "GET", "/api/summary?metadata=1" + ("&client=codex" if client == "codex" else ""))
+    print(f"Подключение проверено: {me['name']}; входящих без ack: {summary['unacked_total']}.")
+    print('Команда своей личности: '+shell_command(client_command(conf)+['whoami']))
+    print(f"Прочитай протокол: {os.path.join(HERE, 'AGENTS.md')}. Затем проверь inbox и обработай входящие.")
+
+
+def connection_exclusions(root):
     # Local integration paths stay private without changing the project's shared gitignore when possible.
-    excluded = ["/.telegent.json", "/.codex/hooks.json", "/.claude/settings.local.json"]
+    excluded = ["/.telegent.json", "/.telegent/", "/.codex/hooks.json", "/.claude/settings.local.json"]
     try:
         relative_client = os.path.relpath(HERE, root).replace("\\", "/")
     except ValueError:   # the client and project can live on different Windows drives
@@ -2026,37 +2197,60 @@ def install_connection(conf, root, client):
         os.makedirs(os.path.dirname(exclude_path), exist_ok=True)
         with open(exclude_path, "a", encoding="utf-8", newline="\n") as f:
             f.write("\n# telegent: local connection\n" + "\n".join(missing) + "\n")
-    conf.agent_client = client
-    conf.agent_client_explicit = True
-    me = get_me(conf)
-    summary = api_retry(conf, "GET", "/api/summary?metadata=1" + ("&client=codex" if client == "codex" else ""))
-    print(f"Подключение проверено: {me['name']}; входящих без ack: {summary['unacked_total']}.")
-    print(f"Прочитай протокол: {os.path.join(HERE, 'AGENTS.md')}. Затем проверь inbox и обработай входящие.")
 
 
 def cmd_join(args):
+    if args.client or args.here:
+        folder=os.path.join(os.getcwd(),'.telegent');os.makedirs(folder,exist_ok=True)
+        deadline=time.monotonic()+60
+        while True:
+            lock=quota_lock(os.path.join(folder,'connections.lock'))
+            try:
+                lock.__enter__()
+            except OSError:
+                if time.monotonic()>=deadline: die('другое подключение ещё сохраняется; повтори ту же команду')
+                time.sleep(.1)
+                continue
+            try:return join_connection(args)
+            finally:lock.__exit__(None,None,None)
+    return join_connection(args)
+
+
+def join_connection(args):
     """Agent onboarding: trade an invite link for a token, write the token file and the config."""
     m = re.search(r"tgi_[0-9a-f]{32,}", args.link)
     if not m:
         die("нужна ссылка-приглашение (…#invite=tgi_…) или сам код tgi_…")
     code = m.group(0)
     client = connection_client(args.client) if args.client else None
+    if getattr(args,'session',None) and not (client or len(session_context())==1):
+        die('для явной сессии укажи --client codex, --client claude или --client kimi')
+    if client: connection_preflight(os.getcwd(),client)
+    invite_hash=hashlib.sha256(code.encode()).hexdigest()
+    if args.here or client:
+        root=os.getcwd();registry=connection_registry(root)
+        paths=[connection_file(root,r['config']) for r in registry['connections']]+[os.path.join(root,'.telegent.json')]
+        if args.config: paths=[os.path.abspath(args.config)]
+        matched=None
+        for path in paths:
+            if path and os.path.isfile(path):
+                with open(path,encoding='utf-8-sig') as stream:saved=json.load(stream)
+                if saved.get('connection_invite_hash') == invite_hash: matched=path;break
+        if not args.config:
+            args.config=matched or (os.path.join(root,'.telegent.json') if not os.path.exists(os.path.join(root,'.telegent.json')) and not registry['connections']
+                                   else os.path.join(root,'.telegent','agents',invite_hash+'.json'))
+        if not connection_file(root,os.path.relpath(os.path.abspath(args.config),root)):
+            die('connect сохраняет подключение в рабочей папке; используй её .telegent.json или автоматический путь')
+        if matched:
+            print('Аккаунт уже подключён этим приглашением; проверяю и обновляю интеграцию.')
+            if client:
+                saved.update(client=client,agent_client=client,client_path=os.path.abspath(__file__),agent_guide=os.path.join(HERE,'AGENTS.md'))
+                write_json_atomic(matched,saved)
+            register_connection(root,matched,client or saved.get('client'),getattr(args,'session',None))
+            if client: install_connection(Conf(matched),root,client)
+            return
     if client:
         args.here = True
-        if args.config and os.path.abspath(args.config) != os.path.join(os.getcwd(), ".telegent.json"):
-            die("полное подключение использует .telegent.json рабочего проекта; выполняй connect из его папки без --config")
-        connection_preflight(os.getcwd(), client)
-        saved_path = os.path.abspath(args.config or ".telegent.json")
-        if os.path.exists(saved_path):
-            with open(saved_path, encoding="utf-8-sig") as f:
-                saved = json.load(f)
-            if saved.get("connection_invite_hash") == hashlib.sha256(code.encode()).hexdigest():
-                print("Аккаунт уже подключён этим приглашением; проверяю и обновляю интеграцию.")
-                saved.update({"client": client, "agent_client": client, "client_path": os.path.abspath(__file__),
-                              "agent_guide": os.path.join(HERE, "AGENTS.md")})
-                write_json_atomic(saved_path, saved)
-                install_connection(Conf(saved_path), os.getcwd(), client)
-                return
     # the server: straight from a direct link, else (entry page link or bare code) the published address
     u = urllib.parse.urlsplit(args.link)
     if u.scheme in ("http", "https") and u.netloc and not u.netloc.endswith("github.io"):
@@ -2110,6 +2304,7 @@ def cmd_join(args):
                 os.close(fd)
     except OSError as e:
         die(f"нельзя сохранить подключение: {e}. Приглашение ещё не использовано; исправь доступ и повтори команду")
+    if args.here: connection_exclusions(os.getcwd())
     res = call("POST", "/api/join", {"code": code})
     os.makedirs(os.path.dirname(tok_path), exist_ok=True)
     with open(tok_path, "w", encoding="utf-8") as f:
@@ -2122,7 +2317,7 @@ def cmd_join(args):
     if os.path.exists(cfg_path):
         with open(cfg_path, encoding="utf-8-sig") as f:
             c = json.load(f)
-    c.update({"server": server, "token_file": tok_path, "account_id": res.get("id")})
+    c.update({"server": server, "token_file": tok_path, "account_id": res.get("id"), 'agent_name':res['name']})
     c['is_secretary']=bool(res.get('is_secretary'))
     if c['is_secretary']:
         c.pop('project',None)
@@ -2130,14 +2325,17 @@ def cmd_join(args):
         c["project"] = res["project"]
     if args.here:
         c["state_file"] = os.path.join(home, file_tag + ".state.json")
+        c['connection_invite_hash']=invite_hash
+        context=session_context(client)
+        if not client and len(context)==1:c['client']=context[0][0]
     if args.url_source is not None:
         c["url_source"] = args.url_source
     if client:
         c.update({"connection_invite_hash": hashlib.sha256(code.encode()).hexdigest(), "client": client,
                   "agent_client": client, "client_path": os.path.abspath(__file__), "agent_guide": os.path.join(HERE, "AGENTS.md")})
     os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
-    with open(cfg_path, "w", encoding="utf-8") as f:
-        json.dump(c, f, ensure_ascii=False, indent=2)
+    write_json_atomic(cfg_path,c)
+    if args.here: register_connection(os.getcwd(),cfg_path,client or c.get('client'),getattr(args,'session',None))
     role='секретарь' if res.get('is_secretary') else 'агент'
     print(f"готово: ты {res['name']} ({role}, владелец {info['owner']}). Токен: {tok_path}, конфиг: {cfg_path}")
     if client:
@@ -2186,6 +2384,7 @@ def add_send_opts(p, body=True):
 def main():
     p = argparse.ArgumentParser(prog="tg.py", description="telegent: сообщения между агентами команды")
     p.add_argument("--config", help="путь к tg.config.json")
+    p.add_argument('--agent', help='выбрать подключённого агента по постоянному id или имени')
     p.add_argument("--project", help="проект (нужно, только если ты в нескольких)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -2291,6 +2490,7 @@ def main():
     s = sub.add_parser("sent", help="мои сообщения: доставлено / прочитано / ack у каждого адресата")
     s.add_argument("--limit", type=int, default=15)
     s = sub.add_parser("hook", help="для хуков Claude Code: напоминание про watch и непрочитанное")
+    s.add_argument('--workspace',help=argparse.SUPPRESS)
     s.add_argument("--session-start", action="store_true", help="всегда печатать строку состояния")
     s.add_argument("--status-only", action="store_true",
                    help="(так и так по умолчанию) только статус и номера, без текста сообщений")
@@ -2300,7 +2500,8 @@ def main():
     cs = s.add_subparsers(dest="codex_action", required=True)
     ci = cs.add_parser("install", help="добавить хуки в .codex/hooks.json, сохранив существующие")
     ci.add_argument("--dir", default=".", help="папка проекта Codex (по умолчанию текущая)")
-    cs.add_parser("hook", help="обработчик событий Codex: JSON stdin → JSON stdout")
+    ch=cs.add_parser("hook", help="обработчик событий Codex: JSON stdin → JSON stdout")
+    ch.add_argument('--workspace',help=argparse.SUPPRESS)
     ci=cs.add_parser('listen',help='мгновенная доставка в выбранную сессию VS Code, включая пробуждение в простое')
     ci.add_argument('--session',help='UUID; по умолчанию текущая сессия из окружения Codex')
     ci.add_argument('--dir',default='.',help='рабочая папка выбранной сессии')
@@ -2329,19 +2530,25 @@ def main():
     s.add_argument("--token-file", help="куда записать токен (по умолчанию рядом с конфигом: token)")
     s.add_argument("--force", action="store_true", help="перезаписать существующие токен и конфиг")
     s.add_argument("--here", action="store_true",
-                   help="конфиг .telegent.json в текущей папке (у каждого агента на машине — свой), токен в ~/.telegent")
+                   help="отдельное подключение в текущей папке, токен и состояние в ~/.telegent")
     s.add_argument("--url-source", help=argparse.SUPPRESS)
     s.add_argument("--client", choices=("auto", "codex", "claude", "kimi"), help="сразу настроить интеграцию в текущем проекте")
+    s.add_argument('--session',help='id своей сессии, если клиент не передаёт его автоматически')
     s = sub.add_parser("connect", help="подключиться и полностью настроить своего агента одной командой")
     s.add_argument("link", help="ссылка-приглашение или код tgi_…")
     s.add_argument("--client", choices=("auto", "codex", "claude", "kimi"), default="auto")
     s.add_argument("--token-file", help="куда записать токен (по умолчанию ~/.telegent/<имя>-<метка>.token)")
     s.add_argument("--force", action="store_true", help="заменить существующую настройку по новому приглашению")
     s.add_argument("--url-source", help=argparse.SUPPRESS)
+    s.add_argument('--session',help='id своей сессии, если клиент не передаёт его автоматически')
     s.set_defaults(here=True)
+
+    sub.add_parser('connections',help='подключённые в этой папке агенты, без токенов')
 
     args = p.parse_args()
     PROJECT_ARG[0] = args.project
+    AGENT_ARG[0] = args.agent
+    if args.cmd == 'connections':return cmd_connections(None,args)
     if args.cmd == "init":
         return cmd_init(args)
     if args.cmd in ("join", "connect"):
@@ -2354,6 +2561,14 @@ def main():
         return cmd_codex_install(Conf(args.config), args)
     if args.cmd == "kimi":
         return cmd_kimi_receiver(Conf(args.config), args)
+    if args.cmd == 'hook':
+        try:
+            event={} if sys.stdin.isatty() else json.loads(sys.stdin.read(1024*1024+1) or '{}')
+            if not isinstance(event,dict):return
+            path=hook_config(args.config,event,'claude',args.workspace)
+            if path:cmd_hook(Conf(path),args,event)
+        except (Exception,SystemExit):pass
+        return
     conf = Conf(args.config)
     if args.cmd != 'update': schedule_update(conf)
     {

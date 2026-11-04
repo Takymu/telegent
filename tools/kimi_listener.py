@@ -132,6 +132,7 @@ class Acp:
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
         self.proc = subprocess.Popen(
             [self.binding['kimi_cli'], 'acp'],
+            env=dict(os.environ, TELEGENT_CONFIG=self.binding['config']),
             cwd=self.binding['cwd'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace', bufsize=1, **options)
         self.reader = threading.Thread(target=self._read_stdout, args=(self.proc.stdout,), daemon=True)
