@@ -182,5 +182,25 @@ class MultiAgentWorkspaceTest(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn(actor['name'],result.stdout)
 
+    def test_nested_workspace_connections_are_excluded_from_git(self):
+        parent=self.root
+        subprocess.run(['git','init','--quiet',str(parent)],check=True,capture_output=True)
+        self.root=parent/'work';self.root.mkdir()
+        self.connect('codex');self.connect('codex')
+        paths=['work/.telegent.json','work/.telegent/connections.json','work/.codex/hooks.json']
+        result=subprocess.run(['git','check-ignore',*paths],cwd=parent,capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(set(result.stdout.splitlines()),set(paths))
+
+    def test_validated_listener_can_register_a_session_from_a_subdirectory(self):
+        first=self.connect('codex');self.connect('codex')
+        spec=fixture.importlib.util.spec_from_file_location('workspace_client',fixture.ROOT/'tg.py')
+        client=fixture.importlib.util.module_from_spec(spec);spec.loader.exec_module(client)
+        child=self.root/'src';child.mkdir();sid=str(uuid.uuid4())
+        client.bind_workspace_connection(client.Conf(str(self.root/first['path'])),child,'codex',sid)
+        result=self.cli('whoami',env=dict(self.env,CODEX_THREAD_ID=sid))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn(first['name'],result.stdout)
+
 
 if __name__=='__main__':unittest.main(verbosity=2)

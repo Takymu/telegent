@@ -333,8 +333,9 @@ def register_connection(root, path, client, session=None):
 
 def bind_workspace_connection(conf, root, client, session):
     """Reuse a successfully validated listener binding for local CLI/hook routing."""
+    root=connection_root(root)
+    if not root or not os.path.isfile(os.path.join(root,'.telegent','connections.json')): return
     root=os.path.realpath(root)
-    if not os.path.isfile(os.path.join(root,'.telegent','connections.json')): return
     with quota_lock(os.path.join(root,'.telegent','connections.lock'),wait=True):
         registry=connection_registry(root)
         if any(connection_file(root,row['config'])==os.path.realpath(conf.path) for row in registry['connections']):
@@ -2185,6 +2186,9 @@ def connection_exclusions(root):
         found = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
                                cwd=root, capture_output=True, text=True, timeout=5)
         if found.returncode == 0:
+            prefix = subprocess.run(['git','rev-parse','--show-prefix'],cwd=root,capture_output=True,text=True,timeout=5)
+            if prefix.returncode != 0: raise OSError('Cannot determine workspace git prefix')
+            excluded=['/'+prefix.stdout.rstrip('\r\n')+entry.lstrip('/') for entry in excluded]
             exclude_path = found.stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         pass
