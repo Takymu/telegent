@@ -29,8 +29,11 @@ class PermissionRequired(AcpError):
 
 
 def acp_error_text(error):
-    payload = getattr(error, 'payload', None) or {}
-    details = (payload.get('data') or {}).get('details', '')
+    payload = getattr(error, 'payload', None)
+    if not isinstance(payload, dict): payload = {}
+    data = payload.get('data')
+    details = data.get('details', '') if isinstance(data, dict) else ''
+    if not isinstance(details, str): details = ''
     if 'in use by another Kimi Code for VS Code instance' in details:
         return ('Сессия уже занята Kimi Code для VS Code. Останови её там или выбери отдельную '
                 'CLI-сессию; активную VS Code-сессию нельзя привязать к ACP-listener.')

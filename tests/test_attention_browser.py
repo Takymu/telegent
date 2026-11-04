@@ -42,6 +42,8 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   await setProject(FIXTURE.second);release();await foreign;await selectTab('work');await loadWork();
   check($('waitChip').classList.contains('hidden')&&!$('workBox').querySelector('[data-reminder]'),'project switch clears old counts and ignores late rows');
   await setProject('main');await selectTab('work');await loadWork();
+  // Cached navigation can finish before a newer background attention snapshot.
+  await wait(()=>!$('waitChip').classList.contains('hidden')&&$('workBox').querySelector('[data-reminder]'));
   check(!$('waitChip').classList.contains('hidden'),'returning restores only this project reminders');
   api=async(method,path,...args)=>{if(path.includes('waiting_me=1'))throw Error('Attention network fixture');return path.startsWith('/api/wait?')?new Promise(()=>{}):real(method,path,...args);};
   await loadWork();check($('waitChip').classList.contains('hidden')&&$('workBox').textContent.includes('Attention network fixture'),'failure explains unavailable list instead of retaining a stale count');

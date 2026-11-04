@@ -232,6 +232,14 @@ class ReceiverTest(unittest.TestCase):
         self.assertIn('отдельную CLI-сессию', text)
         self.assertNotIn('Internal error', text)
 
+    def test_acp_error_data_may_be_any_json_value(self):
+        for data in (None, 'provider unavailable', [], 7, {'details':None}):
+            with self.subTest(data=data):
+                text = receiver.acp_error_text(receiver.AcpError('Kimi ACP request failed',
+                    {'code':-32603,'message':'Internal error','data':data}))
+                self.assertIn('Kimi ACP',text)
+                self.assertIn('-32603',text)
+
     def test_permission_notification_is_not_auto_answered(self):
         binding = dict(self.binding)
         client = receiver.Acp(binding)
