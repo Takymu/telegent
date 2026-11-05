@@ -251,6 +251,7 @@ python tests/test_cluster_peer.py # равноправные журналы: р�
 python tests/test_cluster_wire.py # попарная аутентификация, защита от повторов и постраничная синхронизация журналов
 python tests/test_cluster_node.py # конфигурация узла, фоновые pull и настоящий подписанный HTTP-маршрут
 python tests/test_cluster_quorum.py # равноправный кворум: большинство, восстановление принятого значения и crash persistence
+python tests/test_cluster_app.py # глобальные JS-safe id, транзакционный outbox и exactly-once применение
 python tests/test_app_download_browser.py # Firefox RU/EN: скачивание APK на входе и в настройках, десктоп/телефон
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM

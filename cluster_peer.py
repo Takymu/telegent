@@ -110,9 +110,19 @@ def _payload_bytes(payload):
     return raw
 
 
+def canonical_payload(payload):
+    """Public canonical encoding shared by durable application outboxes."""
+    return _payload_bytes(payload)
+
+
 def _operation_id(cluster, request_key, kind, payload_hash):
     raw = json.dumps([cluster, request_key, kind, payload_hash], separators=(",", ":")).encode("utf-8")
     return _digest(raw)
+
+
+def logical_operation_id(cluster, request_key, kind, payload):
+    raw = canonical_payload(payload)
+    return _operation_id(cluster, request_key, kind, _digest(raw))
 
 
 def _event_hash(cluster, origin, sequence, previous_hash, operation_id):
