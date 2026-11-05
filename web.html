@@ -1404,7 +1404,8 @@ const UI_EN={
   " (владелец ": " (owner ",
   "Пароли не совпадают": "Passwords don’t match",
   "Выполни из рабочего проекта (путь к tg.py поправь сам):\n": "Run this from your working project (adjust the path to tg.py yourself):\n",
-  "Клиент определится автоматически; если нет, сам выбери --client codex или --client claude.\n": "The client is detected automatically. If detection fails, choose --client codex or --client claude.\n",
+  "Клиент определится автоматически; если нет, сам выбери --client codex, --client claude или --client kimi.\n": "The client is detected automatically. If detection fails, choose --client codex, --client claude or --client kimi.\n",
+  "В общей папке твои конфиг, токен и inbox отдельны от других агентов; --force для нового агента не нужен. Если нет id сессии или возникла неоднозначность, используй напечатанные --config или --agent.\n": "In a shared folder, your config, token and inbox stay separate from other agents; --force is unnecessary for a new agent. If no session ID is available or identity is ambiguous, use the printed --config or --agent option.\n",
   "Прочитай AGENTS.md рядом с клиентом, проверь whoami и inbox и закончи настройку по выводу команды. ": "Read AGENTS.md next to the client, check whoami and inbox, and finish setup as directed by the command output. ",
   "Если установка прервётся, повтори ту же команду. Существующие инструкции и хуки сохраняй, токен не показывай. ": "If setup is interrupted, rerun the same command. Keep existing instructions and hooks, and do not reveal the token. ",
   "Если сам Codex потребует доверия новым хукам, покажи человеку его стандартный запрос; не обходи защиту.": "If Codex asks you to trust new hooks, show its standard prompt to the person; do not bypass the trust check.",
@@ -3930,7 +3931,8 @@ function agentConnectText(link, reset, secretary=false) {
     ui`Найди актуальный клиент tg.py. Если его нет, клонируй: git clone https://github.com/Takymu/telegent\n` +
     ui`Выполни из рабочего проекта (путь к tg.py поправь сам):\n` +
     `python telegent/tg.py connect "${link}"${reset ? " --force" : ""}\n` +
-    ui`Клиент определится автоматически; если нет, сам выбери --client codex или --client claude.\n` +
+    ui`Клиент определится автоматически; если нет, сам выбери --client codex, --client claude или --client kimi.\n` +
+    (reset?"":ui`В общей папке твои конфиг, токен и inbox отдельны от других агентов; --force для нового агента не нужен. Если нет id сессии или возникла неоднозначность, используй напечатанные --config или --agent.\n`) +
     (secretary?ui`Ты секретарь своего человека: projects покажет проекты, inbox и watch собирают входящие из всех его проектов. Перед send, board и claims выбирай --project <slug>; reply <id> сохраняет исходный проект. Не смешивай данные разных команд и не раскрывай их друг другу.\n`:"") +
     ui`Прочитай AGENTS.md рядом с клиентом, проверь whoami и inbox и закончи настройку по выводу команды. ` +
     ui`Если установка прервётся, повтори ту же команду. Существующие инструкции и хуки сохраняй, токен не показывай. ` +
@@ -3940,8 +3942,9 @@ function showInviteResult(d) {
   $("invChoices").classList.add("hidden");$("invFields").classList.add("hidden");$("invPick").classList.add("hidden");
   INV_TRACK={scope:uiScope(),name:d.name,kind:d.kind,purpose:d.purpose,at:Date.now()};paintInviteProgress(ME.users);
   const agent = d.kind === "agent";
-  $("invLink").value = agent ? agentConnectText(d.link, d.purpose === "reset",d.is_secretary) : d.link;
-  $("invLink").rows = agent ? 7 : 2;
+  const text = agent ? agentConnectText(d.link, d.purpose === "reset",d.is_secretary) : d.link;
+  $("invLink").value = text;
+  $("invLink").rows = agent ? Math.min(14,text.split('\n').length+1) : 2;
   $("invCopy").textContent = agent ? tr("Копировать для агента") : tr("Копировать ссылку");
   const where = ME.project ? `«${ME.project.title}»` : "";
   $("invHint").textContent = (agent
