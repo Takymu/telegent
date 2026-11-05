@@ -56,9 +56,11 @@ class ClusterNodeTest(unittest.TestCase):
         for peer in NODES:
             if peer == node:
                 continue
-            peers.append({"id": peer, "url": urls.get(peer, "https://%s.invalid" % peer),
+            peers.append({"id": peer, "slot": NODES.index(peer) + 10,
+                          "url": urls.get(peer, "https://%s.invalid" % peer),
                           "key_file": str(self.key_file(node, peer))})
-        return {"id": "node-cluster", "node": node, "journal": str(self.root / (node + ".db")),
+        return {"id": "node-cluster", "node": node, "slot": NODES.index(node) + 10,
+                "journal": str(self.root / (node + ".db")),
                 "peers": peers, "poll_seconds": 10,
                 "allow_http_localhost": any(url.startswith("http://") for url in urls.values())}
 
@@ -118,6 +120,9 @@ class ClusterNodeTest(unittest.TestCase):
         self.error(500, ClusterNode, settings, str(self.root))
         settings = self.settings("node-a")
         settings["unexpected"] = True
+        self.error(400, ClusterNode, settings, str(self.root))
+        settings = self.settings("node-a")
+        settings["peers"][0]["slot"] = settings["slot"]
         self.error(400, ClusterNode, settings, str(self.root))
 
     def test_real_server_route_exchanges_a_signed_page_over_local_http(self):

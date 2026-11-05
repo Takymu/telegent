@@ -59,22 +59,29 @@ class ClusterNode:
     def __init__(self, settings, config_dir, clock=time.time):
         if not isinstance(settings, dict):
             raise PeerError(400, "cluster должен быть объектом")
-        allowed = {"id", "node", "journal", "blobs", "peers", "poll_seconds", "allow_http_localhost"}
+        allowed = {"id", "node", "slot", "journal", "blobs", "peers", "poll_seconds", "allow_http_localhost"}
         if set(settings) - allowed:
             raise PeerError(400, "неизвестное поле конфигурации кластера")
         cluster = settings.get("id")
         node = settings.get("node")
+        slot = settings.get("slot")
+        if type(slot) is not int or not 0 <= slot <= 255:
+            raise PeerError(400, "номер серверного узла должен быть от 0 до 255")
         peers = settings.get("peers")
         if not isinstance(peers, list) or not peers:
             raise PeerError(400, "нужен список соседних узлов кластера")
         self.clock = clock
         self.node = node
+        self.slot = slot
+        self.slots = {node: slot}
         self.peers = {}
         for item in peers:
-            if not isinstance(item, dict) or set(item) != {"id", "url", "key_file"}:
+            if not isinstance(item, dict) or set(item) != {"id", "slot", "url", "key_file"}:
                 raise PeerError(400, "некорректное описание соседнего узла")
             peer = item["id"]
-            if peer == node or peer in self.peers:
+            peer_slot = item["slot"]
+            if (peer == node or peer in self.peers or type(peer_slot) is not int or
+                    not 0 <= peer_slot <= 255 or peer_slot in self.slots.values()):
                 raise PeerError(400, "узлы кластера не должны повторяться")
             parsed = urllib.parse.urlsplit(item["url"])
             local_http = (settings.get("allow_http_localhost") is True and parsed.scheme == "http" and
@@ -84,6 +91,7 @@ class ClusterNode:
                 raise PeerError(400, "адрес соседнего узла должен быть корнем HTTPS")
             key_path = _relative(config_dir, item["key_file"])
             self.peers[peer] = {"url": item["url"].rstrip("/"), "key": _private_key(key_path)}
+            self.slots[peer] = peer_slot
         members = tuple(sorted((node,) + tuple(self.peers)))
         journal_path = _relative(config_dir, settings.get("journal"))
         self.journal = PeerJournal(journal_path, cluster, node, members)
@@ -233,4 +241,4 @@ class ClusterNode:
     def report(self):
         with self.status_lock:
             peers = json.loads(json.dumps(self.status))
-        return {"node": self.node, "frontier": self.journal.frontier(), "peers": peers}
+        return {"node": self.node, "slot": self.slot, "frontier": self.journal.frontier(), "peers": peers}
