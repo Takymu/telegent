@@ -32,6 +32,9 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie, CookieError
 
+from cluster_node import ClusterNode
+from cluster_peer import MAX_BATCH_BYTES as MAX_CLUSTER_REQUEST, PeerError
+
 VERSION = "2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -62,6 +65,8 @@ class Cfg:
     launcher_url = ""  # permanent entry page that remembers the login across tunnel addresses
     # the project that `adduser` without --project uses, and where a pre-projects database moves to
     default_project = {"slug": "main", "title": "main"}
+    cluster = None
+    config_dir = HERE
 
 
 def load_config(path):
@@ -69,6 +74,7 @@ def load_config(path):
         return
     with open(path, encoding="utf-8") as f:
         c = json.load(f)
+    Cfg.config_dir = os.path.dirname(os.path.abspath(path))
     if "tz_offset_hours" in c:
         Cfg.tz = timezone(timedelta(hours=float(c["tz_offset_hours"])))
     if c.get("db"):
@@ -86,6 +92,7 @@ def load_config(path):
     if isinstance(c.get("default_project"), dict) and c["default_project"].get("slug"):
         Cfg.default_project = {"slug": c["default_project"]["slug"],
                                "title": c["default_project"].get("title") or c["default_project"]["slug"]}
+    Cfg.cluster = c.get("cluster")
 
 
 def iso(ts):
@@ -2149,6 +2156,7 @@ def telegram_worker():
 
 # ---------------------------------------------------------------- HTTP
 ROUTES = []
+CLUSTER_NODE = None
 
 
 def route(method, pattern, auth=True, raw=False):
@@ -2244,6 +2252,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             raise ApiError(400, _ui_text('тело запроса — не JSON'))
 
+    def read_bytes(self, limit):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ApiError(400, "некорректный Content-Length")
+        if length < 0 or length > limit or self.headers.get("Transfer-Encoding"):
+            raise ApiError(413, "сетевой пакет слишком большой")
+        return self.rfile.read(length) if length else b""
+
     def send_json(self, code, obj, extra=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_bytes(code, body, "application/json; charset=utf-8", extra)
@@ -2296,6 +2313,18 @@ def api_info(h, user, q, data):
     return {"version": VERSION, "server_time": iso(time.time()), "types": USER_TYPES, "states": STATES,
             "result_fields": RESULT_FIELDS, "max_inline_bytes": Cfg.max_inline, "launcher_url": Cfg.launcher_url,
             "agent_progress": True, "agent_client_selection": True}
+
+
+@route("POST", "/api/cluster/sync", auth=False, raw=True)
+def api_cluster_sync(h, user, q, data):
+    if CLUSTER_NODE is None:
+        raise ApiError(404, "кластерный обмен на этом сервере не настроен")
+    body = h.read_bytes(MAX_CLUSTER_REQUEST)
+    try:
+        response, headers = CLUSTER_NODE.handle_sync(body, dict(h.headers.items()))
+    except PeerError as error:
+        raise ApiError(error.code, str(error))
+    h.send_bytes(200, response, "application/json; charset=utf-8", headers)
 
 
 @route('POST','/api/client')
@@ -4118,24 +4147,33 @@ def cmd_clearpassword(a):
 
 
 def cmd_serve(a):
+    global CLUSTER_NODE
     db()
-    threading.Thread(target=push_worker,daemon=True,name='push-delivery').start()
     def expire_secrets():
         while True:
             purge_expired_secrets()
             purge_deleted_files()
             time.sleep(60)
-    threading.Thread(target=expire_secrets, daemon=True).start()
-    if Cfg.telegram:
-        threading.Thread(target=telegram_worker, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
-    srv.daemon_threads = True
-    print(f"telegent {VERSION}: http://{a.host}:{a.port}/  db={Cfg.db}  last_id={LAST_ID[0]}"
-          f"  telegram={'on' if Cfg.telegram else 'off'}", flush=True)
     try:
+        if Cfg.cluster is not None:
+            CLUSTER_NODE = ClusterNode(Cfg.cluster, Cfg.config_dir)
+            CLUSTER_NODE.start()
+        threading.Thread(target=push_worker,daemon=True,name='push-delivery').start()
+        threading.Thread(target=expire_secrets, daemon=True).start()
+        if Cfg.telegram:
+            threading.Thread(target=telegram_worker, daemon=True).start()
+        srv.daemon_threads = True
+        print(f"telegent {VERSION}: http://{a.host}:{a.port}/  db={Cfg.db}  last_id={LAST_ID[0]}"
+              f"  telegram={'on' if Cfg.telegram else 'off'}", flush=True)
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        srv.server_close()
+        if CLUSTER_NODE is not None:
+            CLUSTER_NODE.close()
+            CLUSTER_NODE = None
 
 
 def main():
@@ -4199,7 +4237,7 @@ def main():
         Cfg.db = a.db
     try:
         a.fn(a)
-    except (ApiError, sqlite3.IntegrityError) as error:
+    except (ApiError, PeerError, sqlite3.IntegrityError) as error:
         sys.exit(str(error))
 
 

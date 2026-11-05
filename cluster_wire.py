@@ -80,7 +80,6 @@ def sign_response(key, source, target, path, request_nonce, body):
         "X-Telegent-Target": target,
         "X-Telegent-Request-Nonce": request_nonce,
         "X-Telegent-Signature": signature,
-        "Content-Type": "application/json; charset=utf-8",
     }
 
 
