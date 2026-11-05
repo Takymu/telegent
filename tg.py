@@ -1197,7 +1197,7 @@ def cmd_watch(conf, args):
             if reminders:
                 mark_reminded(conf, st)
             # empty answer = nothing for me up to last_id, so the cursor can jump there
-            cursor = msgs[-1]["id"] if msgs else max(cursor, res["last_id"])
+            cursor = msgs[-1].get("cursor", msgs[-1]["id"]) if msgs else max(cursor, res["last_id"])
             st[key] = cursor
             conf.save_state(st)
             schedule_update(conf)

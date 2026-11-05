@@ -32,8 +32,9 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie, CookieError
 
-from cluster_node import ClusterNode
-from cluster_peer import MAX_BATCH_BYTES as MAX_CLUSTER_REQUEST, PeerError
+ClusterNode = None
+PeerError = Exception
+MAX_CLUSTER_REQUEST = 16 * 1024 * 1024
 
 VERSION = "2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -206,6 +207,17 @@ def db():
         _db.execute("PRAGMA journal_mode=WAL")
         _db.execute("PRAGMA busy_timeout=5000")
         _db.executescript(SCHEMA)
+        if Cfg.cluster is not None:
+            from cluster_app import install as install_cluster_app
+            install_cluster_app(_db, Cfg.cluster.get("slot"))
+            _db.executescript("""
+                CREATE TABLE IF NOT EXISTS message_arrivals(
+                  cursor INTEGER PRIMARY KEY AUTOINCREMENT,message_id INTEGER UNIQUE NOT NULL);
+                INSERT OR IGNORE INTO message_arrivals(cursor,message_id) SELECT id,id FROM messages ORDER BY id;
+                CREATE TRIGGER IF NOT EXISTS message_arrival_insert AFTER INSERT ON messages
+                WHEN NOT EXISTS(SELECT 1 FROM message_arrivals WHERE message_id=NEW.id)
+                BEGIN INSERT INTO message_arrivals(message_id) VALUES(NEW.id); END;
+            """)
         for table, col, decl in (("receipts", "delivered_ts", "REAL"), ("users", "last_seen_ts", "REAL"),
                                  ("messages", "revision", "INTEGER NOT NULL DEFAULT 0"),
                                  ("messages", "mentions_json", "TEXT NOT NULL DEFAULT '[]'"),
@@ -267,8 +279,23 @@ def db():
                     "WHERE deleted_ts IS NULL AND type NOT IN ('status', 'approval') AND subject != '' "
                     "AND substr(ltrim(body, ' ' || char(9) || char(10) || char(13)), 1, length(subject)) != subject")
         migrate_reactions(_db)
-        LAST_ID[0] = _db.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
+        LAST_ID[0] = (_db.execute("SELECT COALESCE(MAX(cursor),0) FROM message_arrivals").fetchone()[0]
+                      if Cfg.cluster is not None else
+                      _db.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0])
     return _db
+
+
+def clustered():
+    return Cfg.cluster is not None
+
+
+def arrival_cursor(message_id):
+    if not clustered():
+        return message_id
+    row = db().execute("SELECT cursor FROM message_arrivals WHERE message_id=?", (message_id,)).fetchone()
+    if row is None:
+        raise RuntimeError("message arrival cursor is missing")
+    return row[0]
 
 
 def migrate_reactions(con):
@@ -1327,14 +1354,19 @@ def message_visibility(me, alias="m"):
 def conversation_dict(c, user):
     peer = c["agent"] if user["name"] == c["human"] else c["human"]
     cursor = c["human_read_upto"] if user["name"] == c["human"] else c["agent_read_upto"]
-    last = db().execute("SELECT id,body,ts,deleted_ts FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1", (c["id"],)).fetchone()
-    unread = db().execute("SELECT COUNT(*) FROM messages m WHERE m.conversation_id=? AND m.id>? AND m.author!=? "
+    arrival_join = " JOIN message_arrivals ma ON ma.message_id=m.id" if clustered() else ""
+    arrival_value = "ma.cursor" if clustered() else "m.id"
+    last = db().execute("SELECT m.id,m.body,m.ts,m.deleted_ts," + arrival_value + " AS arrival_cursor FROM messages m" +
+                        arrival_join + " WHERE m.conversation_id=? ORDER BY " + arrival_value + " DESC LIMIT 1",
+                        (c["id"],)).fetchone()
+    unread = db().execute("SELECT COUNT(*) FROM messages m" + arrival_join +
+                          " WHERE m.conversation_id=? AND " + arrival_value + ">? AND m.author!=? "
                           "AND m.deleted_ts IS NULL AND m.type NOT IN ('status','approval') AND NOT EXISTS (SELECT 1 FROM receipts r "
                           "WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
                           (c["id"], cursor, user["name"], user["name"])).fetchone()[0]
     return {"id": c["id"], "peer_id": peer, "peer": account_name(peer), "peer_kind": "agent" if peer == c["agent"] else "human",
             "human_id": c["human"], "agent_id": c["agent"], "read_upto": cursor, "unread": unread,
-            "last_id": last["id"] if last else 0, "preview": ("Сообщение удалено" if last["deleted_ts"] else last["body"][:100]) if last else "",
+            "last_id": last["arrival_cursor"] if last else 0, "preview": ("Сообщение удалено" if last["deleted_ts"] else last["body"][:100]) if last else "",
             "last_ts": last["ts"] if last else c["created"]}
 
 
@@ -1434,7 +1466,7 @@ def msg_dicts(rows, me=None, full=True):
         rc = receipts.get(r["id"], [])
         mine = next((x for x in rc if x["user"] == me), None)
         d = {
-            "id": r["id"], "time": iso(r["ts"]), "ts": r["ts"],
+            "id": r["id"], "cursor": r["arrival_cursor"] if "arrival_cursor" in r.keys() else r["id"], "time": iso(r["ts"]), "ts": r["ts"],
             "delivered_at": iso(mine["delivered_ts"] or mine["read_ts"]) if mine else None,
             "author": account_name(r["author"]), "author_id": r["author"], "author_kind": r["author_kind"],
             "author_client": clients.get(r['author']) if r['author_kind']=='agent' else None,
@@ -1683,7 +1715,7 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
             con.execute("ROLLBACK")
             raise
     with NEW_MSG:
-        LAST_ID[0] = max(LAST_ID[0], mid)
+        LAST_ID[0] = max(LAST_ID[0], arrival_cursor(mid))
         NEW_MSG.notify_all()
     if Cfg.telegram and not cid:
         TG_QUEUE.put(mid)
@@ -1737,7 +1769,7 @@ def push_wanted(message,user):
         row=db().execute('SELECT read_upto FROM members WHERE user=? AND project_id=?',
                           (user['name'],message['project_id'])).fetchone()
         cursor=row[0] if row else 0
-    if message['id']<=cursor:return False
+    if arrival_cursor(message['id'])<=cursor:return False
     if message['type']=='approval':
         parent=db().execute('SELECT author FROM messages WHERE id=?',(message['reply_to'],)).fetchone()
         return bool(parent and parent['author']==user['name'])
@@ -1929,11 +1961,13 @@ def list_messages(me, q, pid):
         where.append("m.conversation_id IS NULL")
     con = db()
     after = int(q.get("after") or 0)
+    arrival_join = " JOIN message_arrivals ma ON ma.message_id=m.id" if clustered() else ""
+    arrival_value = "ma.cursor" if clustered() else "m.id"
     if after:
-        where.append("m.id > ?")
+        where.append(arrival_value + " > ?")
         args.append(after)
     if q.get("before"):
-        where.append("m.id < ?")
+        where.append(arrival_value + " < ?")
         args.append(int(q["before"]))
     if q.get("topic"):
         where.append("m.topic = ?")
@@ -1980,11 +2014,11 @@ def list_messages(me, q, pid):
     if q.get("results") == "1":
         where.append("m.result IS NOT NULL")
     limit = max(1, min(int(q.get("limit") or 50), 1000))
-    sql = "SELECT m.* FROM messages m" + (" WHERE " + " AND ".join(where) if where else "")
+    sql = "SELECT m.*," + arrival_value + " AS arrival_cursor FROM messages m" + arrival_join + (" WHERE " + " AND ".join(where) if where else "")
     if after:
-        rows = con.execute(sql + " ORDER BY m.id ASC LIMIT ?", args + [limit]).fetchall()
+        rows = con.execute(sql + " ORDER BY " + arrival_value + " ASC LIMIT ?", args + [limit]).fetchall()
     else:
-        rows = con.execute(sql + " ORDER BY m.id DESC LIMIT ?", args + [limit]).fetchall()[::-1]
+        rows = con.execute(sql + " ORDER BY " + arrival_value + " DESC LIMIT ?", args + [limit]).fetchall()[::-1]
     return msg_dicts(rows, me["name"], full=q.get("full", "1") == "1")
 
 
@@ -2669,10 +2703,14 @@ def api_projects(h, user, q, data):
     with DB_LOCK:
         out = []
         for p in my_projects(user["name"]):
-            last = db().execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE project_id = ?", (p["id"],)).fetchone()[0]
+            last = (db().execute("SELECT COALESCE(MAX(ma.cursor),0) FROM messages m JOIN message_arrivals ma ON ma.message_id=m.id WHERE m.project_id=?",
+                                 (p["id"],)).fetchone()[0] if clustered() else
+                    db().execute("SELECT COALESCE(MAX(id), 0) FROM messages WHERE project_id = ?", (p["id"],)).fetchone()[0])
             n = db().execute("SELECT COUNT(*) FROM members WHERE project_id = ?", (p["id"],)).fetchone()[0]
             d = dict(project_dict(p, user), last_id=last, members=n)
-            stats = db().execute("SELECT COUNT(*), MIN(m.id) FROM messages m WHERE m.conversation_id IS NULL AND m.project_id=? AND m.id>? AND m.author!=? "
+            join = " JOIN message_arrivals ma ON ma.message_id=m.id" if clustered() else ""
+            cursor_value = "ma.cursor" if clustered() else "m.id"
+            stats = db().execute("SELECT COUNT(*), MIN(m.id) FROM messages m" + join + " WHERE m.conversation_id IS NULL AND m.project_id=? AND " + cursor_value + ">? AND m.author!=? "
                                  "AND m.deleted_ts IS NULL AND m.type NOT IN ('status','approval') AND NOT EXISTS "
                                  "(SELECT 1 FROM receipts r WHERE r.message_id=m.id AND r.user=? AND r.read_ts IS NOT NULL)",
                                  (p["id"], max(seen.get(p["slug"], 0), d["read_upto"]), user["name"], user["name"])).fetchone()
@@ -3443,12 +3481,16 @@ def api_receipts(h, user, q, data):
             if q.get("conversation"):
                 c = conversation_row(q["conversation"], user, p["id"])
                 col = "human_read_upto" if user["name"] == c["human"] else "agent_read_upto"
-                latest = db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE conversation_id=? AND id<=?", (c["id"], data["seen_upto"])).fetchone()[0]
+                latest = (db().execute("SELECT COALESCE(MAX(ma.cursor),0) FROM messages m JOIN message_arrivals ma ON ma.message_id=m.id WHERE m.conversation_id=? AND ma.cursor<=?",
+                                       (c["id"], data["seen_upto"])).fetchone()[0] if clustered() else
+                          db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE conversation_id=? AND id<=?", (c["id"], data["seen_upto"])).fetchone()[0])
                 changed = db().execute(f"UPDATE conversations SET {col}=MAX({col},?) WHERE id=? AND {col}<?", (latest,c["id"],latest)).rowcount
                 cursor = db().execute(f"SELECT {col} FROM conversations WHERE id=?", (c["id"],)).fetchone()[0]
             else:
-                latest = db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE project_id=? AND conversation_id IS NULL AND id<=?",
-                                      (p["id"], data["seen_upto"])).fetchone()[0]
+                latest = (db().execute("SELECT COALESCE(MAX(ma.cursor),0) FROM messages m JOIN message_arrivals ma ON ma.message_id=m.id WHERE m.project_id=? AND m.conversation_id IS NULL AND ma.cursor<=?",
+                                       (p["id"], data["seen_upto"])).fetchone()[0] if clustered() else
+                          db().execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE project_id=? AND conversation_id IS NULL AND id<=?",
+                                       (p["id"], data["seen_upto"])).fetchone()[0])
                 changed = db().execute("UPDATE members SET read_upto=? WHERE project_id=? AND user=? AND read_upto<?",
                                        (latest, p["id"], user["name"], latest)).rowcount
                 cursor = db().execute("SELECT read_upto FROM members WHERE project_id=? AND user=?", (p["id"], user["name"])).fetchone()[0]
@@ -4177,7 +4219,7 @@ def cmd_clearpassword(a):
 
 
 def cmd_serve(a):
-    global CLUSTER_NODE
+    global CLUSTER_NODE, ClusterNode, PeerError
     db()
     def expire_secrets():
         while True:
@@ -4187,6 +4229,9 @@ def cmd_serve(a):
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     try:
         if Cfg.cluster is not None:
+            from cluster_node import ClusterNode as ClusterNodeClass
+            from cluster_peer import PeerError as PeerErrorClass
+            ClusterNode, PeerError = ClusterNodeClass, PeerErrorClass
             CLUSTER_NODE = ClusterNode(Cfg.cluster, Cfg.config_dir)
             CLUSTER_NODE.start()
         threading.Thread(target=push_worker,daemon=True,name='push-delivery').start()

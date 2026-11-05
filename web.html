@@ -2780,7 +2780,7 @@ const feedVisible = () => TAB==="feed" || TAB==="direct" && !!ACTIVE_DM;
 const feedScope = () => `${TOKEN}|${PROJECT}|${ACTIVE_DM?.id}|${FEED_EPOCH}|${filterQuery()}`;
 function confirmedMessages(rows) {
   const cursor=feedCursor();
-  return rows.map(m=>MSGS.get(m.id)?.read || m.id<=cursor&&!isMine(m)&&!isSys(m)?{...m,read:true}:m);
+  return rows.map(m=>MSGS.get(m.id)?.read || (m.cursor??m.id)<=cursor&&!isMine(m)&&!isSys(m)?{...m,read:true}:m);
 }
 function captureFeedAnchor() {
   if (!feedVisible()) return null;
@@ -2818,7 +2818,7 @@ async function flushReads() {
   const slug = PROJECT, token = TOKEN, cid=ACTIVE_DM?.id, ids = [...READ_IDS].filter(id => MSGS.has(id)); READ_IDS.clear();
   const plainFeed = !THREAD && !["q", "fTopic", "fType"].some(id => $(id).value.trim()) &&
     !["fOpen", "fPending", "fWaiting"].some(id => $(id).checked);
-  const upto = plainFeed && FEED_TAIL_COMPLETE && SC.scrollHeight - SC.scrollTop - SC.clientHeight < 12 ? Math.max(0, ...MSGS.keys()) : 0;
+  const upto = plainFeed && FEED_TAIL_COMPLETE && SC.scrollHeight - SC.scrollTop - SC.clientHeight < 12 ? Math.max(0, ...[...MSGS.values()].map(m=>m.cursor??m.id)) : 0;
   const data = {kind: "read", ids};
   if (upto > feedCursor()) data.seen_upto = upto;
   if (!ids.length && data.seen_upto == null) return;
@@ -2879,7 +2879,7 @@ async function reload({around=null}={}) {
   REACTION_REVISION = res.reaction_revision;
   RECEIPT_REVISION = res.receipt_revision;
   CONTENT_REVISION = res.content_revision;
-  OLDEST = res.messages.length ? res.messages[0].id : null;
+  OLDEST = res.messages.length ? (res.messages[0].cursor??res.messages[0].id) : null;
   NO_MORE = around?noMore:res.messages.length < PAGE;
   LAST = Math.max(LAST, res.last_id);
   NTF.seen = Math.max(NTF.seen, res.last_id);   // what is on the page now is not news
@@ -2926,7 +2926,7 @@ async function refresh() {
   if(scope!==feedScope() || request<FEED_APPLIED) return;
   let page=res.messages;
   while(page.length===1000) {
-    q.set("after",page[page.length-1].id);
+    q.set("after",page[page.length-1].cursor??page[page.length-1].id);
     const next=await api("GET","/api/messages?"+q);
     if(scope!==feedScope() || request<FEED_APPLIED)return;
     page=next.messages;res.messages.push(...page);
@@ -2945,9 +2945,9 @@ async function refresh() {
   REACTION_REVISION = res.reaction_revision;
   RECEIPT_REVISION = res.receipt_revision;
   CONTENT_REVISION = res.content_revision;
-  if (!OLDEST && res.messages.length) OLDEST = res.messages[0].id;
+  if (!OLDEST && res.messages.length) OLDEST = res.messages[0].cursor??res.messages[0].id;
   LAST = Math.max(LAST, res.last_id);
-  ntfNew(res.messages.filter(m => m.id > NTF.seen)); NTF.seen = Math.max(NTF.seen, res.last_id);
+  ntfNew(res.messages.filter(m => (m.cursor??m.id) > NTF.seen)); NTF.seen = Math.max(NTF.seen, res.last_id);
   online();
   refreshSide();
   if (!render()) {rememberChat();return;}
@@ -2966,7 +2966,7 @@ async function loadOlder() {
     NO_MORE = res.messages.length < PAGE;
     const anchor=captureFeedAnchor();
     for (const m of confirmedMessages(res.messages)) MSGS.set(m.id, m);
-    if (res.messages.length) OLDEST = res.messages[0].id;
+    if (res.messages.length) OLDEST = res.messages[0].cursor??res.messages[0].id;
     render(true);
     restoreFeedAnchor(anchor);
     rememberChat();

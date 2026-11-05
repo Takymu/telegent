@@ -250,6 +250,7 @@ python tests/test_cluster_storage.py # план размещения: возра
 python tests/test_cluster_peer.py # равноправные журналы: разделение сети, слияние, повторы, граница кворума и аварийный выход
 python tests/test_cluster_wire.py # попарная аутентификация, защита от повторов и постраничная синхронизация журналов
 python tests/test_cluster_node.py # конфигурация узла, фоновые pull и настоящий подписанный HTTP-маршрут
+python tests/test_cluster_arrival.py # позднее сообщение с меньшим id не теряется за курсором доставки
 python tests/test_cluster_quorum.py # равноправный кворум: большинство, восстановление принятого значения и crash persistence
 python tests/test_cluster_app.py # глобальные JS-safe id, транзакционный outbox и exactly-once применение
 python tests/test_cluster_message.py # кодек создания сообщения, области, ответы и манифесты вложений
