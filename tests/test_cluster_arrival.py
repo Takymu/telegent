@@ -2,20 +2,31 @@
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import types
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import server
+from cluster_blob import BlobStore
+from cluster_peer import PeerJournal
+from cluster_app import drain_outbox
 
 
 class ClusterArrivalTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="telegent-arrival-")
-        self.old = (server.Cfg.db, server.Cfg.cluster, server._db, server.LAST_ID[0])
+        self.old = (server.Cfg.db, server.Cfg.cluster, server._db, server.LAST_ID[0], server.CLUSTER_NODE)
         server.Cfg.db = str(Path(self.temp.name) / "app.db")
         server.Cfg.cluster = {"slot": 7}
         server._db = None
         self.con = server.db()
+        journal = PeerJournal(str(Path(self.temp.name) / "events.db"), "arrival-cluster", "node-a",
+                              ("node-a", "node-b"))
+        self.node = types.SimpleNamespace(slot=7, journal=journal,
+                                          blobs=BlobStore(str(Path(self.temp.name) / "blobs"), reserve_bytes=0),
+                                          stop_event=threading.Event())
+        server.CLUSTER_NODE = self.node
         self.account = server.new_account(self.con, "alice", "human", None, "tgt_" + "a" * 48)
         project_id = server.create_project_row(self.con, "fixture", "fixture", self.account)
         self.project = self.con.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
@@ -23,7 +34,8 @@ class ClusterArrivalTest(unittest.TestCase):
 
     def tearDown(self):
         self.con.close()
-        server.Cfg.db, server.Cfg.cluster, server._db, server.LAST_ID[0] = self.old
+        self.node.journal.close()
+        server.Cfg.db, server.Cfg.cluster, server._db, server.LAST_ID[0], server.CLUSTER_NODE = self.old
         self.temp.cleanup()
 
     def insert(self, message_id, body):
@@ -54,6 +66,18 @@ class ClusterArrivalTest(unittest.TestCase):
         self.assertNotEqual(server.arrival_cursor(500000000000300), 500000000000300)
         server.Cfg.cluster = None
         self.assertEqual(server.arrival_cursor(500000000000300), 500000000000300)
+
+    def test_real_message_commit_allocates_global_ids_and_atomic_outbox(self):
+        user = self.con.execute("SELECT * FROM users WHERE name=?", (self.account,)).fetchone()
+        message_id, duplicate = server.insert_message(
+            user, "web", {"body": "cluster message", "idem_key": "fixture-message-key"}, self.project["id"])
+        self.assertFalse(duplicate)
+        self.assertGreater(message_id, 1000000000000)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM cluster_outbox WHERE exported IS NULL").fetchone()[0], 1)
+        self.assertEqual(drain_outbox(self.con, self.node.journal), 1)
+        operation = self.node.journal.operations()[0]
+        self.assertEqual(operation["payload"]["message"]["id"], message_id)
+        self.assertEqual(operation["payload"]["message"]["body"], "cluster message")
 
 
 if __name__ == "__main__":

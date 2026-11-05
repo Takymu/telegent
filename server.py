@@ -1533,6 +1533,8 @@ def insert_message(user, host, data, pid, system=False, secret=None):
 def _insert_message(user, host, data, pid, system=False, secret=None):
     """Validate and store a message in project pid. Returns (id, duplicate)."""
     con = db()
+    if clustered() and secret:
+        raise ApiError(425, "секретное сообщение временно требует доступного кворума серверов")
     cid = data.get("conversation_id") or None
     if data.get("reply_to") is not None:
         parent_scope = get_message_row(int(data["reply_to"]), user)
@@ -1679,6 +1681,19 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
             raise ApiError(422,"Сообщение НЕ отправлено: "+problem+". Отправь исходный текст из файла в правильной кодировке. "
                            "Для намеренных знаков ?/� — allow_lossy_text=true.")
 
+    blob_manifests = {}
+    if clustered():
+        if CLUSTER_NODE is None:
+            raise ApiError(503, "кластерный узел ещё не готов принять сообщение")
+        from cluster_blob import hash_file
+        for _name, size, _md5, _link, _raw, upload_id in atts:
+            if upload_id:
+                sha256, checked_size = hash_file(upload_path(upload_id))
+                if checked_size != size:
+                    raise ApiError(409, "размер завершённого файла изменился")
+                CLUSTER_NODE.blobs.adopt(upload_path(upload_id), sha256, size)
+                blob_manifests[upload_id] = {"sha256": sha256, "size": size}
+
     idem = data.get("idem_key")
     idem = str(idem)[:100] if idem else None
     with DB_LOCK:
@@ -1689,15 +1704,27 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
                 return dup["id"], True
         con.execute("BEGIN IMMEDIATE")
         try:
-            cur = con.execute(
-                "INSERT INTO messages(ts, author, author_kind, owner, host, recipients, topic, type, priority,"
+            if clustered():
+                from cluster_app import next_id
+                mid = next_id(con, CLUSTER_NODE.slot)
+                cur = con.execute(
+                "INSERT INTO messages(id,ts, author, author_kind, owner, host, recipients, topic, type, priority,"
                 " subject, body, reply_to, thread_id, needs_approval, status, result, idem_key, project_id, approver,conversation_id)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (time.time(), user["name"], user["kind"], user["owner"], (host or "")[:120],
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (mid,time.time(), user["name"], user["kind"], user["owner"], (host or "")[:120],
                  ("," + ",".join(to) + ",") if to else "", topic, mtype, priority, subject, body,
                  reply_to, thread_id, int(needs_approval), status,
                  json.dumps(result, ensure_ascii=False) if result else None, idem, pid, approver, cid))
-            mid = cur.lastrowid
+            else:
+                cur = con.execute(
+                    "INSERT INTO messages(ts, author, author_kind, owner, host, recipients, topic, type, priority,"
+                    " subject, body, reply_to, thread_id, needs_approval, status, result, idem_key, project_id, approver,conversation_id)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (time.time(), user["name"], user["kind"], user["owner"], (host or "")[:120],
+                     ("," + ",".join(to) + ",") if to else "", topic, mtype, priority, subject, body,
+                     reply_to, thread_id, int(needs_approval), status,
+                     json.dumps(result, ensure_ascii=False) if result else None, idem, pid, approver, cid))
+                mid = cur.lastrowid
             con.execute('UPDATE messages SET mentions_json=? WHERE id=?',(json.dumps(mentions,ensure_ascii=False),mid))
             if secret:
                 con.execute("INSERT INTO secret_envelopes(message_id,recipient,key_id,envelope,expires) VALUES (?,?,?,?,?)",
@@ -1705,10 +1732,21 @@ def _insert_message(user, host, data, pid, system=False, secret=None):
             if thread_id is None:
                 con.execute("UPDATE messages SET thread_id = ? WHERE id = ?", (mid, mid))
             for name, size, md5, link, raw, upload_id in atts:
-                aid = con.execute("INSERT INTO attachments(message_id,name,size,md5,link,content,upload_id) VALUES (?,?,?,?,?,?,?)",
-                                  (mid, name, size, md5, link, raw, upload_id)).lastrowid
+                if clustered():
+                    aid = next_id(con, CLUSTER_NODE.slot)
+                    con.execute("INSERT INTO attachments(id,message_id,name,size,md5,link,content,upload_id) VALUES (?,?,?,?,?,?,?,?)",
+                                (aid, mid, name, size, md5, link, raw, upload_id))
+                else:
+                    aid = con.execute("INSERT INTO attachments(message_id,name,size,md5,link,content,upload_id) VALUES (?,?,?,?,?,?,?)",
+                                      (mid, name, size, md5, link, raw, upload_id)).lastrowid
                 if upload_id:
                     con.execute("UPDATE file_uploads SET attachment_id=? WHERE id=?", (aid, upload_id))
+            if clustered():
+                from cluster_app import enqueue
+                from cluster_message import encode_message
+                payload = encode_message(con, mid, lambda item: blob_manifests[item["upload_id"]])
+                event_key = "message-" + hashlib.sha256((user["name"] + "\0" + str(idem or mid)).encode()).hexdigest()
+                enqueue(con, event_key, "message.create", payload)
             enqueue_push(mid)
             con.execute("COMMIT")
         except Exception:
@@ -4218,6 +4256,17 @@ def cmd_clearpassword(a):
     print(f"{a.name}: пароль сброшен, закрыто сессий: {n}. Войти можно по ссылке с токеном и задать новый.")
 
 
+def cluster_application_worker():
+    from cluster_app import drain_outbox
+    while CLUSTER_NODE is not None and not CLUSTER_NODE.stop_event.is_set():
+        try:
+            with DB_LOCK:
+                drain_outbox(db(), CLUSTER_NODE.journal, limit=200)
+        except Exception as error:
+            print("cluster application outbox: " + type(error).__name__, file=sys.stderr)
+        CLUSTER_NODE.stop_event.wait(1)
+
+
 def cmd_serve(a):
     global CLUSTER_NODE, ClusterNode, PeerError
     db()
@@ -4234,6 +4283,8 @@ def cmd_serve(a):
             ClusterNode, PeerError = ClusterNodeClass, PeerErrorClass
             CLUSTER_NODE = ClusterNode(Cfg.cluster, Cfg.config_dir)
             CLUSTER_NODE.start()
+            threading.Thread(target=cluster_application_worker, daemon=True,
+                             name="cluster-application-outbox").start()
         threading.Thread(target=push_worker,daemon=True,name='push-delivery').start()
         threading.Thread(target=expire_secrets, daemon=True).start()
         if Cfg.telegram:
