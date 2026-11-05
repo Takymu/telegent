@@ -92,6 +92,59 @@ class MultiAgentWorkspaceTest(unittest.TestCase):
     def test_two_claude_sessions(self):self.assert_isolation('claude','claude')
     def test_codex_and_claude(self):self.assert_isolation('codex','claude')
     def test_two_kimi_sessions(self):self.assert_isolation('kimi','kimi')
+    def test_claude_and_kimi(self):self.assert_isolation('claude','kimi')
+    def test_codex_and_kimi(self):self.assert_isolation('codex','kimi')
+
+    def test_legacy_kimi_client_marker_survives_codex_onboarding(self):
+        first=self.connect('kimi',session_env=False)
+        path=self.root/first['path'];config=json.loads(path.read_text())
+        config['client']='codex';config['agent_client']='kimi';path.write_text(json.dumps(config))
+        first['env']['KIMI_CODE_HOME']=str(self.root/'kimi-home')
+        self.connect('codex')
+        result=self.cli('whoami',env=first['env'])
+        self.assertEqual(result.returncode,0,result.stderr+result.stdout)
+        self.assertIn(first['name'],result.stdout)
+        registry=json.loads((self.root/'.telegent/connections.json').read_text())
+        legacy=next(row for row in registry['connections'] if row['config']=='.telegent.json')
+        self.assertEqual(legacy['client'],'kimi')
+
+    def test_legacy_kimi_marker_does_not_adopt_a_new_kimi_account(self):
+        first=self.connect('kimi',session_env=False)
+        path=self.root/first['path'];config=json.loads(path.read_text())
+        config['client']='codex';config['agent_client']='kimi';path.write_text(json.dumps(config))
+        first['env']['KIMI_CODE_HOME']=str(self.root/'kimi-home')
+        second=self.connect('kimi',session_env=False)
+        result=self.cli('whoami',env=first['env'])
+        self.assertNotEqual(result.returncode,0,result.stdout)
+        self.assertIn('--agent',result.stderr)
+        result=self.cli('--agent',first['id'],'whoami',env=first['env'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn(first['name'],result.stdout)
+        self.assertNotEqual(first['id'],second['id'])
+
+    def test_three_client_types_share_one_workspace(self):
+        actors=[self.connect(client) for client in ('claude','codex','kimi')]
+        self.assertEqual(len({actor['id'] for actor in actors}),3)
+        self.assertEqual(len({actor['config']['token_file'] for actor in actors}),3)
+        self.assertEqual(len({actor['config']['state_file'] for actor in actors}),3)
+        for actor in actors:
+            result=self.cli('whoami',env=actor['env'])
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn(actor['name'],result.stdout)
+            actor['token']=Path(actor['config']['token_file']).read_bytes()
+            actor['message']=self.fx.api('POST','/api/messages',{'body':'Three-client fixture',
+                'type':'question','to_ids':[actor['id']]},who='alice')['id']
+        for actor in actors:
+            result=self.cli('inbox',env=actor['env'])
+            self.assertIn('#'+str(actor['message'])+' ',result.stdout)
+            for other in actors:
+                if other is not actor:self.assertNotIn('#'+str(other['message'])+' ',result.stdout)
+            result=self.cli('connect',self.fx.url+'/#invite='+actor['invite']['code'],'--client',actor['client'],
+                            '--url-source','',env=actor['env'])
+            self.assertEqual(result.returncode,0,result.stderr+result.stdout)
+            self.assertEqual(Path(actor['config']['token_file']).read_bytes(),actor['token'])
+        registry=json.loads((self.root/'.telegent/connections.json').read_text())
+        self.assertEqual(len(registry['connections']),3)
 
     def test_unbound_session_does_not_guess_an_identity(self):
         first=self.connect('codex');self.connect('codex')
