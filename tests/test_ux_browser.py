@@ -164,6 +164,9 @@ window.addEventListener('error',e=>fetch('/debug/result',{method:'POST',body:JSO
   chooseInviteMode('agent');$('invName').value='new-'+VIEWPORT;invNameChanged();$('invCreate').click();
   await wait(()=>!$('invResult').classList.contains('hidden'));
   check($('invProgress').textContent.includes('Ожидаем'),'invitation does not claim connection prematurely');
+  check($('invLink').value.includes('--client kimi'),'agent invitation includes Kimi client selection');
+  check($('invLink').value.includes('--agent')&&$('invLink').value.includes('inbox')&&
+        !/connect\s+"[^"]+"\s+--force/.test($('invLink').value),'new-agent invitation explains shared-workspace identity without force');
   const code=$('invLink').value.match(/#invite=([^"\s]+)/)[1];
   const join=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
   const joined=await join.json();check(join.ok,'agent accepts actual invitation');

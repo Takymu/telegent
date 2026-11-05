@@ -303,7 +303,7 @@ def register_connection(root, path, client, session=None):
         if not connection_file(root, relative): raise ValueError('Connection path leaves the workspace')
         with open(config, encoding='utf-8-sig') as stream: saved=json.load(stream)
         row={'config':relative,'account_id':saved.get('account_id'),'name':saved.get('agent_name',''),
-             'client':saved.get('client'), 'project':saved.get('project') or ''}
+             'client':saved.get('agent_client') or saved.get('client'), 'project':saved.get('project') or ''}
         registry['connections']=[r for r in registry['connections'] if r.get('config') != relative]+[row]
         # Existing listeners have already verified their explicit account/session binding.
         token=saved.get('token')
@@ -369,7 +369,7 @@ def cmd_connections(conf, args):
         with open(os.path.join(root,'.telegent.json'),encoding='utf-8-sig') as stream: saved=json.load(stream)
         rows=[dict(saved,config='.telegent.json',name=saved.get('agent_name',''))]
     for row in rows:
-        print(f"{row.get('account_id') or '?'} · {row.get('name') or '?'} · {row.get('client') or '?'} · {row.get('project') or 'секретарь'} · {row['config']}")
+        print(f"{row.get('account_id') or '?'} · {row.get('name') or '?'} · {row.get('agent_client') or row.get('client') or '?'} · {row.get('project') or 'секретарь'} · {row['config']}")
 
 
 def resolve(path, base):
