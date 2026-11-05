@@ -11,6 +11,7 @@ import server
 from cluster_blob import BlobStore
 from cluster_peer import PeerJournal
 from cluster_app import drain_outbox
+from cluster_message import encode_message
 
 
 class ClusterArrivalTest(unittest.TestCase):
@@ -78,6 +79,26 @@ class ClusterArrivalTest(unittest.TestCase):
         operation = self.node.journal.operations()[0]
         self.assertEqual(operation["payload"]["message"]["id"], message_id)
         self.assertEqual(operation["payload"]["message"]["body"], "cluster message")
+
+    def test_remote_message_event_is_materialized_and_advances_arrival(self):
+        remote_id = 500000000000777
+        self.insert(remote_id, "from remote peer")
+        payload = encode_message(self.con, remote_id)
+        self.con.execute("DELETE FROM messages WHERE id=?", (remote_id,))
+        self.con.execute("DELETE FROM message_arrivals WHERE message_id=?", (remote_id,))
+        source = PeerJournal(str(Path(self.temp.name) / "source-events.db"), "arrival-cluster", "node-b",
+                             ("node-a", "node-b"))
+        try:
+            source.append("remote-message-key", "message.create", payload)
+            self.node.journal.ingest(source.export("node-b"))
+            before = server.LAST_ID[0]
+            result = server.cluster_application_step()
+            self.assertEqual(result["applied"], 1)
+            row = self.con.execute("SELECT body FROM messages WHERE id=?", (remote_id,)).fetchone()
+            self.assertEqual(row[0], "from remote peer")
+            self.assertGreater(server.LAST_ID[0], before)
+        finally:
+            source.close()
 
 
 if __name__ == "__main__":

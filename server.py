@@ -4256,12 +4256,48 @@ def cmd_clearpassword(a):
     print(f"{a.name}: пароль сброшен, закрыто сессий: {n}. Войти можно по ссылке с токеном и задать новый.")
 
 
+def cluster_application_step():
+    from cluster_app import apply_operations, drain_outbox
+    from cluster_message import apply_message
+    with DB_LOCK:
+        drain_outbox(db(), CLUSTER_NODE.journal, limit=200)
+    operations = CLUSTER_NODE.journal.operations()
+    for event in operations:
+        if event.get("kind") != "message.create":
+            continue
+        for attachment in event.get("payload", {}).get("attachments", []):
+            if not attachment.get("upload_id"):
+                continue
+            sha256, size = attachment.get("sha256"), attachment.get("size")
+            if not CLUSTER_NODE.blobs.has(sha256, size):
+                candidates = [event.get("origin")] + [peer for peer in CLUSTER_NODE.peers if peer != event.get("origin")]
+                for peer in candidates:
+                    if peer not in CLUSTER_NODE.peers:
+                        continue
+                    try:
+                        CLUSTER_NODE.pull_blob(peer, sha256, size)
+                        break
+                    except PeerError:
+                        continue
+            if CLUSTER_NODE.blobs.has(sha256, size):
+                CLUSTER_NODE.blobs.materialize(sha256, size, upload_path(attachment["upload_id"]))
+    def message_handler(connection, payload):
+        apply_message(connection, payload, lambda item: (
+            CLUSTER_NODE.blobs.has(item["sha256"], item["size"]) and
+            os.path.isfile(upload_path(item["upload_id"]))))
+    with DB_LOCK:
+        result = apply_operations(db(), operations, {"message.create": message_handler}, limit=200)
+        if result["applied"]:
+            LAST_ID[0] = db().execute("SELECT COALESCE(MAX(cursor),0) FROM message_arrivals").fetchone()[0]
+            with NEW_MSG:
+                NEW_MSG.notify_all()
+    return result
+
+
 def cluster_application_worker():
-    from cluster_app import drain_outbox
     while CLUSTER_NODE is not None and not CLUSTER_NODE.stop_event.is_set():
         try:
-            with DB_LOCK:
-                drain_outbox(db(), CLUSTER_NODE.journal, limit=200)
+            cluster_application_step()
         except Exception as error:
             print("cluster application outbox: " + type(error).__name__, file=sys.stderr)
         CLUSTER_NODE.stop_event.wait(1)
