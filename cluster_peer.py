@@ -194,6 +194,9 @@ CREATE INDEX IF NOT EXISTS peer_events_operation ON peer_events(operation_id);
 CREATE INDEX IF NOT EXISTS peer_events_request ON peer_events(request_key);
 CREATE TABLE IF NOT EXISTS peer_conflicts(
  request_key TEXT PRIMARY KEY, first_operation TEXT NOT NULL, second_operation TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS peer_nonces(
+ source TEXT NOT NULL, nonce TEXT NOT NULL, observed_at INTEGER NOT NULL,
+ PRIMARY KEY(source,nonce));
 """)
         try:
             with self.transaction():
@@ -351,6 +354,31 @@ CREATE TABLE IF NOT EXISTS peer_conflicts(
         with self.transaction():
             return {row["origin"]: {"sequence": row["sequence"], "hash": row["event_hash"]}
                     for row in self.db.execute("SELECT * FROM peer_tips ORDER BY origin")}
+
+    def hash_at(self, origin, sequence):
+        if origin not in self.members or type(sequence) is not int or sequence < 0:
+            raise PeerError(400, "некорректная позиция цепочки")
+        with self.transaction():
+            if sequence == 0:
+                return GENESIS
+            row = self.db.execute("SELECT event_hash FROM peer_events WHERE origin=? AND sequence=?",
+                                  (origin, sequence)).fetchone()
+            if row is None:
+                raise PeerError(409, "неизвестная позиция цепочки")
+            return row["event_hash"]
+
+    def accept_nonce(self, source, nonce, observed_at, oldest_allowed):
+        """Persist an authenticated transport nonce before processing its request."""
+        if source not in self.members or not _identifier(nonce):
+            raise PeerError(400, "некорректная сетевая квитанция")
+        if type(observed_at) is not int or type(oldest_allowed) is not int:
+            raise PeerError(400, "некорректное время сетевой квитанции")
+        with self.transaction():
+            self.db.execute("DELETE FROM peer_nonces WHERE observed_at<?", (oldest_allowed,))
+            try:
+                self.db.execute("INSERT INTO peer_nonces VALUES(?,?,?)", (source, nonce, observed_at))
+            except sqlite3.IntegrityError:
+                raise PeerError(409, "сетевой запрос уже был обработан")
 
     def operations(self):
         """Return one deterministic copy of each conflict-free logical operation."""

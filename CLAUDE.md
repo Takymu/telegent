@@ -246,6 +246,7 @@ python tests/test_quota_notifications.py # нативные квоты, фоно
 python tests/test_multi_agent_workspace.py # несколько агентов в одной папке: подключение, хуки, проекты, лички, миграция и одновременная установка
 python tests/test_cluster_storage.py # план размещения: возраст файлов, 20+ устройств, место, отказы и подтверждение копии перед удалением
 python tests/test_cluster_peer.py # равноправные журналы: разделение сети, слияние, повторы, граница кворума и аварийный выход
+python tests/test_cluster_wire.py # попарная аутентификация, защита от повторов и постраничная синхронизация журналов
 python tests/test_app_download_browser.py # Firefox RU/EN: скачивание APK на входе и в настройках, десктоп/телефон
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
