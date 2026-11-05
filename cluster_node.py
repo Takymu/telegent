@@ -12,10 +12,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from cluster_blob import BlobStore, MAX_BLOB_BYTES, valid_sha256
 from cluster_peer import MAX_BATCH_BYTES, PeerError, PeerJournal
-from cluster_wire import (SYNC_PATH, apply_sync_response, build_sync_response,
+from cluster_wire import (BLOB_PATH, SYNC_PATH, apply_sync_response, build_sync_response,
                           decode_sync_request, encode_sync_request, sign_request,
-                          sign_response, verify_request, verify_response)
+                          sign_blob_response, sign_response, verify_blob_response,
+                          verify_request, verify_response)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -57,7 +59,7 @@ class ClusterNode:
     def __init__(self, settings, config_dir, clock=time.time):
         if not isinstance(settings, dict):
             raise PeerError(400, "cluster должен быть объектом")
-        allowed = {"id", "node", "journal", "peers", "poll_seconds", "allow_http_localhost"}
+        allowed = {"id", "node", "journal", "blobs", "peers", "poll_seconds", "allow_http_localhost"}
         if set(settings) - allowed:
             raise PeerError(400, "неизвестное поле конфигурации кластера")
         cluster = settings.get("id")
@@ -85,6 +87,7 @@ class ClusterNode:
         members = tuple(sorted((node,) + tuple(self.peers)))
         journal_path = _relative(config_dir, settings.get("journal"))
         self.journal = PeerJournal(journal_path, cluster, node, members)
+        self.blobs = BlobStore(_relative(config_dir, settings.get("blobs") or (journal_path + ".blobs")))
         poll = settings.get("poll_seconds", 10)
         if type(poll) not in (int, float) or not 1 <= poll <= 3600:
             self.journal.close()
@@ -123,6 +126,21 @@ class ClusterNode:
                                          normalized["x-telegent-nonce"], response)
         return response, response_headers
 
+    def handle_blob(self, body, headers):
+        source = verify_request(self.journal, {peer: value["key"] for peer, value in self.peers.items()},
+                                "POST", BLOB_PATH, body, headers, now=self.clock())
+        try:
+            request = json.loads(body.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            raise PeerError(400, "запрос blob повреждён")
+        if not isinstance(request, dict) or set(request) != {"sha256"} or not valid_sha256(request["sha256"]):
+            raise PeerError(400, "некорректный запрос blob")
+        info = self.blobs.info(request["sha256"])
+        normalized = {str(name).lower(): str(value) for name, value in headers.items()}
+        response_headers = sign_blob_response(self.peers[source]["key"], self.node, source,
+                                              normalized["x-telegent-nonce"], info["sha256"], info["size"])
+        return info, response_headers
+
     def _http_exchange(self, peer, body, headers):
         request = urllib.request.Request(self.peers[peer]["url"] + SYNC_PATH, data=body,
                                          headers=headers, method="POST")
@@ -159,6 +177,37 @@ class ClusterNode:
             if not result["more"]:
                 return inserted
         raise PeerError(503, "синхронизация не завершилась за допустимое число пакетов")
+
+    def pull_blob(self, peer, sha256, size, opener=None):
+        if (peer not in self.peers or not valid_sha256(sha256) or type(size) is not int or
+                not 0 <= size <= MAX_BLOB_BYTES):
+            raise PeerError(400, "некорректный запрос файла у соседнего узла")
+        if self.blobs.has(sha256, size):
+            return self.blobs.path(sha256)
+        body = json.dumps({"sha256": sha256}, separators=(",", ":")).encode("utf-8")
+        nonce = os.urandom(16).hex()
+        headers = sign_request(self.peers[peer]["key"], self.node, peer, "POST", BLOB_PATH,
+                               body, timestamp=int(self.clock()), nonce=nonce)
+        request = urllib.request.Request(self.peers[peer]["url"] + BLOB_PATH, data=body,
+                                         headers=headers, method="POST")
+        opener = opener or _OPENER
+        try:
+            with opener.open(request, timeout=60) as response:
+                manifest = verify_blob_response(self.peers[peer]["key"], peer, self.node, nonce,
+                                                dict(response.headers.items()))
+                if manifest != {"sha256": sha256, "size": size}:
+                    raise PeerError(409, "соседний узел ответил другим blob")
+                try:
+                    content_length = int(response.headers.get("Content-Length") or "")
+                except ValueError:
+                    raise PeerError(409, "у ответа blob нет корректной длины")
+                if content_length != size:
+                    raise PeerError(409, "длина ответа blob не совпадает")
+                return self.blobs.receive(response, sha256, size)
+        except PeerError:
+            raise
+        except (OSError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as error:
+            raise PeerError(503, "соседний blob временно недоступен") from error
 
     def _record(self, peer, error=None):
         with self.status_lock:

@@ -1,5 +1,7 @@
 """Node runtime configuration, direct pulls and the optional real HTTP route."""
 from http.server import ThreadingHTTPServer
+import hashlib
+import io
 import os
 from pathlib import Path
 import sys
@@ -120,6 +122,9 @@ class ClusterNodeTest(unittest.TestCase):
 
     def test_real_server_route_exchanges_a_signed_page_over_local_http(self):
         self.nodes["node-b"].journal.append("event-http", "message.create", {"body": "http"})
+        blob = b"peer blob over real HTTP" * 10000
+        blob_hash = hashlib.sha256(blob).hexdigest()
+        self.nodes["node-b"].blobs.receive(io.BytesIO(blob), blob_hash, len(blob))
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         httpd.daemon_threads = True
         server.CLUSTER_NODE = self.nodes["node-b"]
@@ -132,6 +137,8 @@ class ClusterNodeTest(unittest.TestCase):
         try:
             self.assertEqual(self.nodes["node-a"].pull("node-b"), 1)
             self.assertEqual(self.nodes["node-a"].journal.operations()[0]["payload"], {"body": "http"})
+            path = self.nodes["node-a"].pull_blob("node-b", blob_hash, len(blob))
+            self.assertEqual(Path(path).read_bytes(), blob)
         finally:
             httpd.shutdown()
             httpd.server_close()

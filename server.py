@@ -2279,6 +2279,24 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
+    def send_file(self, code, path, size, ctype, extra=None):
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", "no-store")
+            for key, value in (extra or {}).items():
+                self.send_header(key, value)
+            self.end_headers()
+            with open(path, "rb") as stream:
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
 
 @route("GET", "/", auth=False)
 def page_index(h, user, q, data):
@@ -2325,6 +2343,18 @@ def api_cluster_sync(h, user, q, data):
     except PeerError as error:
         raise ApiError(error.code, str(error))
     h.send_bytes(200, response, "application/json; charset=utf-8", headers)
+
+
+@route("POST", "/api/cluster/blob", auth=False, raw=True)
+def api_cluster_blob(h, user, q, data):
+    if CLUSTER_NODE is None:
+        raise ApiError(404, "кластерный обмен на этом сервере не настроен")
+    body = h.read_bytes(4096)
+    try:
+        info, headers = CLUSTER_NODE.handle_blob(body, dict(h.headers.items()))
+    except PeerError as error:
+        raise ApiError(error.code, str(error))
+    h.send_file(200, info["path"], info["size"], "application/octet-stream", headers)
 
 
 @route('POST','/api/client')
