@@ -50,16 +50,18 @@ class ClusterStorageTest(unittest.TestCase):
         self.assertEqual(set(placement.available)-set(placement.removable),set(placement.desired))
 
     def test_never_remove_source_before_destination_is_verified(self):
-        servers=(replace(nodes()[0],draining=True),nodes()[1])
+        servers=(replace(nodes(3)[0],draining=True),nodes(3)[1],nodes(3)[2])
         item=blob(age=HOT_SECONDS+1)
-        placement=self.plan([item],servers,archive_copies=1).placements[0]
-        self.assertEqual(placement.desired,('node-b',))
+        placement=self.plan([item],servers).placements[0]
+        self.assertEqual(set(placement.desired),{'node-b','node-c'})
         self.assertEqual(placement.transfers[0].source,'node-a')
         self.assertEqual(placement.removable,())
         item=replace(item,replicas=item.replicas+(Replica('node-b',item.size,item.sha256,False),))
-        self.assertEqual(self.plan([item],servers,archive_copies=1).placements[0].removable,())
+        self.assertEqual(self.plan([item],servers).placements[0].removable,())
         item=replace(item,replicas=item.replicas[:1]+(replace(item.replicas[1],verified=True),))
-        self.assertEqual(self.plan([item],servers,archive_copies=1).placements[0].removable,('node-a',))
+        self.assertEqual(self.plan([item],servers).placements[0].removable,())
+        item=replace(item,replicas=item.replicas+(Replica('node-c',item.size,item.sha256),))
+        self.assertEqual(self.plan([item],servers).placements[0].removable,('node-a',))
 
     def test_wrong_size_or_hash_is_not_a_replica(self):
         item=blob(age=HOT_SECONDS+1)
@@ -111,11 +113,12 @@ class ClusterStorageTest(unittest.TestCase):
 
     def test_weighted_archive_placement_tracks_available_space(self):
         source=Node('source',0,NOW,draining=True)
-        servers=(source,Node('node-a',100*MIB,NOW),Node('node-b',300*MIB,NOW))
+        servers=(source,Node('node-a',100*MIB,NOW),Node('node-b',100*MIB,NOW),
+                 Node('node-c',300*MIB,NOW),Node('node-d',300*MIB,NOW))
         items=[blob('file-'+str(i),age=HOT_SECONDS+1,copies=('source',)) for i in range(800)]
-        plan=self.plan(items,servers,reserve_bytes=0,archive_copies=1)
-        fraction=sum(p.desired==('node-b',) for p in plan.placements)/len(items)
-        self.assertTrue(.69<fraction<.81,fraction)
+        plan=self.plan(items,servers,reserve_bytes=0)
+        fraction=sum(n in ('node-c','node-d') for p in plan.placements for n in p.desired)/(2*len(items))
+        self.assertTrue(.66<fraction<.75,fraction)
         self.assertTrue(all(not p.removable for p in plan.placements))
 
     def test_replication_prefers_separate_failure_domains(self):
@@ -134,18 +137,19 @@ class ClusterStorageTest(unittest.TestCase):
         self.assertEqual(repr((servers,items)),before)
 
     def test_rebalancing_does_not_oscillate_after_copy_and_remove(self):
-        servers=(Node('node-a',2*MIB,NOW),Node('node-b',4*MIB,NOW))
-        items=tuple(blob('file-'+str(i),size=1024,age=HOT_SECONDS+1) for i in range(100))
-        plan=self.plan(items,servers,reserve_bytes=0,archive_copies=1,rebalance=True)
-        desired={p.blob:p.desired[0] for p in plan.placements}
+        servers=(Node('node-a',2*MIB,NOW),Node('node-b',4*MIB,NOW),Node('node-c',6*MIB,NOW))
+        items=tuple(blob('file-'+str(i),size=1024,age=HOT_SECONDS+1,copies=('node-a','node-b')) for i in range(100))
+        plan=self.plan(items,servers,reserve_bytes=0,rebalance=True)
+        desired={p.blob:set(p.desired) for p in plan.placements}
         updated=[];free={n.id:n.free_bytes for n in servers}
         for item in items:
-            target=desired[item.id]
-            if target!='node-a':free['node-a']+=item.size;free[target]-=item.size
-            updated.append(replace(item,replicas=(Replica(target,item.size,item.sha256),)))
+            targets=desired[item.id];previous={r.node for r in item.replicas}
+            for node in previous-targets:free[node]+=item.size
+            for node in targets-previous:free[node]-=item.size
+            updated.append(replace(item,replicas=tuple(Replica(target,item.size,item.sha256) for target in sorted(targets))))
         again=self.plan(updated,tuple(replace(n,free_bytes=free[n.id]) for n in servers),
-                        reserve_bytes=0,archive_copies=1,rebalance=True)
-        self.assertEqual({p.blob:p.desired[0] for p in again.placements},desired)
+                        reserve_bytes=0,rebalance=True)
+        self.assertEqual({p.blob:set(p.desired) for p in again.placements},desired)
         self.assertTrue(all(not p.transfers and not p.removable for p in again.placements))
 
     def test_no_devices_or_insufficient_devices_never_reports_full_protection(self):
@@ -164,6 +168,7 @@ class ClusterStorageTest(unittest.TestCase):
             with self.assertRaises(ValueError):self.plan([blob()],(bad,))
         with self.assertRaises(ValueError):self.plan([blob(),blob()])
         with self.assertRaises(ValueError):self.plan([blob()],(nodes()[0],nodes()[0]))
+        with self.assertRaises(ValueError):self.plan([blob()],archive_copies=1)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

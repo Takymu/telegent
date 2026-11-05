@@ -100,7 +100,7 @@ def plan_storage(blobs, nodes, now, archive_copies=2, reserve_bytes=MIN_FREE_BYT
     """
     blobs, nodes = tuple(blobs), tuple(nodes)
     if (not _timestamp(now) or not _count(reserve_bytes) or type(archive_copies) is not int
-            or archive_copies < 1 or not _timestamp(heartbeat_ttl) or heartbeat_ttl <= 0
+            or archive_copies < 2 or not _timestamp(heartbeat_ttl) or heartbeat_ttl <= 0
             or not _timestamp(hot_seconds) or hot_seconds <= 0):
         raise ValueError('некорректная политика размещения вложений')
     by_node, by_blob = {}, {}
