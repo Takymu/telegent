@@ -16,6 +16,7 @@ from cluster_peer import MAX_BATCH_BYTES, PeerError
 
 MAX_CLOCK_SKEW = 300
 SYNC_PATH = "/api/cluster/sync"
+BLOB_PATH = "/api/cluster/blob"
 
 
 def _body_bytes(value):
@@ -95,6 +96,35 @@ def verify_response(key, source, target, path, request_nonce, body, headers):
                         hashlib.sha256).hexdigest()
     if not hmac.compare_digest(normalized.get("x-telegent-signature", ""), expected):
         raise PeerError(401, "сетевой ответ кластера не подтверждён")
+
+
+def _blob_material(source, target, request_nonce, sha256, size):
+    return "\n".join([source, target, BLOB_PATH, request_nonce, sha256, str(size)]).encode("utf-8")
+
+
+def sign_blob_response(key, source, target, request_nonce, sha256, size):
+    signature = hmac.new(_key(key), _blob_material(source, target, request_nonce, sha256, size),
+                         hashlib.sha256).hexdigest()
+    return {"X-Telegent-Node": source, "X-Telegent-Target": target,
+            "X-Telegent-Request-Nonce": request_nonce, "X-Telegent-Blob-SHA256": sha256,
+            "X-Telegent-Blob-Size": str(size), "X-Telegent-Signature": signature}
+
+
+def verify_blob_response(key, source, target, request_nonce, headers):
+    normalized = {str(name).lower(): str(value) for name, value in headers.items()}
+    try:
+        size = int(normalized.get("x-telegent-blob-size", ""))
+    except ValueError:
+        raise PeerError(401, "ответ с blob не подтверждён")
+    sha256 = normalized.get("x-telegent-blob-sha256", "")
+    if (normalized.get("x-telegent-node") != source or normalized.get("x-telegent-target") != target or
+            normalized.get("x-telegent-request-nonce") != request_nonce or size < 0):
+        raise PeerError(401, "ответ с blob не подтверждён")
+    expected = hmac.new(_key(key), _blob_material(source, target, request_nonce, sha256, size),
+                        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(normalized.get("x-telegent-signature", ""), expected):
+        raise PeerError(401, "ответ с blob не подтверждён")
+    return {"sha256": sha256, "size": size}
 
 
 def verify_request(journal, peer_keys, method, path, body, headers, now=None):

@@ -253,6 +253,7 @@ python tests/test_cluster_node.py # конфигурация узла, фоно�
 python tests/test_cluster_quorum.py # равноправный кворум: большинство, восстановление принятого значения и crash persistence
 python tests/test_cluster_app.py # глобальные JS-safe id, транзакционный outbox и exactly-once применение
 python tests/test_cluster_message.py # кодек создания сообщения, области, ответы и манифесты вложений
+python tests/test_cluster_blob.py # content-addressed файлы, потоковая проверка, обрывы и hardlink-материализация
 python tests/test_app_download_browser.py # Firefox RU/EN: скачивание APK на входе и в настройках, десктоп/телефон
 python tests/test_read_migration.py # Firefox: перенос прежних локальных отметок без чтения будущих
 python tests/test_direct_messages.py # изоляция личек, секреты, настоящий CLI и AES-GCM
