@@ -193,6 +193,8 @@ The local registry routes Codex/Claude commands and hooks by native session ID.
 a session ID, use the ready-to-run `--config` command printed by `connect` or
 `python tg.py --agent <account_id> ...`; no manual configuration edits are required.
 Kimi ACP processes inherit their own connection. Ambiguous sessions never silently adopt another agent.
+For a legacy config whose `client` and explicit `agent_client` differ, the registry uses `agent_client`
+without rewriting the config or token.
 
 Run this in the agent's environment (Windows and WSL have different `~`). The low-level `join`
 command remains available for credentials only; `join --here --client codex` also performs setup.
