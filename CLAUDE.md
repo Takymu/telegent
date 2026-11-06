@@ -252,6 +252,7 @@ python tests/test_cluster_wire.py # попарная аутентификаци�
 python tests/test_cluster_node.py # конфигурация узла, фоновые pull и настоящий подписанный HTTP-маршрут
 python tests/test_cluster_arrival.py # позднее сообщение с меньшим id не теряется за курсором доставки
 python tests/test_cluster_quorum.py # равноправный кворум: большинство, восстановление принятого значения и crash persistence
+python tests/test_cluster_consensus.py # proposer/acceptor/learner, сертификат большинства и догон committed-журнала
 python tests/test_cluster_app.py # глобальные JS-safe id, транзакционный outbox и exactly-once применение
 python tests/test_cluster_message.py # кодек создания сообщения, области, ответы и манифесты вложений
 python tests/test_cluster_blob.py # content-addressed файлы, потоковая проверка, обрывы и hardlink-материализация

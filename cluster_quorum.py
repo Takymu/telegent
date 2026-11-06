@@ -122,18 +122,22 @@ CREATE TABLE IF NOT EXISTS quorum_slots(
  slot INTEGER PRIMARY KEY, previous_hash TEXT NOT NULL,
  promised_counter INTEGER NOT NULL, promised_node TEXT NOT NULL,
  accepted_counter INTEGER, accepted_node TEXT, value_hash TEXT, value BLOB,
- committed INTEGER NOT NULL DEFAULT 0, commit_hash TEXT);
+ committed INTEGER NOT NULL DEFAULT 0, commit_hash TEXT, certificate BLOB);
 """)
+        if "certificate" not in {row[1] for row in self.db.execute("PRAGMA table_info(quorum_slots)")}:
+            self.db.execute("ALTER TABLE quorum_slots ADD COLUMN certificate BLOB")
         try:
             with self.transaction():
                 expected = {"cluster": cluster, "node": node, "members": json.dumps(members),
-                            "head": "0", "head_hash": GENESIS}
+                            "head": "0", "head_hash": GENESIS, "proposal_counter": "0"}
                 current = {row["key"]: row["value"] for row in self.db.execute("SELECT * FROM quorum_meta")}
                 if current and any(current.get(key) != value for key, value in expected.items()
                                    if key not in ("head", "head_hash")):
                     raise PeerError(409, "кворумный журнал принадлежит другой конфигурации")
                 if not current:
                     self.db.executemany("INSERT INTO quorum_meta VALUES(?,?)", expected.items())
+                else:
+                    self.db.execute("INSERT OR IGNORE INTO quorum_meta VALUES('proposal_counter','0')")
         except BaseException:
             self.db.close()
             raise
@@ -163,6 +167,16 @@ CREATE TABLE IF NOT EXISTS quorum_slots(
             head, head_hash = self._meta()
             return {"cluster": self.cluster, "node": self.node, "members": self.members,
                     "head": head, "head_hash": head_hash}
+
+    def next_ballot(self, minimum=0):
+        if type(minimum) is not int or minimum < 0:
+            raise PeerError(400, "некорректная нижняя граница ballot")
+        with self.transaction():
+            current = int(self.db.execute(
+                "SELECT value FROM quorum_meta WHERE key='proposal_counter'").fetchone()[0])
+            counter = max(current + 1, minimum)
+            self.db.execute("UPDATE quorum_meta SET value=? WHERE key='proposal_counter'", (str(counter),))
+            return counter
 
     def _slot(self, slot, previous_hash):
         if (type(slot) is not int or slot < 1 or not isinstance(previous_hash, str) or
@@ -246,6 +260,8 @@ CREATE TABLE IF NOT EXISTS quorum_slots(
             voters.add(receipt["node"])
         if len(voters) < quorum_size(len(self.members)):
             raise PeerError(425, "для операции не собрано большинство серверов")
+        certificate = sorted(receipts, key=lambda receipt: receipt["node"])
+        certificate_raw = _canonical(certificate)
         commit_hash = _commit_hash(slot, previous_hash, value_hash)
         with self.transaction():
             head, head_hash = self._meta()
@@ -258,8 +274,8 @@ CREATE TABLE IF NOT EXISTS quorum_slots(
             if row["committed"] and row["commit_hash"] != commit_hash:
                 raise PeerError(409, "кворумный журнал уже содержит другое значение")
             self.db.execute("""UPDATE quorum_slots SET accepted_counter=?,accepted_node=?,value_hash=?,value=?,
-                committed=1,commit_hash=? WHERE slot=?""",
-                (ballot[0], ballot[1], value_hash, raw, commit_hash, slot))
+                committed=1,commit_hash=?,certificate=? WHERE slot=?""",
+                (ballot[0], ballot[1], value_hash, raw, commit_hash, certificate_raw, slot))
             self.db.execute("UPDATE quorum_meta SET value=? WHERE key='head'", (str(slot),))
             self.db.execute("UPDATE quorum_meta SET value=? WHERE key='head_hash'", (commit_hash,))
         return {"slot": slot, "hash": commit_hash, "duplicate": False}
@@ -270,9 +286,23 @@ CREATE TABLE IF NOT EXISTS quorum_slots(
         with self.transaction():
             return [{"slot": row["slot"], "previous_hash": row["previous_hash"],
                      "hash": row["commit_hash"], "value_hash": row["value_hash"],
-                     "value": json.loads(bytes(row["value"]).decode("utf-8"))}
+                     "value": json.loads(bytes(row["value"]).decode("utf-8")),
+                     "receipts": json.loads(bytes(row["certificate"]).decode("utf-8"))}
                     for row in self.db.execute("SELECT * FROM quorum_slots WHERE committed=1 AND slot>? "
                                                "ORDER BY slot LIMIT ?", (after, limit))]
+
+    def learn(self, entry):
+        if not isinstance(entry, dict) or set(entry) != {
+                "slot", "previous_hash", "hash", "value_hash", "value", "receipts"}:
+            raise PeerError(400, "некорректная committed-запись")
+        raw = _canonical(entry["value"])
+        if (_hash(raw) != entry["value_hash"] or
+                _commit_hash(entry["slot"], entry["previous_hash"], entry["value_hash"]) != entry["hash"]):
+            raise PeerError(409, "committed-запись повреждена")
+        result = self.commit(entry["slot"], entry["previous_hash"], entry["value"], entry["receipts"])
+        if result["hash"] != entry["hash"]:
+            raise PeerError(409, "цепочка committed-записей расходится")
+        return result
 
 
 def choose_value(responses, members, proposed):
