@@ -144,6 +144,10 @@ class ClusterNodeTest(unittest.TestCase):
             self.assertEqual(self.nodes["node-a"].journal.operations()[0]["payload"], {"body": "http"})
             path = self.nodes["node-a"].pull_blob("node-b", blob_hash, len(blob))
             self.assertEqual(Path(path).read_bytes(), blob)
+            decision = {"kind": "project.permission", "account": "account-a", "role": "member"}
+            result = self.nodes["node-a"].consensus().propose(decision, peers=("node-a", "node-b"))
+            self.assertEqual(result["value"], decision)
+            self.assertEqual(self.nodes["node-b"].quorum.entries()[0]["value"], decision)
         finally:
             httpd.shutdown()
             httpd.server_close()

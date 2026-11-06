@@ -13,8 +13,10 @@ import urllib.parse
 import urllib.request
 
 from cluster_blob import BlobStore, MAX_BLOB_BYTES, valid_sha256
+from cluster_consensus import Consensus
 from cluster_peer import MAX_BATCH_BYTES, PeerError, PeerJournal
-from cluster_wire import (BLOB_PATH, SYNC_PATH, apply_sync_response, build_sync_response,
+from cluster_quorum import QuorumLog
+from cluster_wire import (BLOB_PATH, QUORUM_PREFIX, SYNC_PATH, apply_sync_response, build_sync_response,
                           decode_sync_request, encode_sync_request, sign_request,
                           sign_blob_response, sign_response, verify_blob_response,
                           verify_request, verify_response)
@@ -59,7 +61,7 @@ class ClusterNode:
     def __init__(self, settings, config_dir, clock=time.time):
         if not isinstance(settings, dict):
             raise PeerError(400, "cluster должен быть объектом")
-        allowed = {"id", "node", "slot", "journal", "blobs", "peers", "poll_seconds", "allow_http_localhost"}
+        allowed = {"id", "node", "slot", "journal", "quorum", "blobs", "peers", "poll_seconds", "allow_http_localhost"}
         if set(settings) - allowed:
             raise PeerError(400, "неизвестное поле конфигурации кластера")
         cluster = settings.get("id")
@@ -95,6 +97,8 @@ class ClusterNode:
         members = tuple(sorted((node,) + tuple(self.peers)))
         journal_path = _relative(config_dir, settings.get("journal"))
         self.journal = PeerJournal(journal_path, cluster, node, members)
+        self.quorum = QuorumLog(_relative(config_dir, settings.get("quorum") or (journal_path + ".quorum")),
+                                cluster, node, members)
         self.blobs = BlobStore(_relative(config_dir, settings.get("blobs") or (journal_path + ".blobs")))
         poll = settings.get("poll_seconds", 10)
         if type(poll) not in (int, float) or not 1 <= poll <= 3600:
@@ -109,6 +113,7 @@ class ClusterNode:
 
     def close(self):
         self.stop()
+        self.quorum.close()
         self.journal.close()
 
     def start(self):
@@ -149,23 +154,60 @@ class ClusterNode:
                                               normalized["x-telegent-nonce"], info["sha256"], info["size"])
         return info, response_headers
 
-    def _http_exchange(self, peer, body, headers):
-        request = urllib.request.Request(self.peers[peer]["url"] + SYNC_PATH, data=body,
-                                         headers=headers, method="POST")
+    def _quorum_action(self, action, payload):
+        if action == "prepare": return self.quorum.prepare(**payload)
+        if action == "accept": return self.quorum.accept(**payload)
+        if action == "commit":
+            return self.quorum.commit(payload["slot"], payload["previous_hash"],
+                                      payload["value"], payload["receipts"])
+        if action == "entries": return {"entries": self.quorum.entries(payload["after"], payload.get("limit", 100))}
+        raise PeerError(400, "неизвестная операция кворума")
+
+    def handle_quorum(self, action, body, headers):
+        path = QUORUM_PREFIX + action
+        source = verify_request(self.journal, {peer: value["key"] for peer, value in self.peers.items()},
+                                "POST", path, body, headers, now=self.clock())
+        try: payload = json.loads(body.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError): raise PeerError(400, "запрос кворума повреждён")
+        if not isinstance(payload, dict): raise PeerError(400, "запрос кворума должен быть объектом")
+        response = json.dumps(self._quorum_action(action, payload), ensure_ascii=False,
+                              sort_keys=True, separators=(",", ":")).encode("utf-8")
+        nonce = {str(name).lower(): str(value) for name, value in headers.items()}["x-telegent-nonce"]
+        return response, sign_response(self.peers[source]["key"], self.node, source, path, nonce, response)
+
+    def quorum_exchange(self, peer, action, payload):
+        if peer not in self.peers or action not in ("prepare", "accept", "commit", "entries"):
+            raise PeerError(400, "некорректный quorum peer")
+        path = QUORUM_PREFIX + action
+        body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        nonce = os.urandom(16).hex()
+        headers = sign_request(self.peers[peer]["key"], self.node, peer, "POST", path, body,
+                               timestamp=int(self.clock()), nonce=nonce)
+        response, response_headers = self._http_exchange_path(peer, path, body, headers)
+        verify_response(self.peers[peer]["key"], peer, self.node, path, nonce, response, response_headers)
+        try: value = json.loads(response.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError): raise PeerError(409, "ответ кворума повреждён")
+        if not isinstance(value, dict): raise PeerError(409, "ответ кворума должен быть объектом")
+        return value
+
+    def consensus(self):
+        return Consensus(self.quorum, self.quorum_exchange)
+
+    def _http_exchange_path(self, peer, path, body, headers):
+        request = urllib.request.Request(self.peers[peer]["url"] + path, data=body, headers=headers, method="POST")
         try:
             with _OPENER.open(request, timeout=20) as response:
-                if response.status != 200:
-                    raise PeerError(503, "соседний узел отказал в синхронизации")
                 if int(response.headers.get("Content-Length") or 0) > MAX_BATCH_BYTES:
                     raise PeerError(413, "ответ соседнего узла слишком большой")
                 result = response.read(MAX_BATCH_BYTES + 1)
-                if len(result) > MAX_BATCH_BYTES:
-                    raise PeerError(413, "ответ соседнего узла слишком большой")
+                if len(result) > MAX_BATCH_BYTES: raise PeerError(413, "ответ соседнего узла слишком большой")
                 return result, dict(response.headers.items())
-        except PeerError:
-            raise
+        except PeerError: raise
         except (OSError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as error:
             raise PeerError(503, "соседний узел временно недоступен") from error
+
+    def _http_exchange(self, peer, body, headers):
+        return self._http_exchange_path(peer, SYNC_PATH, body, headers)
 
     def pull(self, peer, exchange=None, max_pages=100):
         if peer not in self.peers or type(max_pages) is not int or not 1 <= max_pages <= 1000:

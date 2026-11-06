@@ -17,6 +17,7 @@ from cluster_peer import MAX_BATCH_BYTES, PeerError
 MAX_CLOCK_SKEW = 300
 SYNC_PATH = "/api/cluster/sync"
 BLOB_PATH = "/api/cluster/blob"
+QUORUM_PREFIX = "/api/cluster/quorum/"
 
 
 def _body_bytes(value):

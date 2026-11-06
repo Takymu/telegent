@@ -2429,6 +2429,18 @@ def api_cluster_blob(h, user, q, data):
     h.send_file(200, info["path"], info["size"], "application/octet-stream", headers)
 
 
+@route("POST", r"/api/cluster/quorum/(prepare|accept|commit|entries)", auth=False, raw=True)
+def api_cluster_quorum(h, user, q, data, action):
+    if CLUSTER_NODE is None:
+        raise ApiError(404, "кластерный обмен на этом сервере не настроен")
+    body = h.read_bytes(MAX_CLUSTER_REQUEST)
+    try:
+        response, headers = CLUSTER_NODE.handle_quorum(action, body, dict(h.headers.items()))
+    except PeerError as error:
+        raise ApiError(error.code, str(error))
+    h.send_bytes(200, response, "application/json; charset=utf-8", headers)
+
+
 @route('POST','/api/client')
 def api_client_select(h,user,q,data):
     if user['kind']!='agent':raise ApiError(403,'тип клиента сообщает только агент')
