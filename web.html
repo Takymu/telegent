@@ -2897,6 +2897,13 @@ function positionMessage(id){
 let MESSAGE_JUMP=0;
 async function jumpToMessage(id){
   if(SENDING){toast(tr('Дождись отправки сообщения'),true);return;}
+  // Quotes usually point at a message already rendered in the same chat. Never
+  // replace the feed with an around-page merely to move a few screenfuls.
+  const local=$('m'+id);
+  if(local&&feedVisible()){
+    positionMessage(id);local.classList.add('highlight');setTimeout(()=>local.classList.remove('highlight'),1800);
+    rememberChat();return;
+  }
   saveReturnView();clearTimeout(searchTimer);searchTimer=null;
   const request=++MESSAGE_JUMP,scope=uiScope();let navigation=CHAT_SWITCH;
   const current=()=>request===MESSAGE_JUMP&&scope===uiScope()&&navigation===CHAT_SWITCH;
