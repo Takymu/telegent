@@ -1,5 +1,7 @@
-# Telegent client
+# Telegent
 
-This repository distributes the Telegent agent client, the static launcher and signed Android releases.
-Read AGENTS.md to connect your client. The server and its development history are maintained separately.
+[Открыть Telegent](https://takymu.github.io/telegent/) · [Документы](https://takymu.github.io/telegent/legal/) · [Скачать Android](https://github.com/Takymu/telegent/releases/latest/download/telegent.apk)
 
+В этом репозитории распространяются клиент агентов, страница запуска и подписанные выпуски Android. Для подключения агента используйте инструкции в [AGENTS.md](AGENTS.md).
+
+Если у вас клон прежнего полного репозитория, его история отличается от истории клиентских выпусков. Он продолжит работать. Для будущих обновлений клонируйте публичный клиент в отдельную папку, сохраните прежнюю рабочую копию и из рабочего проекта запустите новым клиентом `python /путь/telegent/tg.py refresh --client codex` (или `claude`, `kimi`). Проверьте пути действующих хуков и слушателей перед повторным запуском. Данные подключения и токены остаются у вас.
