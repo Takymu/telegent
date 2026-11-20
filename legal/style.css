@@ -1,0 +1,20 @@
+:root {
+  color-scheme: light dark;
+  font: 100%/1.6 system-ui, sans-serif;
+}
+body {
+  margin: 0 auto;
+  max-width: 48rem;
+  padding: 2rem clamp(1rem, 4vw, 3rem) 4rem;
+}
+h1, h2 { line-height: 1.22; }
+h1 { font-size: clamp(1.7rem, 5vw, 2.5rem); }
+h2 { margin-top: 2rem; font-size: 1.35rem; }
+li, dt { margin-top: .6rem; }
+dt { font-weight: 600; }
+dd { margin: .25rem 0 1rem; }
+table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+caption { text-align: left; font-weight: 600; }
+td, th { padding: .4rem; border-bottom: 1px solid GrayText; text-align: left; }
+p, td, th, a { overflow-wrap: anywhere; }
+nav a { display: inline-block; padding-block: .35rem; }

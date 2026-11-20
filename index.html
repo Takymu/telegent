@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>telegent</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f5bd3'/%3E%3Ccircle cx='16' cy='5.6' r='1.9' fill='%23fff'/%3E%3Crect x='15.1' y='6' width='1.8' height='4' fill='%23fff'/%3E%3Cpath d='M10 9.5h12a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4h-6.8l-4.7 3.9v-3.9H10a4 4 0 0 1-4-4v-6a4 4 0 0 1 4-4z' fill='%23fff'/%3E%3Ccircle cx='12.4' cy='16.5' r='2.1' fill='%232f5bd3'/%3E%3Ccircle cx='19.6' cy='16.5' r='2.1' fill='%232f5bd3'/%3E%3C/svg%3E">
+<style>
+:root { --bg: #f6f6f3; --ink: #1c1d1f; --muted: #6b6f76; }
+@media (prefers-color-scheme: dark) { :root { --bg: #141517; --ink: #e7e7e4; --muted: #9a9ea6; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 460px; margin: 18vh auto; padding: 0 16px; }
+h1 { font-size: 18px; margin: 0 0 6px; }
+p { color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>telegent</h1>
+  <p id="s">Ищу текущий адрес сервера…</p>
+  <p><a href="legal/">Документы Telegent</a></p>
+</main>
+<script>
+// Permanent entry point. The phone publishes the tunnel's current address to url.txt whenever it changes;
+// this page sends you there. A link with #token=... logs you in and is remembered in this browser.
+(async () => {
+  const s = document.getElementById("s");
+  const project = location.pathname.split("/")[1];
+  const repo = "Takymu/" + encodeURIComponent(project);
+  // Project sites share localStorage. Only the permanent launcher uses the original login key.
+  const tokenKey = project === "telegent" ? "tg_launch_token" : "tg_launch_token_" + project;
+  // #logout: forget the remembered login, then go to the server's login page
+  const out = location.hash === "#logout";
+  const m = location.hash.match(/token=(tg[ts]_[0-9a-f]+)/);
+  const inv = location.hash.match(/invite=(tgi_[0-9a-f]+)/);   // invite links pass through to the server
+  let tok = m ? m[1] : null;
+  try {
+    if (out) localStorage.removeItem(tokenKey);
+    else if (m) localStorage.setItem(tokenKey, tok);
+    else tok = localStorage.getItem(tokenKey);
+  } catch (e) {}
+  if (m || out || inv) history.replaceState(null, "", location.pathname);
+  try {
+    // the GitHub API sees the phone's push within a minute; raw.githubusercontent.com may lag up to
+    // 5 minutes but has no hourly limit, so it is the fallback
+    const sources = [
+      ["https://api.github.com/repos/" + repo + "/contents/url.txt?ref=gh-pages", {headers: {"Accept": "application/vnd.github.raw"}}],
+      ["https://raw.githubusercontent.com/" + repo + "/gh-pages/url.txt?t=" + Date.now(), {cache: "no-store"}],
+    ];
+    let url = null, why = "";
+    for (const [src, opts] of sources) {
+      try {
+        const r = await fetch(src, opts);
+        if (!r.ok) { why = "HTTP " + r.status; continue; }
+        const u = (await r.text()).trim();
+        if (/^https:\/\/[a-z0-9.-]+$/i.test(u)) { url = u; break; }
+        why = "в url.txt не адрес";
+      } catch (e) { why = e.message; }
+    }
+    if (!url) throw new Error(why);
+    s.textContent = "Перехожу на " + url + " …";
+    location.replace(url + "/" + (inv ? "#invite=" + inv[1] : tok ? "#token=" + tok : ""));
+  } catch (e) {
+    s.textContent = "Не удалось узнать адрес сервера (" + e.message + "). Обнови страницу через минуту.";
+  }
+})();
+</script>
+</body>
+</html>
